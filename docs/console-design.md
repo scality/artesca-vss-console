@@ -473,21 +473,58 @@ Models catalogued for the June showroom:
 Cards rendered from a static JSON file versioned in the repo at
 `web/app/data/model-catalog.json` so updates don't require a rebuild.
 
+## Implementation decisions (round 3 — final)
+
+All remaining implementation questions resolved.
+
+| # | Decision | Impact |
+| --- | --- | --- |
+| G | **GPU metrics: DCGM exporter → Prometheus → Grafana.** Not `kubectl exec nvidia-smi`. | Adds a foundational observability layer (new `k8s/observability/` namespace). Console reads GPU metrics from Prometheus, gets history graphs for free. Same stack benefits future Kafka / pod-level metrics. +1 dev-day (new phase 10). |
+| H | **Camera-sim SSH key rotation: 90-day nag banner.** `/settings` flashes red when the key is > 90 days old. | UI-only: timestamp stored alongside the key in `console-data` SQLite; banner component on `/settings` and `/secrets`. |
+| I | **AWS creds rotation: 90-day nag banner.** Same pattern as (H). | Same UI-only change. |
+| J | **Preview NIM model: NVILA-Lite-2B.** Not Cosmos 1 7B — 14 GB weights + 16 GB primary = 30 GB won't fit even on L40S if we also want real KV cache. NVILA-Lite 2B weights ≈ 4 GB, proven on L4 per Rahul Padigela's Dec 2025 POC. | Smaller + faster preview (~1 min warmup vs. 20+ for Cosmos 1). Preview output differs from live inference — that's a feature: if a prompt works on 2B, it's likely OK on 8B. First-line prompt iteration is cheap. |
+| K | **Instance upgrade: `g6.12xlarge` → `g6e.12xlarge` (4× L40S 48 GB).** Removes the "L4 not in blueprint profile" risk flagged in every `k8s/rtvi/README.md` and gives every component memory headroom. | **+$4.60/h** ($110/day; $3,300/mo always-on). Drop-in upgrade: edit `INSTANCE_TYPE` default in `scripts/launch-stack.sh` + swap NIM `.env` to the blueprint's L40S profile (replaces our hand-tuned L4 guesses). |
+
+### Instance-type upgrade — specifics
+
+```diff
+- INSTANCE_TYPE=g6.12xlarge    # 4× L4 24 GB, ~$5.89/h
++ INSTANCE_TYPE=g6e.12xlarge   # 4× L40S 48 GB, ~$10.49/h
+```
+
+Everything downstream stays the same — same VPC, same SG, same AMI
+(ARTESCA runs on any Linux; the GPU driver is installed after launch
+by `bootstrap-gpu.sh`), same MetalK8s topology, same S3 bucket, same
+SSO profile.
+
+NIM env changes to use the shipped L40S profile (no more hand-tuned
+L4 guesswork):
+
+```diff
+-NIM_KVCACHE_PERCENT=0.50      # L4 hand-tune, unvalidated
+-NIM_MAX_MODEL_LEN=8192        # dialled down for 24 GB
+-NIM_MAX_NUM_SEQS=2
++# Use blueprint-shipped L40S profile: hw-L40S.env (NIM_KVCACHE_PERCENT=0.8,
++# NIM_MAX_MODEL_LEN=32768, NIM_MAX_NUM_SEQS=4)
++NIM_ENV_FILE=${MDX_SAMPLE_APPS_DIR}/nim/cosmos-reason2-8b/hw-L40S.env
+```
+
+### Updated GPU budget (L40S 48 GB)
+
+| GPU | Workload | Memory used | Headroom |
+| --- | --- | --- | --- |
+| 0 | Primary Cosmos 2 8B NIM (L40S profile) + Preview NVILA-Lite 2B | ~22 GB | ~26 GB free |
+| 1 | rtvi-vlm | ~8 GB | ~40 GB free |
+| 2 | rtvi-embed | ~6 GB | ~42 GB free |
+| 3 | VST sensor-ms + streamprocessing-ms | ~4 GB | ~44 GB free |
+
+Huge headroom — room for future model upgrades (Cosmos 3? Qwen3 12B?)
+without another instance-type change.
+
 ## Open questions
 
-The remaining implementation-level items are narrow enough to decide in
-code review:
-
-1. **`nvidia-smi` via `kubectl exec` vs. DCGM exporter?** Start with exec;
-   swap to DCGM if Prometheus lands.
-2. **Camera-sim SSH key rotation cadence.** `/secrets` has the UI; operator
-   cadence is up to them.
-3. **AWS creds rotation.** Ditto — `/secrets` has a rotate flow; frequency
-   is an operator choice.
-4. **Preview NIM shared-GPU memory headroom.** First live test will confirm
-   whether Cosmos 2 8B + Cosmos 1 7B + rtvi-vlm all coexist on a 24 GB L4
-   with some KV percent juggling. Fallback: preview NIM uses NVILA-Lite 2B
-   (tiny footprint).
+None remaining. All three rounds of decisions are documented above.
+First live run is the only remaining validation surface.
 
 ## Estimated effort
 
