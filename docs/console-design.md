@@ -498,36 +498,24 @@ code review:
 | 2 | 1 day | Cameras read-only (with N-feeds model) |
 | 3 | 1 day | Scenarios + VLM prompt read/write (with per-scenario cooldown) |
 | 4 | 1 day | Cameras dual-write (SCP + ConfigMap + re-register) with N-feeds |
-| 5 | 1.5 day | Tuning page (rtvi-vlm knobs + alert worker env) + NIM model swap + **preview NIM deploy** (shared-GPU, model cards) |
+| 5 | 1.5 day | Tuning page (rtvi-vlm knobs + alert worker env) + NIM model swap + **preview NIM deploy** (NVILA-Lite-2B sharing GPU 0 with primary; model cards on /prompt) |
 | 6 | 2.5 days | SSE streams (logs, Kafka, incidents) + **best-effort HLS playback** (pre-cache, hover preload, auto-seek, keyboard shortcuts) |
 | 7 | 0.5 day | Topology (React Flow) |
 | 8 | 0.5 day | Demo-data controls + Diagnostics |
-| 9 | 1.5 day | Profiles (SQLite-backed save/load) + Secrets rotation (incl. AWS creds) + Settings (**SG whitelist CRUD**) |
-| Total | **~11.5 dev-days** | — |
+| 9 | 1.5 day | Profiles (SQLite-backed save/load) + Secrets rotation (incl. AWS creds + **90-day nag banners**) + Settings (**SG whitelist CRUD**) |
+| 10 | 1 day | **Observability sidecar** — DCGM exporter DaemonSet + Prometheus + Grafana in a new `k8s/observability/` namespace. Console reads GPU metrics from Prometheus. |
+| Total | **~12.5 dev-days** | — |
 
 Kiosk mode is tested with every phase (every kiosk-flagged page must
 render correctly with config tabs hidden). Playwright E2E covers both
 normal and kiosk flows.
 
-### GPU budget after the preview NIM decision
+### GPU budget (post-upgrade to L40S 48 GB)
 
-| GPU | Workload | Notes |
-| --- | --- | --- |
-| 0 | Primary Cosmos 2 8B NIM + preview Cosmos 1 7B shared | Shared-GPU profile; primary gets ~60% memory, preview ~40% |
-| 1 | rtvi-vlm | Hardware decode for live RTSP |
-| 2 | rtvi-embed | Cosmos-Embed1-448p |
-| 3 | VST sensor-ms + streamprocessing-ms | Shared passthrough |
-
-Memory on GPU 0 is the tightest constraint — first live test will tell us
-whether both NIMs fit. Fallback paths if they don't:
-
-1. Preview NIM drops to NVILA-Lite 2B (fits easily; slightly different
-   output style but fine for prompt iteration).
-2. Preview NIM runs only on-demand — spun up when the operator clicks
-   "Preview" on `/prompt`, torn down after 10 min of inactivity. Cost:
-   ~90 s warmup per preview session.
-3. Preview disabled entirely; prompt iteration falls back to "save + wait
-   for next live-stream message" feedback.
+Superseded by the L40S upgrade — see "Updated GPU budget (L40S 48 GB)"
+in the round-3 decisions block near the top of this doc. Short version:
+every component has huge memory headroom; preview NIM runs NVILA-Lite 2B
+alongside primary Cosmos 2 8B on GPU 0 without contention.
 
 ## Cross-refs
 
