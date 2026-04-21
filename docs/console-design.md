@@ -26,6 +26,16 @@ able to run the demo from one browser tab, not four tabs plus a terminal.
 
 ## Non-goals
 
+- **Pre-install / AWS provisioning flow** — handled by [`web/`](../web/)
+  (port `:5002`), a separate minimal Next.js dashboard that owns the
+  pre-flight → EC2 → cloud-init probe → ARTESCA install → GPU Operator
+  → VSS phase-ready pod counts view. The Demo Console is strictly
+  post-install: it assumes the cluster is running and both servers
+  reachable.
+- **Stopping / starting EC2 instances** — the Scality menubar already
+  does this (Start / Stop state-gated actions calling
+  `scripts/auto-shutdown.sh` and `scripts/after-start.sh`). Duplicating
+  in the console gains nothing.
 - Multi-tenant / RBAC per user. One shared operator credential is enough for
   the demo.
 - Mobile-first. The showroom has a laptop + projector; responsive to iPad
@@ -34,6 +44,19 @@ able to run the demo from one browser tab, not four tabs plus a terminal.
   separate track; the console tails live logs but does not retain them.
 - Replacing the existing UIs. The VSS agent chat UI (:3000) and alert
   dashboard (:9100) remain — the console embeds / links to them.
+
+## Decisions (resolved open questions)
+
+| # | Decision | Impact |
+| --- | --- | --- |
+| 1 | **Access**: Scality engineers (Stéphane, Andres, Rahul, …) from their laptops via SG-whitelisted NodePort. Cluster-internal HTTP. No public TLS in scope. | No cert-manager / ingress rewrite. SG allows `:8800` from a curated IP list (Scality office + VPN + per-engineer home IPs). |
+| 2 | **Kiosk mode**: Required for the Pyramid showroom. `?mode=kiosk` query-param (persisted in cookie) hides `/cameras`, `/scenarios`, `/prompt`, `/logs`, `/diagnostics`, `/settings`. Only `/`, `/topology`, `/incidents` remain visible. | Kiosk is a Phase 0 feature, not deferred. Login page also has a "Kiosk mode" checkbox. |
+| 3 | **Auth**: Single shared password in K8s Secret (`console-auth`). `next-auth@5` credentials provider. | No user model, no reset flow, no email. Rotation via `/settings` regenerates the Secret via K8s API. |
+| 4 | **AWS launch/teardown**: Out of scope (owned by `web/:5002` and the menubar). | Removes one whole page set (provisioning, instance lifecycle) and simplifies RBAC to in-cluster only. |
+| 5 | **EC2 stop/start**: Out of scope (menubar owns it). | — |
+| 6 | **Incident drill-in playback**: Click an incident → play the source VST-recorded clip in-browser via HLS. Server-side fetches the clip from ARTESCA S3 (`vss-video` bucket) OR proxies VST's clip endpoint; if only MP4/TS is available, ffmpeg sidecar transcodes to HLS on demand. Browser uses `hls.js` for cross-browser playback. | Adds `/api/clips/:sensor/:ts` SSE + HLS endpoint; adds ~2 dev-days to Phase 6. |
+| 7 | **Camera model**: One camera has **N feeds** (default 2, matching the Pyramid 2-lens camera rail; 4+ allowed). Each feed is a separate RTSP source registered into VST as its own sensor. Naming: sensor_id = `<camera-id>-<feed-id>` e.g. `checkout-1-a`, `checkout-1-b`. | Revised TypeScript data model (below). The alert worker's `sensor_filter` glob still works (`checkout-*` matches both `checkout-1-a` and `checkout-1-b`). |
+| 8 | **Editing scope**: All eight surfaces editable. Cameras (add/edit/remove, with N feeds each), scenario rules (keywords, sensor_filter, severity, cooldown-per-scenario), VLM system prompt, alert-worker env (cooldown, Slack webhook), rtvi-vlm tuning (max_num_seqs, KV cache %, max_model_len), manual rollout-restarts, demo-data controls (on/off, tick rate, match probability), NIM model swap (cosmos-reason2 ↔ cosmos-reason1 ↔ future NVILA-Lite). Plus: **named demo profiles** (save/load the whole scenario+prompt+camera config), **mediamtx path management**, **secret rotation UI** (NGC key, NVIDIA API key, HuggingFace token, Slack webhook). | Biggest scope expansion. Adds one Profiles page + one Secrets page + inline model-swap control on Prompt page. |
 
 ## Architecture
 
@@ -131,18 +154,25 @@ not to Vercel).
 App Router routes under `src/app/`. Each is a Server Component by default;
 client components marked `"use client"`.
 
-| Route | Purpose |
-| --- | --- |
-| `/` | **Overview** — big cards: pod counts per namespace (traffic light per pod), NIM warmup state + token/sec, Kafka lag per topic, GPU util per card, S3 object count + growth rate, camera-sim instance state |
-| `/topology` | Interactive **React Flow** diagram — nodes = services, edges = connections (RTSP, gRPC, Kafka, HTTP). Live-colored by health. Click a node for its detail panel. |
-| `/cameras` | Table of active cameras (from VST API + camera-sim paths). Row actions: edit / remove / restart. "Add camera" dialog uploads `.ts` file → SCP to camera-sim → patch ConfigMap + restart replay + re-run register Job. |
-| `/scenarios` | Table of scenario rules (from `k8s/alerts/12-configmap-scenarios.yaml`). Inline edit per row: keywords (chips), sensor_filter (glob input with live match preview), severity, channels, enabled. Save issues `kubectl patch configmap` + rollout-restart of the alert-worker. |
-| `/prompt` | **VLM prompt editor** (Monaco). Current prompt in one pane; diff vs proposed in the other. "Preview" button sends a test message to the NIM and shows the response. "Save + restart" writes the ConfigMap + rollout-restart of rtvi-vlm. |
-| `/incidents` | Live feed (replaces the standalone alert dashboard for console users). Filter by scenario / sensor / severity / time-window. Click an incident → drill into the source Kafka payload + source VST clip + thumbnail. |
-| `/logs` | Log streamer — pick a pod + container → live tail via SSE. Filter regex, pause/resume, download last N lines. Camera-sim `journalctl -fu camera-sim` available via an SSH tail. |
-| `/diagnostics` | On-demand runs of `scripts/validate-manifests.sh`, smoke tests per phase, `kubectl get events -A`, `nvidia-smi`, `kubectl top`. Results rendered inline. |
-| `/settings` | Console-level config: auth password rotation, feature flags (hide /diagnostics for demo mode), SSH key rotation for camera-sim. |
-| `/about` | Build info (git SHA, Next.js / Node versions), links to all docs, list of underlying service URLs. |
+Routes marked **[kiosk]** stay visible when `?mode=kiosk` is active; all
+others are hidden in kiosk mode.
+
+| Route | Kiosk | Purpose |
+| --- | --- | --- |
+| `/` | [kiosk] | **Overview** — big cards: pod counts per namespace (traffic light per pod), NIM warmup state + token/sec, Kafka lag per topic, GPU util per card, S3 object count + growth rate, camera-sim instance state |
+| `/topology` | [kiosk] | Interactive **React Flow** diagram — nodes = services, edges = connections (RTSP, gRPC, Kafka, HTTP). Live-colored by health. Click a node for its detail panel. |
+| `/incidents` | [kiosk] | Live feed (replaces the standalone alert dashboard for console users). Filter by scenario / sensor / severity / time-window. Click an incident → **play the source clip** (HLS via `hls.js`, server-side ffmpeg proxy from ARTESCA S3) + raw Kafka payload + thumbnail. |
+| `/cameras` | — | Table of cameras, each with N feeds (default 2 per Pyramid rail). Per-camera actions: edit / remove / restart. Per-feed actions: swap `.ts` file / disable / re-register. "Add camera" dialog uploads one or more `.ts` files → SCP to camera-sim → patch ConfigMap + restart replay + re-run register Job. |
+| `/scenarios` | — | Table of scenario rules (from `k8s/alerts/12-configmap-scenarios.yaml`). Inline edit per row: keywords (chips), sensor_filter (glob input with live match preview against current camera feeds), severity, channels, **per-scenario cooldown override**, enabled. Save issues `kubectl patch configmap` + rollout-restart of the alert-worker. |
+| `/prompt` | — | **VLM prompt editor** (Monaco). Current prompt in one pane; diff vs proposed in the other. "Preview" button sends a test message to the NIM and shows the response. Inline **NIM model swap** selector (cosmos-reason2 ↔ cosmos-reason1) rewrites the rtvi-vlm + NIM ConfigMaps and rollout-restarts both Deployments. "Save + restart" writes the ConfigMap + rollout-restart of rtvi-vlm. |
+| `/tuning` | — | Knobs for rtvi-vlm (`max_num_seqs`, `kv_cache_percent`, `max_model_len`) and alert worker (global `cooldown_seconds`, Slack webhook). Form edits → ConfigMap patches → rollout-restart the affected Deployment. |
+| `/demo-data` | — | Toggle the synthetic demo-data producer (scale 0 ↔ 1). Tick rate + match probability sliders → `kubectl set env`. Quick "rehearsal mode" button that scales to 1 with high match probability for a 60 s burst. |
+| `/profiles` | — | **Save / load named demo profiles** — a profile bundles scenarios + VLM prompt + cameras + rtvi tuning + alert tuning + NIM model into one object stored in a `console-profiles` ConfigMap. Use cases: "pyramid-jun-8" config snapshotted after rehearsal; "aarco-oct" variant; roll back to a known-good before a new demo. Load applies every component atomically. |
+| `/secrets` | — | **Secret rotation UI** — NGC key, NVIDIA API key, HuggingFace token, Slack webhook, console auth password. Paste a new value, confirm, and the console patches the target K8s Secret + rolls the consuming Deployment. |
+| `/logs` | — | Log streamer — pick a pod + container → live tail via SSE. Filter regex, pause/resume, download last N lines. Camera-sim `journalctl -fu camera-sim` available via an SSH tail. |
+| `/diagnostics` | — | On-demand runs of `scripts/validate-manifests.sh`, smoke tests per phase, `kubectl get events -A`, `nvidia-smi`, `kubectl top`. Results rendered inline. |
+| `/settings` | — | Console-level config: kiosk-mode toggle persistence, feature flags, SSH key rotation for camera-sim, inspect current ServiceAccount permissions. |
+| `/about` | — | Build info (git SHA, Next.js / Node versions), links to all docs, list of underlying service URLs, cross-link to the pre-install [`web/`](../web/) dashboard at `:5002`. |
 
 ## API surface
 
@@ -202,15 +232,34 @@ export interface PodSummary {
 }
 
 export interface Camera {
-  id: string;              // sensor_id, e.g., "checkout-1"
+  id: string;              // "checkout-1"
   role: "checkout" | "aisle" | "dock" | "backroom" | "other";
+  description?: string;
+  feeds: Feed[];           // default 2 per Pyramid 2-lens rail; 1..N allowed
+}
+
+export interface Feed {
+  id: string;              // "a" | "b" | "lens1" | "lens2" | ...
+  sensorId: string;        // VST sensor_id, `${camera.id}-${feed.id}` by convention
   source: string;          // filename in /opt/camera-sim/data/
-  descriptor?: string;
-  rtspUrl: string;         // rtsp://<EIP>:8554/<id>
+  rtspUrl: string;         // rtsp://<EIP>:8554/<sensorId>
   vstRegistered: boolean;
   replayReady: boolean;    // mediamtx reports path ready
   bitrateMbps?: number;
   fps?: number;
+  codec?: "hevc" | "h264";
+}
+
+export interface DemoProfile {
+  name: string;                      // "pyramid-jun-8" | "aarco-rehearsal" | ...
+  savedAt: string;                   // ISO 8601
+  savedBy: string;                   // operator login (for shared-password mode: "console-operator")
+  scenarios: Scenario[];
+  vlmPrompt: string;
+  cameras: Camera[];
+  rtviTuning: Partial<{ maxNumSeqs: number; kvCachePct: number; maxModelLen: number }>;
+  alertTuning: Partial<{ cooldownSeconds: number; slackWebhookConfigured: boolean }>;
+  nimModel: "cosmos-reason2-8b" | "cosmos-reason1-7b" | string;
 }
 
 export interface Scenario {
@@ -365,37 +414,46 @@ added surface.
 
 ## Open questions
 
-1. **Where does the console serve TLS?** Options: cluster-internal only
-   (HTTP over SG-whitelisted NodePort, fine for demo); ARTESCA's existing
-   ingress with cert; standalone EIP on the ARTESCA node. Answer gates
-   whether we need a cert-manager for `console.internal`.
-2. **Do we need a "presentation mode"?** Full-screen kiosk dashboard for
-   during the Pyramid showroom — just the overview + incident feed, no
-   config UI, no logs. Could be a query-param flag on `/` (`?mode=kiosk`).
-3. **Should we run `nvidia-smi` via `kubectl exec` or via DCGM?** Exec is
-   zero additional infra; DCGM exporter is the future-correct path when
+The big ones (access, kiosk, auth, AWS scope, stop/start, playback, camera
+model, edit scope) are resolved in the **Decisions** block near the top.
+Remaining implementation-level questions:
+
+1. **`nvidia-smi` via `kubectl exec` vs. DCGM exporter?** Exec is zero
+   additional infra; DCGM exporter is the future-correct path when
    Prometheus/Grafana land. Start with exec.
-4. **Real-time streams — do we multiplex Kafka consumers?** One per topic
-   per connected client is expensive; sharing a server-side consumer +
-   fan-out to SSE clients is cheaper but adds state. Defer to Phase 6 —
-   one-per-client is fine at 1–3 operators.
-5. **Authentication for the camera-sim SSH** — ed25519 key in a Secret, or
-   just SSM (not available on SSO role)? Start with ed25519; document
-   rotation.
+2. **Kafka consumer multiplexing.** One consumer per connected client is
+   expensive; shared server-side consumer + fan-out is cheaper but adds
+   state. Defer to Phase 6 — one-per-client is fine at 1–3 operators.
+3. **Camera-sim SSH key** — ed25519 key in a K8s Secret. SSM is unavailable
+   on the SSO role. Document rotation in `/secrets`.
+4. **HLS clip transcoding cache.** On-demand ffmpeg per click is fine for
+   1–3 operators; for the showroom with 5+ parallel clicks, pre-cache the
+   last N incident clips. Start on-demand, add cache if latency becomes
+   visible.
+5. **Named profiles storage** — `console-profiles` ConfigMap vs. a PVC with
+   a tiny SQLite / JSON file. ConfigMap is simpler (no PVC, easy backup
+   via `kubectl get`), capped at ~1 MB which is fine for tens of profiles.
+   Start with ConfigMap.
 
 ## Estimated effort
 
-| Phase | Effort |
-| --- | --- |
-| 0 (scaffold + RBAC + deploy) | 1 day |
-| 1–2 (read-only overview + cameras) | 1 day |
-| 3–4 (scenarios + prompt read/write) | 1 day |
-| 5 (cameras dual-write) | 0.5 day |
-| 6 (SSE streams) | 1 day |
-| 7 (topology) | 0.5 day |
-| 8 (diagnostics) | 0.5 day |
-| 9 (settings) | 0.5 day |
-| Total | ~6 dev-days |
+| Phase | Effort | Content |
+| --- | --- | --- |
+| 0 | 1 day | Scaffold + RBAC + deploy + auth + kiosk-mode query-param |
+| 1 | 1 day | Overview page (pods, NIM, GPU, Kafka lag, S3, camera-sim state) |
+| 2 | 1 day | Cameras read-only (with N-feeds model) |
+| 3 | 1 day | Scenarios + VLM prompt read/write (with per-scenario cooldown) |
+| 4 | 1 day | Cameras dual-write (SCP + ConfigMap + re-register) with N-feeds |
+| 5 | 1 day | Tuning page (rtvi-vlm knobs + alert worker env) + NIM model swap |
+| 6 | 2 days | SSE streams (logs, Kafka, incidents) + **clip playback via HLS** |
+| 7 | 0.5 day | Topology (React Flow) |
+| 8 | 0.5 day | Demo-data controls + Diagnostics |
+| 9 | 1 day | Profiles (save/load) + Secrets rotation + Settings |
+| Total | **~10 dev-days** | — |
+
+Kiosk mode is tested with every phase (every kiosk-flagged page must
+render correctly with config tabs hidden). Playwright E2E covers both
+normal and kiosk flows.
 
 ## Cross-refs
 
