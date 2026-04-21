@@ -171,7 +171,7 @@ others are hidden in kiosk mode.
 | `/secrets` | — | **Secret rotation UI** — NGC key, NVIDIA API key, HuggingFace token, Slack webhook, console auth password. Paste a new value, confirm, and the console patches the target K8s Secret + rolls the consuming Deployment. |
 | `/logs` | — | Log streamer — pick a pod + container → live tail via SSE. Filter regex, pause/resume, download last N lines. Camera-sim `journalctl -fu camera-sim` available via an SSH tail. |
 | `/diagnostics` | — | On-demand runs of `scripts/validate-manifests.sh`, smoke tests per phase, `kubectl get events -A`, `nvidia-smi`, `kubectl top`. Results rendered inline. |
-| `/settings` | — | Console-level config: kiosk-mode toggle persistence, feature flags, SSH key rotation for camera-sim, inspect current ServiceAccount permissions. |
+| `/settings` | — | Console-level config: **Network access** sub-panel — CIDR allow-list for `:8800` with add/remove (writes to the EC2 SG via `console-aws` creds + audit log). Kiosk-mode toggle persistence, feature flags, SSH key rotation for camera-sim, inspect current ServiceAccount permissions. |
 | `/about` | — | Build info (git SHA, Next.js / Node versions), links to all docs, list of underlying service URLs, cross-link to the pre-install [`web/`](../web/) dashboard at `:5002`. |
 
 ## API surface
@@ -305,6 +305,28 @@ export interface OverviewSnapshot {
   s3: { bucket: string; objectCount: number; bytesTotal: number; growth24h: number };
   cameraSim: { instanceState: "running" | "stopped" | "unreachable"; pathsReady: number; pathsTotal: number };
 }
+
+export interface SgWhitelistEntry {
+  id: string;               // stable uuid for the row
+  cidr: string;             // "84.14.13.200/29"
+  label: string;            // "Scality Paris office"
+  addedBy: string;          // operator login
+  addedAt: string;          // ISO 8601
+  port: 8800;               // future-proofing; today always 8800
+}
+
+export interface ModelCard {
+  image: string;                  // nvcr.io/nim/...
+  displayName: string;
+  parameterCount: string;         // "8.0 B"
+  precision: string;              // "BF16"
+  minGpuMemoryGiB: number;
+  warmupSeconds: number;
+  l4Validated: boolean;
+  strengths: string[];
+  limitations: string[];
+  scalityUseCase: string;
+}
 ```
 
 Every schema has a `zod` mirror in `src/lib/schemas.ts` — API routes validate
@@ -412,48 +434,100 @@ added surface.
 | Simultaneous edit by two operators | Optimistic concurrency via the ConfigMap resourceVersion — second edit gets a 409 with "reload and retry" |
 | NIM not reachable for `/api/prompt/preview` | Grey out the preview button with a tooltip pointing at the overview warmup state |
 
+## Implementation decisions (follow-up round)
+
+Second round of operator decisions answered. All resolved.
+
+| # | Decision | Impact |
+| --- | --- | --- |
+| A | **Concurrent operators: 1–3.** One Kafka consumer per connected client. | No shared-consumer fan-out. Simplest code path. |
+| B | **Profiles storage: SQLite on a PVC.** Not ConfigMap. | Add PVC `console-data` (5 Gi). Use `better-sqlite3` (Node sync, fast startup). Schema: `profiles`, `audit_log`, `sg_whitelist`. Nightly backup to S3 via `kubectl exec sqlite3 .backup`. |
+| C | **Clip playback: best-possible experience.** Pre-cache last 10 incident clips; hover-preload on incident row; instant play from cache, on-demand ffmpeg only on miss (~2 s). HLS.js in low-latency mode. Auto-seek to the VLM-flagged moment (e.g., "theft at T+8 s" jumps the player to 0:08). Keyboard shortcuts (space / ← / → / F). | Server-side clip cache + hover API. +0.5 day to Phase 6. |
+| D | **NIM model swap: 30-min downtime OK, but UI must explain the trade-offs.** `/prompt` has model cards — each model (Cosmos Reason 2 8B / Cosmos Reason 1 7B / NVILA-Lite 2B) with a card showing size, warmup time, GPU memory, strengths, weaknesses, and a Scality-validated-on-L4 badge where applicable. | Adds an on-page model catalog. See "Model cards" section below. |
+| E | **VLM prompt preview: dedicated replica NIM.** Not the live NIM; don't interfere with demo inference. | **Major GPU budget consequence** — the 4 L4s on `g6.12xlarge` are already spoken for (NIM=GPU0, rtvi-vlm=GPU1, rtvi-embed=GPU2, VST=GPU3). Solution: deploy the preview NIM with the blueprint's `-shared-gpu` profile sharing GPU 0 with the primary NIM. Use `cosmos-reason1-7b-shared-gpu` for preview (7B weights fit alongside main Cosmos 2 8B on a 24 GB L4). Preview results will differ slightly from live inference — that's acceptable for prompt-iteration. |
+| F | **SG whitelist: flexible, managed from UI.** Seed with Stéphane's home IP + Scality Paris office (`84.14.13.200/29`); `/settings` → "Network access" lets the operator add/remove CIDRs on the fly. | Console needs AWS EC2 write permissions: `DescribeSecurityGroups`, `AuthorizeSecurityGroupIngress`, `RevokeSecurityGroupIngress`. Since no IAM instance profile is available on the ARTESCA node (SSO-role constraint), the console reads AWS creds from a `console-aws` K8s Secret. Rotation via `/secrets` page. Audit log entries on every change. |
+
+### Model cards — the catalog shown on `/prompt`
+
+Each model card shows:
+
+| Field | Example (Cosmos Reason 2 8B) |
+| --- | --- |
+| Image | `nvcr.io/nim/nvidia/cosmos-reason2-8b:1.6.0` |
+| Parameter count | 8.0 B |
+| Precision | BF16 |
+| Min GPU memory | 16 GB weights + 4 GB KV @ `NIM_KVCACHE_PERCENT=0.25` |
+| Warmup time on L4 | ~28 min (first boot; cached ~3 min) |
+| NVIDIA L4 validated | Yes (our KV=0.50 / max_model_len=8192 config) |
+| Scality use case | Primary live VLM — retail scene understanding |
+| Known limitations | No audio input; no French output without prompt hint |
+| Swap action | "Make Primary" / "Make Preview" buttons on the card |
+
+Models catalogued for the June showroom:
+
+- `cosmos-reason2-8b` (current primary)
+- `cosmos-reason1-7b` (smaller, faster warmup — good fallback)
+- `NVILA-Lite-2B` (what Rahul used in Dec 2025 POC; ~1 min warmup; cheaper inference)
+- `qwen3-vl-8b-instruct` (alternate 8B VLM, comparable quality) — blueprint ships a NIM for it
+
+Cards rendered from a static JSON file versioned in the repo at
+`web/app/data/model-catalog.json` so updates don't require a rebuild.
+
 ## Open questions
 
-The big ones (access, kiosk, auth, AWS scope, stop/start, playback, camera
-model, edit scope) are resolved in the **Decisions** block near the top.
-Remaining implementation-level questions:
+The remaining implementation-level items are narrow enough to decide in
+code review:
 
-1. **`nvidia-smi` via `kubectl exec` vs. DCGM exporter?** Exec is zero
-   additional infra; DCGM exporter is the future-correct path when
-   Prometheus/Grafana land. Start with exec.
-2. **Kafka consumer multiplexing.** One consumer per connected client is
-   expensive; shared server-side consumer + fan-out is cheaper but adds
-   state. Defer to Phase 6 — one-per-client is fine at 1–3 operators.
-3. **Camera-sim SSH key** — ed25519 key in a K8s Secret. SSM is unavailable
-   on the SSO role. Document rotation in `/secrets`.
-4. **HLS clip transcoding cache.** On-demand ffmpeg per click is fine for
-   1–3 operators; for the showroom with 5+ parallel clicks, pre-cache the
-   last N incident clips. Start on-demand, add cache if latency becomes
-   visible.
-5. **Named profiles storage** — `console-profiles` ConfigMap vs. a PVC with
-   a tiny SQLite / JSON file. ConfigMap is simpler (no PVC, easy backup
-   via `kubectl get`), capped at ~1 MB which is fine for tens of profiles.
-   Start with ConfigMap.
+1. **`nvidia-smi` via `kubectl exec` vs. DCGM exporter?** Start with exec;
+   swap to DCGM if Prometheus lands.
+2. **Camera-sim SSH key rotation cadence.** `/secrets` has the UI; operator
+   cadence is up to them.
+3. **AWS creds rotation.** Ditto — `/secrets` has a rotate flow; frequency
+   is an operator choice.
+4. **Preview NIM shared-GPU memory headroom.** First live test will confirm
+   whether Cosmos 2 8B + Cosmos 1 7B + rtvi-vlm all coexist on a 24 GB L4
+   with some KV percent juggling. Fallback: preview NIM uses NVILA-Lite 2B
+   (tiny footprint).
 
 ## Estimated effort
 
 | Phase | Effort | Content |
 | --- | --- | --- |
-| 0 | 1 day | Scaffold + RBAC + deploy + auth + kiosk-mode query-param |
+| 0 | 1 day | Scaffold + RBAC + deploy + auth + kiosk-mode query-param + `console-data` PVC + SQLite bootstrap |
 | 1 | 1 day | Overview page (pods, NIM, GPU, Kafka lag, S3, camera-sim state) |
 | 2 | 1 day | Cameras read-only (with N-feeds model) |
 | 3 | 1 day | Scenarios + VLM prompt read/write (with per-scenario cooldown) |
 | 4 | 1 day | Cameras dual-write (SCP + ConfigMap + re-register) with N-feeds |
-| 5 | 1 day | Tuning page (rtvi-vlm knobs + alert worker env) + NIM model swap |
-| 6 | 2 days | SSE streams (logs, Kafka, incidents) + **clip playback via HLS** |
+| 5 | 1.5 day | Tuning page (rtvi-vlm knobs + alert worker env) + NIM model swap + **preview NIM deploy** (shared-GPU, model cards) |
+| 6 | 2.5 days | SSE streams (logs, Kafka, incidents) + **best-effort HLS playback** (pre-cache, hover preload, auto-seek, keyboard shortcuts) |
 | 7 | 0.5 day | Topology (React Flow) |
 | 8 | 0.5 day | Demo-data controls + Diagnostics |
-| 9 | 1 day | Profiles (save/load) + Secrets rotation + Settings |
-| Total | **~10 dev-days** | — |
+| 9 | 1.5 day | Profiles (SQLite-backed save/load) + Secrets rotation (incl. AWS creds) + Settings (**SG whitelist CRUD**) |
+| Total | **~11.5 dev-days** | — |
 
 Kiosk mode is tested with every phase (every kiosk-flagged page must
 render correctly with config tabs hidden). Playwright E2E covers both
 normal and kiosk flows.
+
+### GPU budget after the preview NIM decision
+
+| GPU | Workload | Notes |
+| --- | --- | --- |
+| 0 | Primary Cosmos 2 8B NIM + preview Cosmos 1 7B shared | Shared-GPU profile; primary gets ~60% memory, preview ~40% |
+| 1 | rtvi-vlm | Hardware decode for live RTSP |
+| 2 | rtvi-embed | Cosmos-Embed1-448p |
+| 3 | VST sensor-ms + streamprocessing-ms | Shared passthrough |
+
+Memory on GPU 0 is the tightest constraint — first live test will tell us
+whether both NIMs fit. Fallback paths if they don't:
+
+1. Preview NIM drops to NVILA-Lite 2B (fits easily; slightly different
+   output style but fine for prompt iteration).
+2. Preview NIM runs only on-demand — spun up when the operator clicks
+   "Preview" on `/prompt`, torn down after 10 min of inactivity. Cost:
+   ~90 s warmup per preview session.
+3. Preview disabled entirely; prompt iteration falls back to "save + wait
+   for next live-stream message" feedback.
 
 ## Cross-refs
 
