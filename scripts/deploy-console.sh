@@ -134,6 +134,44 @@ echo "==> applying Secrets"
 kubectl apply -f "$SECRETS_FILE"
 
 # ---------------------------------------------------------------------------
+# Image pullability preflight
+# ---------------------------------------------------------------------------
+# The console manifest pulls from ghcr.io/scality/isv-nvidia-vss/console.
+# No imagePullSecret is wired up (matches the alert-worker pattern), so the
+# package must be public — otherwise the pod lands in ImagePullBackOff.
+# Test anon pullability; on failure, surface the two fixes and bail early.
+
+IMAGE_REPO="ghcr.io/scality/isv-nvidia-vss/console"
+GHCR_TOKEN="$(curl -sf "https://ghcr.io/token?scope=repository:scality/isv-nvidia-vss/console:pull" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))' 2>/dev/null || true)"
+if [ -n "$GHCR_TOKEN" ]; then
+  HTTP_CODE=$(curl -so /dev/null -w "%{http_code}" -H "Authorization: Bearer $GHCR_TOKEN" \
+    "https://ghcr.io/v2/scality/isv-nvidia-vss/console/manifests/latest" 2>/dev/null || echo "000")
+  if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "000" ]; then
+    echo
+    echo "ERROR: ${IMAGE_REPO}:latest is not anonymously pullable (HTTP ${HTTP_CODE})."
+    echo
+    echo "The cluster has no imagePullSecret wired for GHCR, so the pod will"
+    echo "ImagePullBackOff. Pick one fix:"
+    echo
+    echo "  A) Make the package public (simplest; matches alert-worker):"
+    echo "       gh api --method PATCH \\"
+    echo "         /orgs/scality/packages/container/isv-nvidia-vss%2Fconsole \\"
+    echo "         -f visibility=public"
+    echo
+    echo "  B) Keep private + add an imagePullSecret:"
+    echo "       kubectl -n console create secret docker-registry ghcr-login \\"
+    echo "         --docker-server=ghcr.io \\"
+    echo "         --docker-username=stef9github \\"
+    echo "         --docker-password=\$GHCR_PAT \\"
+    echo "         --docker-email=stef.richard@gmail.com"
+    echo "       # Then edit k8s/console/20-console.yaml and add under spec.template.spec:"
+    echo "       #   imagePullSecrets: [{ name: ghcr-login }]"
+    echo
+    exit 1
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Apply the full kustomize stack
 # ---------------------------------------------------------------------------
 
