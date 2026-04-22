@@ -23,6 +23,50 @@ SECRETS_EXAMPLE="$CONSOLE_DIR/10-secrets.yaml.example"
 SECRETS_FILE="$CONSOLE_DIR/10-secrets.yaml"
 
 # ---------------------------------------------------------------------------
+# State file — read by web/lib/console-deploy.ts to surface stage outcome.
+# Minimal JSON: startedAt / finishedAt / exitCode plus a few progress hints.
+# All writes are best-effort (python3 -c) so no behavior change if it fails.
+# ---------------------------------------------------------------------------
+
+STATE_FILE="$SCRIPT_DIR/.console-deploy-state.json"
+STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+IMAGE_TAG=""
+NAMESPACE_READY=false
+PODS_READY=false
+HEALTH_ENDPOINT=""
+
+write_state() {
+  # $1=finishedAt (or empty for running), $2=exitCode (or empty for running)
+  local finished="${1:-}"
+  local exit_code="${2:-}"
+  python3 - "$STATE_FILE" "$STARTED_AT" "$finished" "$exit_code" \
+    "$IMAGE_TAG" "$NAMESPACE_READY" "$PODS_READY" "$HEALTH_ENDPOINT" <<'PY' || true
+import json, sys
+path, started, finished, exit_code, image_tag, ns_ready, pods_ready, endpoint = sys.argv[1:9]
+payload = {
+    "startedAt": started,
+    "finishedAt": finished if finished else None,
+    "exitCode": int(exit_code) if exit_code else None,
+    "imageTag": image_tag or None,
+    "namespaceReady": ns_ready == "true",
+    "podsReady": pods_ready == "true",
+    "healthEndpoint": endpoint or None,
+}
+with open(path, "w") as f:
+    json.dump(payload, f)
+PY
+}
+
+on_exit() {
+  local code=$?
+  write_state "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$code"
+}
+trap on_exit EXIT
+
+# Mark "running" immediately so the dashboard sees active state.
+write_state "" ""
+
+# ---------------------------------------------------------------------------
 # Node IP resolution
 # ---------------------------------------------------------------------------
 
@@ -96,12 +140,22 @@ kubectl apply -f "$SECRETS_FILE"
 echo "==> applying kustomize stack (k8s/console)"
 kubectl apply -k "$CONSOLE_DIR"
 
+# Resolve the image tag used by the just-applied manifest for the state file.
+IMAGE_TAG="$(kubectl -n console get deployment console \
+  -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
+NAMESPACE_READY=true
+write_state "" ""
+
 # ---------------------------------------------------------------------------
 # Rollout wait
 # ---------------------------------------------------------------------------
 
 echo "==> waiting for console deployment to roll out"
 kubectl -n console rollout status deployment/console --timeout=5m
+
+PODS_READY=true
+HEALTH_ENDPOINT="http://${NODE_IP}:8800/api/health/self"
+write_state "" ""
 
 # ---------------------------------------------------------------------------
 # Summary
