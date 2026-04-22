@@ -1,0 +1,42 @@
+{
+  "takenAt": "2026-04-22T10:00:00.000Z",
+  "namespaces": {
+    "vst":            { "total": 3, "ready": 2, "failed": 1 },
+    "rtvi":           { "total": 2, "ready": 1, "failed": 1 },
+    "agent":          { "total": 1, "ready": 1, "failed": 0 },
+    "alerts":         { "total": 1, "ready": 1, "failed": 0 },
+    "demo-data":      { "total": 1, "ready": 0, "failed": 1 },
+    "pyramid-ingress":{ "total": 1, "ready": 1, "failed": 0 }
+  },
+  "nim": { "ready": false, "warmupPct": 42, "queueDepth": 7 },
+  "gpus": [
+    {
+      "index": 0,
+      "name": "NVIDIA L40S",
+      "memoryUsedMiB": 46000,
+      "memoryTotalMiB": 49152,
+      "utilGpu": 98,
+      "utilMem": 94,
+      "tempC": 87,
+      "powerW": 295,
+      "processes": [
+        { "pid": 1234, "name": "nim", "memMiB": 46000 }
+      ]
+    }
+  ],
+  "kafka": {
+    "vision-llm-requests":  { "topic": "vision-llm-requests",  "consumerLagMsgs": 312 },
+    "vision-llm-responses": { "topic": "vision-llm-responses", "consumerLagMsgs": 0 }
+  },
+  "s3": {
+    "bucket": "vss-video",
+    "objectCount": 0,
+    "bytesTotal": 0,
+    "growth24h": 0
+  },
+  "cameraSim": {
+    "instanceState": "unreachable",
+    "pathsReady": 0,
+    "pathsTotal": 4
+  }
+}

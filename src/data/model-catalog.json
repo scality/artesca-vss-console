@@ -1,0 +1,102 @@
+[
+  {
+    "image": "nvcr.io/nim/nvidia/cosmos-reason2-8b:1.6.0",
+    "displayName": "Cosmos Reason 2 8B",
+    "parameterCount": "8.0 B",
+    "precision": "BF16",
+    "minGpuMemoryGiB": 56,
+    "warmupSeconds": 1680,
+    "l4Validated": false,
+    "l40sValidated": true,
+    "strengths": [
+      "State-of-the-art retail scene understanding",
+      "Strong multi-step reasoning over visual context",
+      "L40S blueprint-validated (KV=0.8, max_model_len=32768, max_num_seqs=4)",
+      "Handles complex scenario matching with few false positives"
+    ],
+    "limitations": [
+      "Requires >56 GB GPU VRAM in BF16 — L4 (24 GB) is insufficient; L40S (48 GB) also falls short; requires multi-card or H100/H200/GH200",
+      "Single-GPU only (TP=1) — no tensor-parallel deployment",
+      "No audio input support",
+      "French-language output requires explicit prompt hint",
+      "~28 min warmup on first boot (cached ~3 min)"
+    ],
+    "scalityUseCase": "Primary live VLM — retail scene understanding for the Pyramid showroom demo",
+    "tags": ["blueprint-pinned", "vss-3.1"],
+    "ngcCatalogUrl": "https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/containers/cosmos-reason2-8b"
+  },
+  {
+    "image": "nvcr.io/nim/nvidia/cosmos-reason1-7b:1.4.1",
+    "displayName": "Cosmos Reason 1 7B",
+    "parameterCount": "7.0 B",
+    "precision": "BF16",
+    "minGpuMemoryGiB": 24,
+    "warmupSeconds": 900,
+    "l4Validated": false,
+    "l40sValidated": true,
+    "strengths": [
+      "Faster warmup than Cosmos 2 (~15 min first boot)",
+      "Lower GPU memory footprint (24 GB BF16 / 16 GB FP8) — good fallback on L40S under pressure",
+      "Supported on any NVIDIA GPU with sufficient VRAM"
+    ],
+    "limitations": [
+      "Lower accuracy on complex multi-object scenes vs Cosmos 2",
+      "Not blueprint-validated for L4; 24 GB minimum makes L4 marginal and untested",
+      "Blueprint pins version 1.4.1 — not 1.5.x"
+    ],
+    "scalityUseCase": "Fallback primary VLM when Cosmos 2 is unavailable or for low-GPU-budget environments",
+    "tags": ["blueprint-pinned", "vss-3.1"],
+    "ngcCatalogUrl": "https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/containers/cosmos-reason1-7b"
+  },
+  {
+    "image": "nvcr.io/nim/nvidia/nvila-lite-2b:1.0.0",
+    "displayName": "NVILA-Lite 2B",
+    "parameterCount": "2.0 B",
+    "precision": "FP16",
+    "minGpuMemoryGiB": 5,
+    "warmupSeconds": 60,
+    "l4Validated": true,
+    "l40sValidated": true,
+    "strengths": [
+      "~1 min warmup — instant feedback during prompt iteration",
+      "Tiny memory footprint (~4 GB weights) — shares GPU 0 with Cosmos 2",
+      "Validated by Rahul Padigela in Dec 2025 POC",
+      "Great for prompt development: if it works on 2B it likely works on 8B"
+    ],
+    "limitations": [
+      "Lower scene-understanding accuracy than 7B/8B models",
+      "Output may differ noticeably from production Cosmos 2 inference",
+      "Not recommended as primary VLM in live demo",
+      "Not listed in VSS 3.1 blueprint NIM directory or VLM NIM support matrix — specs from Dec 2025 POC only"
+    ],
+    "scalityUseCase": "Preview NIM — prompt iteration and dry-run testing without blocking live inference",
+    "tags": ["preview", "poc-validated"],
+    "ngcCatalogUrl": "https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/containers/nvila-lite-2b",
+    "unverified": true
+  },
+  {
+    "image": "nvcr.io/nvidia/vllm:25.12.post1-py3",
+    "displayName": "Qwen3-VL 8B Instruct",
+    "parameterCount": "8.0 B",
+    "precision": "BF16",
+    "minGpuMemoryGiB": 18,
+    "warmupSeconds": 1200,
+    "l4Validated": false,
+    "l40sValidated": false,
+    "strengths": [
+      "Comparable quality to Cosmos 2 on general VLM tasks",
+      "Strong multilingual support including French",
+      "Blueprint NIM ships for it — standard deploy path via vLLM container"
+    ],
+    "limitations": [
+      "Deployed via vLLM container (nvcr.io/nvidia/vllm:25.12.post1-py3), not a NIM image — different serve API surface",
+      "Blueprint hardware configs cover only H100 and RTX Pro 6000 BW — no L40S or L4 configuration shipped",
+      "Not yet Scality-validated on L40S with VSS pipeline",
+      "May require prompt rewrite to match Cosmos-style output format",
+      "~20 min warmup on first boot"
+    ],
+    "scalityUseCase": "Alternate 8B VLM for future showrooms — comparable quality, adds French-language support",
+    "tags": ["vllm", "blueprint-included", "vss-3.1"],
+    "ngcCatalogUrl": "https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/containers/qwen3-vl-8b-instruct"
+  }
+]

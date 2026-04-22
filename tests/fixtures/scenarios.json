@@ -1,0 +1,32 @@
+[
+  {
+    "id": "theft",
+    "name": "Shoplifting Detection",
+    "description": "Detects items concealed or removed without payment",
+    "severity": "high",
+    "channels": ["ui", "slack"],
+    "sensorFilter": "checkout-*",
+    "keywords": ["conceal", "pocket", "bag", "steal", "theft"],
+    "enabled": true
+  },
+  {
+    "id": "crowd",
+    "name": "Crowd Density Alert",
+    "description": "Queue exceeds 5 persons at checkout",
+    "severity": "medium",
+    "channels": ["ui"],
+    "sensorFilter": "checkout-*",
+    "keywords": ["crowd", "queue", "wait", "line"],
+    "enabled": true
+  },
+  {
+    "id": "slip",
+    "name": "Slip & Fall Detection",
+    "description": "Person falls in aisle or near checkout",
+    "severity": "high",
+    "channels": ["ui", "slack"],
+    "sensorFilter": "aisle-*",
+    "keywords": ["fall", "slip", "ground", "floor"],
+    "enabled": false
+  }
+]

@@ -1,0 +1,28 @@
+[
+  {
+    "image": "nvcr.io/nim/nvidia/cosmos-reason2-8b:1.6.0",
+    "displayName": "Cosmos Reason 2 8B",
+    "parameterCount": "8.0 B",
+    "precision": "BF16",
+    "minGpuMemoryGiB": 56,
+    "warmupSeconds": 1680,
+    "l4Validated": false,
+    "l40sValidated": true,
+    "strengths": ["State-of-the-art retail scene understanding"],
+    "limitations": ["No audio input support"],
+    "scalityUseCase": "Primary live VLM"
+  },
+  {
+    "image": "nvcr.io/nim/nvidia/nvila-lite-2b:1.0.0",
+    "displayName": "NVILA-Lite 2B",
+    "parameterCount": "2.0 B",
+    "precision": "FP16",
+    "minGpuMemoryGiB": 5,
+    "warmupSeconds": 60,
+    "l4Validated": true,
+    "l40sValidated": true,
+    "strengths": ["~1 min warmup"],
+    "limitations": ["Lower accuracy than 7B/8B models"],
+    "scalityUseCase": "Preview NIM"
+  }
+]

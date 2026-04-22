@@ -1,0 +1,141 @@
+// src/lib/types.ts
+// Data model as defined in docs/console-design.md — verbatim interface definitions.
+
+export type Health = "ok" | "warn" | "fail" | "unknown";
+
+export interface PodSummary {
+  namespace: string;
+  name: string;
+  phase: "Pending" | "Running" | "Succeeded" | "Failed" | "Unknown";
+  ready: boolean;
+  restarts: number;
+  age: string; // "4h23m"
+  node?: string;
+  gpus?: number;
+}
+
+export interface Camera {
+  id: string; // "checkout-1"
+  role: "checkout" | "aisle" | "dock" | "backroom" | "other";
+  description?: string;
+  feeds: Feed[]; // default 2 per Pyramid 2-lens rail; 1..N allowed
+}
+
+export interface Feed {
+  id: string; // "a" | "b" | "lens1" | "lens2" | ...
+  sensorId: string; // VST sensor_id, `${camera.id}-${feed.id}` by convention
+  source: string; // filename in /opt/camera-sim/data/
+  rtspUrl: string; // rtsp://<EIP>:8554/<sensorId>
+  vstRegistered: boolean;
+  replayReady: boolean; // mediamtx reports path ready
+  bitrateMbps?: number;
+  fps?: number;
+  codec?: "hevc" | "h264";
+}
+
+export interface DemoProfile {
+  name: string; // "pyramid-jun-8" | "aarco-rehearsal" | ...
+  savedAt: string; // ISO 8601
+  savedBy: string; // operator login (for shared-password mode: "console-operator")
+  scenarios: Scenario[];
+  vlmPrompt: string;
+  cameras: Camera[];
+  rtviTuning: Partial<{
+    maxNumSeqs: number;
+    kvCachePct: number;
+    maxModelLen: number;
+  }>;
+  alertTuning: Partial<{
+    cooldownSeconds: number;
+    slackWebhookConfigured: boolean;
+  }>;
+  nimModel: "cosmos-reason2-8b" | "cosmos-reason1-7b" | string;
+}
+
+export interface Scenario {
+  id: string;
+  name: string;
+  description?: string;
+  severity: "low" | "medium" | "high";
+  channels: Array<"ui" | "slack">;
+  sensorFilter: string; // glob or comma-separated
+  keywords: string[];
+  enabled: boolean;
+}
+
+export interface Incident {
+  ts: string; // ISO 8601
+  scenarioId: string;
+  scenarioName: string;
+  severity: Scenario["severity"];
+  sensorId: string;
+  topic: string;
+  summary: string;
+  raw: unknown;
+}
+
+export interface GpuState {
+  index: number;
+  name: string; // "NVIDIA L4" | "NVIDIA L40S"
+  memoryUsedMiB: number;
+  memoryTotalMiB: number;
+  utilGpu: number; // 0-100
+  utilMem: number;
+  tempC: number;
+  powerW: number;
+  processes: Array<{ pid: number; name: string; memMiB: number }>;
+}
+
+export interface OverviewSnapshot {
+  takenAt: string;
+  namespaces: Record<string, { total: number; ready: number; failed: number }>;
+  nim: { ready: boolean; warmupPct: number; queueDepth: number };
+  gpus: GpuState[];
+  kafka: Record<string, { topic: string; consumerLagMsgs: number }>;
+  s3: {
+    bucket: string;
+    objectCount: number;
+    bytesTotal: number;
+    growth24h: number;
+  };
+  cameraSim: {
+    instanceState: "running" | "stopped" | "unreachable";
+    pathsReady: number;
+    pathsTotal: number;
+  };
+}
+
+export interface SgWhitelistEntry {
+  id: string; // stable uuid for the row
+  cidr: string; // "203.0.113.0/29"
+  label: string; // "Head office"
+  addedBy: string; // operator login
+  addedAt: string; // ISO 8601
+  port: 8800; // future-proofing; today always 8800
+}
+
+export interface ModelCard {
+  image: string; // nvcr.io/nim/... or nvcr.io/nvidia/vllm:... for vLLM-based NIMs
+  displayName: string;
+  parameterCount: string; // "8.0 B"
+  precision: string; // "BF16" | "FP8" | "FP16"
+  minGpuMemoryGiB: number;
+  warmupSeconds: number;
+  l4Validated: boolean;
+  l40sValidated: boolean;
+  strengths: string[];
+  limitations: string[];
+  scalityUseCase: string;
+  tags?: string[]; // e.g. ["blueprint-pinned", "vllm", "preview"]
+  ngcCatalogUrl?: string; // canonical NGC catalog page
+  unverified?: boolean; // true when image/specs could not be confirmed against public NVIDIA docs
+}
+
+export interface AuditLogEntry {
+  id: string;
+  ts: string;
+  operator: string;
+  action: string;
+  target: string;
+  detailsJson: string;
+}

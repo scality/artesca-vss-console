@@ -1,0 +1,28 @@
+[
+  {
+    "ts": "2026-04-22T09:45:12.000Z",
+    "scenarioId": "theft",
+    "scenarioName": "Shoplifting Detection",
+    "severity": "high",
+    "sensorId": "checkout-1-a",
+    "topic": "vision-llm-responses",
+    "summary": "Person observed concealing item in jacket pocket near self-checkout lane",
+    "raw": {
+      "confidence": 0.94,
+      "bboxes": [{ "x": 120, "y": 80, "w": 200, "h": 350 }]
+    }
+  },
+  {
+    "ts": "2026-04-22T09:12:05.000Z",
+    "scenarioId": "crowd",
+    "scenarioName": "Crowd Density Alert",
+    "severity": "medium",
+    "sensorId": "checkout-1-b",
+    "topic": "vision-llm-responses",
+    "summary": "Queue of approximately 7 persons observed at checkout lane",
+    "raw": {
+      "confidence": 0.87,
+      "person_count": 7
+    }
+  }
+]

@@ -1,0 +1,56 @@
+{
+  "takenAt": "2026-04-22T10:00:00.000Z",
+  "namespaces": {
+    "vst": { "total": 3, "ready": 3, "failed": 0 },
+    "rtvi": { "total": 2, "ready": 2, "failed": 0 },
+    "agent": { "total": 1, "ready": 1, "failed": 0 },
+    "alerts": { "total": 1, "ready": 1, "failed": 0 },
+    "demo-data": { "total": 1, "ready": 1, "failed": 0 },
+    "pyramid-ingress": { "total": 1, "ready": 1, "failed": 0 }
+  },
+  "nim": { "ready": true, "warmupPct": 100, "queueDepth": 0 },
+  "gpus": [
+    {
+      "index": 0,
+      "name": "NVIDIA L40S",
+      "memoryUsedMiB": 22528,
+      "memoryTotalMiB": 49152,
+      "utilGpu": 42,
+      "utilMem": 46,
+      "tempC": 58,
+      "powerW": 180,
+      "processes": [
+        { "pid": 1234, "name": "nim", "memMiB": 18432 },
+        { "pid": 1235, "name": "nvila-lite", "memMiB": 4096 }
+      ]
+    },
+    {
+      "index": 1,
+      "name": "NVIDIA L40S",
+      "memoryUsedMiB": 8192,
+      "memoryTotalMiB": 49152,
+      "utilGpu": 65,
+      "utilMem": 17,
+      "tempC": 62,
+      "powerW": 120,
+      "processes": [
+        { "pid": 1240, "name": "rtvi-vlm", "memMiB": 8192 }
+      ]
+    }
+  ],
+  "kafka": {
+    "vision-llm-requests": { "topic": "vision-llm-requests", "consumerLagMsgs": 0 },
+    "vision-llm-responses": { "topic": "vision-llm-responses", "consumerLagMsgs": 2 }
+  },
+  "s3": {
+    "bucket": "vss-video",
+    "objectCount": 4820,
+    "bytesTotal": 107374182400,
+    "growth24h": 1073741824
+  },
+  "cameraSim": {
+    "instanceState": "running",
+    "pathsReady": 4,
+    "pathsTotal": 4
+  }
+}

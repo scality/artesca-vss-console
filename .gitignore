@@ -1,0 +1,9 @@
+node_modules
+.next
+coverage
+.env.local
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+.vitest/
+playwright-report/
+test-results/
