@@ -1,0 +1,194 @@
+"use client";
+
+import { redirect } from "next/navigation";
+import * as React from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { z } from "zod";
+import { useKiosk } from "@/components/KioskProvider";
+import { Shell } from "@/components/Shell";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { Loader2, Save, AlertTriangle } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { PromptEditor } from "@/components/prompt/PromptEditor";
+import { PromptPreviewPane } from "@/components/prompt/PromptPreviewPane";
+import { ModelCardGrid } from "@/components/prompt/ModelCardGrid";
+
+const PromptResponseSchema = z.object({
+  prompt: z.string(),
+  model: z.string(),
+  previewModel: z.string().optional(),
+});
+
+export default function PromptPage() {
+  const { kiosk } = useKiosk();
+  if (kiosk) redirect("/");
+
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [draft, setDraft] = React.useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["prompt"],
+    queryFn: async () => {
+      const res = await fetch("/api/prompt");
+      if (!res.ok) throw new Error("Failed to fetch prompt");
+      const raw = await res.json();
+      return PromptResponseSchema.parse(raw);
+    },
+    staleTime: 30_000,
+  });
+
+  // Init draft from server once data arrives
+  React.useEffect(() => {
+    if (data && draft === null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDraft(data.prompt);
+    }
+  }, [data, draft]);
+
+  const isDirty =
+    draft !== null && data !== undefined && draft !== data.prompt;
+
+  // Warn on nav away with unsaved changes
+  React.useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
+  const doSave = async () => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/prompt", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: draft }),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      await queryClient.invalidateQueries({ queryKey: ["prompt"] });
+      setConfirmOpen(false);
+      toast({ title: "Prompt saved — rtvi-vlm restarting" });
+    } catch (err) {
+      toast({
+        title: "Save failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Shell>
+      <div className="max-w-6xl mx-auto space-y-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">VLM Prompt</h2>
+            <p className="text-sm text-muted-foreground">
+              Edit the system prompt for the Vision Language Model. Changes
+              require an rtvi-vlm restart (~30 s).
+            </p>
+          </div>
+          <Button
+            disabled={!isDirty || saving}
+            onClick={() => setConfirmOpen(true)}
+          >
+            <Save className="h-4 w-4 mr-1" />
+            Save + Restart
+          </Button>
+        </div>
+
+        {isLoading && (
+          <div className="flex items-center gap-2 text-muted-foreground justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            Loading prompt...
+          </div>
+        )}
+
+        {isError && (
+          <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+            Failed to load prompt.
+          </div>
+        )}
+
+        {isDirty && (
+          <div className="text-xs text-yellow-400 bg-yellow-400/10 rounded px-3 py-1.5 border border-yellow-400/20">
+            Unsaved changes
+          </div>
+        )}
+
+        {data && draft !== null && (
+          <>
+            <PromptEditor
+              original={data.prompt}
+              value={draft}
+              onChange={setDraft}
+            />
+
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <h3 className="text-sm font-semibold">Preview Inference</h3>
+              <PromptPreviewPane currentModel={data.model} />
+            </div>
+
+            <ModelCardGrid />
+          </>
+        )}
+
+        <Dialog open={confirmOpen} onOpenChange={saving ? undefined : setConfirmOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Save + Restart rtvi-vlm?</DialogTitle>
+              <DialogDescription>
+                This will patch the prompt ConfigMap and restart the rtvi-vlm
+                deployment.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex items-start gap-2 rounded-md border border-yellow-600/40 bg-yellow-600/10 p-3">
+              <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
+              <p className="text-sm text-yellow-300">
+                Expect ~30 s downtime while rtvi-vlm restarts. Live inference
+                will be paused during this time.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setConfirmOpen(false)}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button onClick={doSave} disabled={saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Restarting...
+                  </>
+                ) : (
+                  "Save + Restart"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </Shell>
+  );
+}

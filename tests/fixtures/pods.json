@@ -1,0 +1,41 @@
+[
+  {
+    "namespace": "vst",
+    "name": "vst-sensor-ms-7d4f9b-x2kqp",
+    "phase": "Running",
+    "ready": true,
+    "restarts": 0,
+    "age": "4h23m",
+    "node": "artesca-node-1",
+    "gpus": 0
+  },
+  {
+    "namespace": "vst",
+    "name": "vst-streamprocessing-ms-6c8d9b-m3nrw",
+    "phase": "Running",
+    "ready": true,
+    "restarts": 0,
+    "age": "4h23m",
+    "node": "artesca-node-1",
+    "gpus": 0
+  },
+  {
+    "namespace": "rtvi",
+    "name": "rtvi-vlm-5b9c7d-p8kqz",
+    "phase": "Running",
+    "ready": true,
+    "restarts": 0,
+    "age": "4h20m",
+    "node": "artesca-node-1",
+    "gpus": 1
+  },
+  {
+    "namespace": "alerts",
+    "name": "alert-worker-8f4a2d-v9lmx",
+    "phase": "Running",
+    "ready": true,
+    "restarts": 0,
+    "age": "4h18m",
+    "node": "artesca-node-1"
+  }
+]

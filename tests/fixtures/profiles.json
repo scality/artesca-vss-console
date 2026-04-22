@@ -1,0 +1,38 @@
+[
+  {
+    "name": "pyramid-jun-8",
+    "savedAt": "2026-04-22T08:00:00.000Z",
+    "savedBy": "console-operator",
+    "scenarios": [
+      {
+        "id": "theft",
+        "name": "Shoplifting Detection",
+        "severity": "high",
+        "channels": ["ui", "slack"],
+        "sensorFilter": "checkout-*",
+        "keywords": ["conceal", "pocket"],
+        "enabled": true
+      }
+    ],
+    "vlmPrompt": "You are a retail security VLM. Analyze the scene and report any suspicious activity.",
+    "cameras": [
+      {
+        "id": "checkout-1",
+        "role": "checkout",
+        "feeds": [
+          {
+            "id": "a",
+            "sensorId": "checkout-1-a",
+            "source": "checkout-wide.ts",
+            "rtspUrl": "rtsp://34.56.78.90:8554/checkout-1-a",
+            "vstRegistered": true,
+            "replayReady": true
+          }
+        ]
+      }
+    ],
+    "rtviTuning": { "maxNumSeqs": 4, "kvCachePct": 0.8, "maxModelLen": 32768 },
+    "alertTuning": { "cooldownSeconds": 300, "slackWebhookConfigured": true },
+    "nimModel": "cosmos-reason2-8b"
+  }
+]

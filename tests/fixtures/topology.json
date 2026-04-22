@@ -1,0 +1,13 @@
+{
+  "nodes": [
+    { "id": "camera-sim", "health": "ok", "namespace": "camera-sim", "podCount": 1, "restarts": 0 },
+    { "id": "mediamtx",   "health": "ok", "namespace": "vss",        "podCount": 1, "restarts": 0 },
+    { "id": "vst",        "health": "ok", "namespace": "vss",        "podCount": 2, "restarts": 0 },
+    { "id": "rtvi-vlm",   "health": "warn","namespace": "vss",       "podCount": 1, "restarts": 1 },
+    { "id": "kafka",      "health": "ok", "namespace": "kafka",      "podCount": 1, "restarts": 0 },
+    { "id": "alert-worker","health":"ok", "namespace": "vss",        "podCount": 1, "restarts": 0 },
+    { "id": "agent-ui",   "health": "ok", "namespace": "vss",        "podCount": 1, "restarts": 0 },
+    { "id": "nim",        "health": "ok", "namespace": "nim",        "podCount": 1, "restarts": 0 },
+    { "id": "s3",         "health": "ok", "namespace": "artesca",    "podCount": 0, "restarts": 0 }
+  ]
+}

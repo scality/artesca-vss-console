@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: console-data
+  namespace: console
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassName omitted — uses the MetalK8s default StorageClass.
+  # On a single-node ARTESCA dev install this is the sparseLoopDevice-backed
+  # class provisioned by the demo profile. Override explicitly if you need a
+  # specific class (e.g. for a multi-node prod-lite cluster).

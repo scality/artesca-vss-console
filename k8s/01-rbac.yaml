@@ -1,0 +1,258 @@
+---
+# ServiceAccount used by the console pod to reach the K8s API.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: console-sa
+  namespace: console
+
+---
+# ClusterRole — cluster-scoped, read-only.
+# Includes pods/exec (create) for nvidia-smi and nodes/metrics for GPU fallback.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: console-reader
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "configmaps", "services", "events", "namespaces", "nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["nodes"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: console-reader-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: console-reader
+subjects:
+- kind: ServiceAccount
+  name: console-sa
+  namespace: console
+
+---
+# Role + RoleBinding for namespace: vst
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: console-writer
+  namespace: vst
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["patch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "delete"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: console-writer-binding
+  namespace: vst
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: console-writer
+subjects:
+- kind: ServiceAccount
+  name: console-sa
+  namespace: console
+
+---
+# Role + RoleBinding for namespace: rtvi
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: console-writer
+  namespace: rtvi
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["patch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "delete"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: console-writer-binding
+  namespace: rtvi
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: console-writer
+subjects:
+- kind: ServiceAccount
+  name: console-sa
+  namespace: console
+
+---
+# Role + RoleBinding for namespace: agent
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: console-writer
+  namespace: agent
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["patch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "delete"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: console-writer-binding
+  namespace: agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: console-writer
+subjects:
+- kind: ServiceAccount
+  name: console-sa
+  namespace: console
+
+---
+# Role + RoleBinding for namespace: alerts
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: console-writer
+  namespace: alerts
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["patch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "delete"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: console-writer-binding
+  namespace: alerts
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: console-writer
+subjects:
+- kind: ServiceAccount
+  name: console-sa
+  namespace: console
+
+---
+# Role + RoleBinding for namespace: demo-data
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: console-writer
+  namespace: demo-data
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["patch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "delete"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: console-writer-binding
+  namespace: demo-data
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: console-writer
+subjects:
+- kind: ServiceAccount
+  name: console-sa
+  namespace: console
+
+---
+# Role + RoleBinding for namespace: pyramid-ingress
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: console-writer
+  namespace: pyramid-ingress
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["patch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "delete"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: console-writer-binding
+  namespace: pyramid-ingress
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: console-writer
+subjects:
+- kind: ServiceAccount
+  name: console-sa
+  namespace: console

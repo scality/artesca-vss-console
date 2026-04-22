@@ -1,0 +1,26 @@
+# Apply with:  kubectl apply -k k8s/console
+# Prerequisites:
+#   - 10-secrets.yaml filled in and applied (cp 10-secrets.yaml.example 10-secrets.yaml && edit)
+#   - All six watched namespaces already deployed (vst, rtvi, agent, alerts, demo-data, pyramid-ingress)
+#   - AWS credentials + EC2 SG ID available for console-aws Secret
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- 00-namespace.yaml
+- 01-rbac.yaml
+- 11-configmap-env.yaml
+- 12-pvc.yaml
+- 20-console.yaml
+
+labels:
+- pairs:
+    scality.com/component: console
+  includeSelectors: false
+
+# CI bumps the newTag field on every push to main touching console/** or
+# .github/workflows/build-console.yml.  Do not edit by hand in production —
+# use the CI-generated sha-<short-sha> tags.
+images:
+- name: ghcr.io/scality/isv-nvidia-vss/console
+  newTag: latest

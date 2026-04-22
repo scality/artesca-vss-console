@@ -1,0 +1,101 @@
+---
+# console — Next.js 16 operator dashboard.
+# Deployed as a single replica; the pipeline keeps running if this pod restarts.
+# Exposed on hostPort :8800 — the EC2 Security Group restricts inbound access
+# to whitelisted CIDRs managed from the /settings → Network access panel.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: console
+  namespace: console
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: console
+  template:
+    metadata:
+      labels:
+        app: console
+    spec:
+      serviceAccountName: console-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+      containers:
+      - name: console
+        # CI bumps this tag via kustomize image override on every push to main.
+        # Pin to a specific sha-<short-sha> tag for production rollouts.
+        image: ghcr.io/scality/isv-nvidia-vss/console:latest
+        ports:
+        - name: http
+          containerPort: 8800
+          hostPort: 8800
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: console-env
+        - secretRef:
+            name: console-auth
+        - secretRef:
+            name: console-aws
+        volumeMounts:
+        - name: console-data
+          mountPath: /data
+        - name: camera-sim-ssh-key
+          mountPath: /etc/camera-sim
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          # readOnlyRootFilesystem is false — Next.js writes to .next/cache
+          # at runtime and next-auth uses /tmp for session scratch files.
+          readOnlyRootFilesystem: false
+        readinessProbe:
+          httpGet:
+            path: /api/health/self
+            port: 8800
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /api/health/self
+            port: 8800
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 5
+      volumes:
+      - name: console-data
+        persistentVolumeClaim:
+          claimName: console-data
+      - name: camera-sim-ssh-key
+        secret:
+          secretName: console-ssh
+          defaultMode: 0400
+
+---
+# ClusterIP Service — lets in-cluster callers (health probes, future AI agents)
+# reach the console without going through the NodePort / hostPort path.
+apiVersion: v1
+kind: Service
+metadata:
+  name: console
+  namespace: console
+spec:
+  selector:
+    app: console
+  ports:
+  - name: http
+    port: 8800
+    targetPort: 8800
+    protocol: TCP
+  type: ClusterIP

@@ -1,0 +1,48 @@
+[
+  {
+    "id": "checkout-1",
+    "role": "checkout",
+    "description": "Main checkout lane — 2-lens Pyramid rail",
+    "feeds": [
+      {
+        "id": "a",
+        "sensorId": "checkout-1-a",
+        "source": "checkout-wide.ts",
+        "rtspUrl": "rtsp://34.56.78.90:8554/checkout-1-a",
+        "vstRegistered": true,
+        "replayReady": true,
+        "bitrateMbps": 4.2,
+        "fps": 30,
+        "codec": "hevc"
+      },
+      {
+        "id": "b",
+        "sensorId": "checkout-1-b",
+        "source": "checkout-close.ts",
+        "rtspUrl": "rtsp://34.56.78.90:8554/checkout-1-b",
+        "vstRegistered": true,
+        "replayReady": true,
+        "bitrateMbps": 4.0,
+        "fps": 30,
+        "codec": "hevc"
+      }
+    ]
+  },
+  {
+    "id": "aisle-3",
+    "role": "aisle",
+    "description": "Beverage aisle",
+    "feeds": [
+      {
+        "id": "a",
+        "sensorId": "aisle-3-a",
+        "source": "aisle-wide.ts",
+        "rtspUrl": "rtsp://34.56.78.90:8554/aisle-3-a",
+        "vstRegistered": true,
+        "replayReady": true,
+        "fps": 25,
+        "codec": "h264"
+      }
+    ]
+  }
+]

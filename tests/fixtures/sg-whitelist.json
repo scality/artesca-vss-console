@@ -1,0 +1,18 @@
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440001",
+    "cidr": "84.14.13.200/29",
+    "label": "Scality Paris office",
+    "addedBy": "console-operator",
+    "addedAt": "2026-04-01T09:00:00.000Z",
+    "port": 8800
+  },
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440002",
+    "cidr": "92.184.108.10/32",
+    "label": "Stephane home",
+    "addedBy": "console-operator",
+    "addedAt": "2026-04-20T14:30:00.000Z",
+    "port": 8800
+  }
+]

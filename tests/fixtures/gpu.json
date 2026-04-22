@@ -1,0 +1,29 @@
+[
+  {
+    "index": 0,
+    "name": "NVIDIA L40S",
+    "memoryUsedMiB": 22528,
+    "memoryTotalMiB": 49152,
+    "utilGpu": 42,
+    "utilMem": 46,
+    "tempC": 58,
+    "powerW": 180,
+    "processes": [
+      { "pid": 1234, "name": "nim", "memMiB": 18432 },
+      { "pid": 1235, "name": "nvila-lite", "memMiB": 4096 }
+    ]
+  },
+  {
+    "index": 1,
+    "name": "NVIDIA L40S",
+    "memoryUsedMiB": 8192,
+    "memoryTotalMiB": 49152,
+    "utilGpu": 65,
+    "utilMem": 17,
+    "tempC": 62,
+    "powerW": 120,
+    "processes": [
+      { "pid": 1240, "name": "rtvi-vlm", "memMiB": 8192 }
+    ]
+  }
+]
