@@ -17,6 +17,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-paths.sh
+source "$SCRIPT_DIR/lib-paths.sh" "$@"
+set -- "${VSS_ARGS[@]:-}"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 CONSOLE_DIR="$REPO_ROOT/k8s/console"
 SECRETS_EXAMPLE="$CONSOLE_DIR/10-secrets.yaml.example"
@@ -28,7 +31,7 @@ SECRETS_FILE="$CONSOLE_DIR/10-secrets.yaml"
 # All writes are best-effort (python3 -c) so no behavior change if it fails.
 # ---------------------------------------------------------------------------
 
-STATE_FILE="$SCRIPT_DIR/.console-deploy-state.json"
+STATE_FILE="$VSS_INSTANCE_DIR/.console-deploy-state.json"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 IMAGE_TAG=""
 NAMESPACE_READY=false
@@ -72,7 +75,7 @@ write_state "" ""
 
 NODE_IP="${NODE_IP:-}"
 if [ -z "$NODE_IP" ]; then
-  ENV_FILE="$SCRIPT_DIR/.stack-state.env"
+  ENV_FILE="$VSS_STATE_FILE"
   if [ -f "$ENV_FILE" ]; then
     # shellcheck source=/dev/null
     source "$ENV_FILE"
