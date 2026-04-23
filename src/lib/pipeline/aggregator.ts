@@ -809,11 +809,11 @@ function buildEdges(
   // kafka → alert-worker (consume)
   edge("kafka", "alert-worker", "Kafka", null, "unknown");
 
-  // alert-worker → alerts-redis
-  const alertRedisUp = nodeMap["alerts-redis"]?.redis?.up;
+  // alert-worker → vst-redis (alerts reuses the VST Redis for cooldown state)
+  const alertRedisUp = nodeMap["vst-redis"]?.redis?.up;
   edge(
     "alert-worker",
-    "alerts-redis",
+    "vst-redis",
     "Redis",
     null,
     alertRedisUp === true ? "flowing" : alertRedisUp === false ? "error" : "unknown"
@@ -845,7 +845,6 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
     nimState,
     pgState,
     vstRedisState,
-    alertsRedisState,
   ] = await Promise.all([
     collectPods(warnings),
     collectGpus(warnings),
@@ -855,8 +854,10 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
     collectKafka(warnings),
     collectNim(warnings),
     collectPostgres(warnings),
+    // Single Redis — alerts reuses the VST Redis for cooldown state
+    // (k8s/alerts/README.md § "Known gaps"), so there is no separate Redis
+    // in the alerts namespace to probe.
     collectRedis(CLUSTER.vst.namespace, "app=redis", warnings, "VST"),
-    collectRedis("alerts", "app=redis", warnings, "alerts"),
   ]);
 
   // ── Merge pods: worst-health pod wins per node ────────────────────────────
@@ -976,17 +977,6 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
   nodeMap["vst-redis"] = {
     health: vstRedisHealth,
     redis: vstRedisState ?? undefined,
-  };
-
-  const alertsRedisHealth: PipelineHealth =
-    alertsRedisState?.up === true
-      ? "ok"
-      : alertsRedisState?.up === false
-      ? "fail"
-      : "unknown";
-  nodeMap["alerts-redis"] = {
-    health: alertsRedisHealth,
-    redis: alertsRedisState ?? undefined,
   };
 
   // External nodes have no K8s pod but are part of the topology

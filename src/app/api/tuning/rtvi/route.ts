@@ -55,17 +55,28 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
-  // Rollout-restart rtvi-vlm to apply new env
+  // All three keys (NIM_MAX_NUM_SEQS, VLM_NIM_KVCACHE_PERCENT, NIM_MAX_MODEL_LEN)
+  // are env vars on the cosmos-reason2-8b NIM StatefulSet — see
+  // k8s/rtvi/30-nim-cosmos-reason2-8b.yaml containers[0].env. rtvi-vlm does
+  // not consume them, so restarting it would be a no-op.
   try {
-    await rolloutRestart("Deployment", CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.vlmDeployment);
+    await rolloutRestart("StatefulSet", CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.nimStatefulSet);
   } catch (err) {
     return NextResponse.json(
-      { error: `Rollout restart failed: ${String(err)}` },
+      { error: `NIM rollout restart failed: ${String(err)}` },
       { status: 502 }
     );
   }
 
-  await auditLog("tuning-rtvi", `configmap/${CLUSTER.rtvi.runtimeEnvCm}`, { patches: Object.fromEntries(patches) });
+  await auditLog(
+    "tuning-rtvi",
+    `statefulset/${CLUSTER.rtvi.nimStatefulSet}`,
+    { patches: Object.fromEntries(patches) }
+  );
 
-  return NextResponse.json({ ok: true, applied: Object.fromEntries(patches) });
+  return NextResponse.json({
+    ok: true,
+    applied: Object.fromEntries(patches),
+    restarted: `statefulset/${CLUSTER.rtvi.nimStatefulSet}`,
+  });
 }

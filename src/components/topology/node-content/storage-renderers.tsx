@@ -582,17 +582,19 @@ function VstPostgresStatus({ runtimeState }: TabRendererProps) {
   );
 }
 
-// ─── Redis — Status tab (shared shape for vst-redis + alerts-redis) ───────────
+// ─── Redis — Status tab ──────────────────────────────────────────────────────
+// Single Redis node: vst-redis. It backs both the VST internal
+// vst.event topic AND the alert-worker cooldown keys (k8s/alerts/README.md
+// § "Known gaps"). nodeId is left in the signature for symmetry with the
+// other tab renderers.
 
 function RedisStatus(
-  { runtimeState, nodeId }: TabRendererProps
+  { runtimeState, nodeId: _nodeId }: TabRendererProps
 ) {
   const redis: RedisState | undefined = runtimeState?.redis;
 
   const note =
-    nodeId === "vst-redis"
-      ? "Serves vst.event topic — VST internal messaging."
-      : "Alert worker cooldown keys + console storage stats cache.";
+    "Serves vst.event (VST internal) + alert-worker cooldown keys (reused).";
 
   if (!redis) {
     return (
@@ -651,9 +653,6 @@ export const STORAGE_RENDERERS: NodeContentMap = {
     status: (props) => <VstPostgresStatus {...props} />,
   },
   "vst-redis": {
-    status: (props) => <RedisStatus {...props} />,
-  },
-  "alerts-redis": {
     status: (props) => <RedisStatus {...props} />,
   },
 };
