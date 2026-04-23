@@ -136,7 +136,10 @@ spec:
       - operator: Exists
       containers:
       - name: importer
-        image: docker.io/library/busybox:1.36
+        # Needs glibc -- /usr/bin/ctr on the host is dynamically linked
+        # against libdl.so.2, which is absent from musl images (busybox,
+        # alpine). debian:12-slim is ~30 MB and anonymously pullable.
+        image: docker.io/library/debian:12-slim
         command:
         - /bin/sh
         - -c
