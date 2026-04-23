@@ -8,6 +8,7 @@ import { useKiosk } from "@/components/KioskProvider";
 import { Shell } from "@/components/Shell";
 import { RtviTuningForm } from "@/components/tuning/RtviTuningForm";
 import { AlertsTuningForm } from "@/components/tuning/AlertsTuningForm";
+import { VstRecordingForm } from "@/components/tuning/VstRecordingForm";
 import { Loader2, Cpu, AlertTriangle } from "lucide-react";
 
 const PromptResponseSchema = z.object({
@@ -107,6 +108,10 @@ export default function TuningPage() {
 
         <div className="rounded-lg border border-border p-5">
           <AlertsTuningForm />
+        </div>
+
+        <div className="rounded-lg border border-border p-5">
+          <VstRecordingForm />
         </div>
       </div>
     </Shell>
