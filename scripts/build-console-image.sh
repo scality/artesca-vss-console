@@ -146,8 +146,11 @@ spec:
         - |
           set -e
           echo "[importer] using host ctr: \$(/host-ctr --version)"
-          /host-ctr --address /run/containerd/containerd.sock \
-            -n=k8s.io images import /tarball/console-image.tar.gz
+          # ctr import expects a plain tar stream; we ship gzipped to keep
+          # the scp small. gunzip -c is part of debian:12-slim by default.
+          gunzip -c /tarball/console-image.tar.gz \
+            | /host-ctr --address /run/containerd/containerd.sock \
+              -n=k8s.io images import -
           echo "[importer] images now in k8s.io namespace:"
           /host-ctr --address /run/containerd/containerd.sock \
             -n=k8s.io images list | grep -E '^${IMAGE_REPO}:' || true
