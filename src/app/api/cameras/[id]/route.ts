@@ -3,11 +3,12 @@ import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { vstDeleteSensor } from "@/lib/helpers/vst";
 import { auditLog } from "@/lib/helpers/audit";
-import { sshScp, sshExec } from "@/lib/ssh";
 import {
   camsimListCameras,
   camsimDeleteCamera,
   camsimAddCamera,
+  camsimUploadFile,
+  camsimDeleteFile,
   CamsimControlError,
 } from "@/lib/helpers/camsim-control";
 
@@ -53,7 +54,6 @@ export async function PATCH(
     );
   }
 
-  const operator = session.user?.name ?? session.user?.email ?? "unknown";
   const update = parsed.data;
   const warnings: string[] = [];
 
@@ -80,15 +80,16 @@ export async function PATCH(
   const newSource = feed?.fileName ?? current.source;
   const newDescription = update.description ?? current.description;
 
-  // SCP replacement file if one was supplied.
+  // Upload replacement file if one was supplied (control-plane HTTP, no SSH).
   if (feed?.fileName && feed.fileBase64) {
     try {
       const buf = Buffer.from(feed.fileBase64, "base64");
-      await sshScp(buf, `/opt/camera-sim/data/${feed.fileName}`, operator);
+      await camsimUploadFile(feed.fileName, buf);
     } catch (err) {
+      const status = err instanceof CamsimControlError ? err.status : 502;
       return NextResponse.json(
-        { error: `SCP failed: ${String(err)}` },
-        { status: 502 },
+        { error: `Upload failed: ${err instanceof Error ? err.message : String(err)}` },
+        { status },
       );
     }
   }
@@ -153,15 +154,17 @@ export async function DELETE(
   const vstDel = await vstDeleteSensor(id);
   if (!vstDel.ok && vstDel.warning) warnings.push(vstDel.warning);
 
-  // 3. Delete the .ts file from /opt/camera-sim/data/ (best-effort — leaving
-  //    it is harmless, just consumes disk).
+  // 3. Delete the .ts file via control-plane (best-effort — leaving it is
+  //    harmless, just consumes disk).
   if (sourceFile) {
     try {
-      await sshExec(
-        `rm -f /opt/camera-sim/data/${sourceFile.replace(/[^A-Za-z0-9._-]/g, "")}`,
-      );
+      await camsimDeleteFile(sourceFile);
     } catch (err) {
-      warnings.push(`rm ${sourceFile} failed: ${String(err)}`);
+      if (!(err instanceof CamsimControlError && err.status === 404)) {
+        warnings.push(
+          `rm ${sourceFile} failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   }
 

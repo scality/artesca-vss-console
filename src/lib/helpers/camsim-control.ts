@@ -145,3 +145,77 @@ export async function camsimDeleteCamera(name: string): Promise<{
     RESTART_TIMEOUT_MS,
   );
 }
+
+export async function camsimBulkReplace(
+  cameras: Array<{ name: string; source: string; description?: string }>,
+): Promise<{
+  cameras: CamsimControlCamera[];
+  added: string[];
+  removed: string[];
+  restart: { ok: boolean; output: string };
+}> {
+  return call(
+    "/cameras/bulk",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cameras }),
+    },
+    RESTART_TIMEOUT_MS,
+  );
+}
+
+export async function camsimListFiles(): Promise<Array<{ name: string; size: number }>> {
+  const r = await call<{ files: Array<{ name: string; size: number }> }>("/files");
+  return r.files;
+}
+
+/**
+ * Upload a .ts/.mp4 file to /opt/camera-sim/data/<name> on the camera-sim.
+ * Replaces the old SSH+scp flow — the console pod no longer needs SSH keys
+ * mounted. The control-plane writes to a .uploading sidecar then atomic-
+ * renames on completion, so partial failures don't leave stale files.
+ *
+ * Max body size: 512 MiB. For typical 60–300s 4 Mbps clips (~30–150 MB)
+ * we're well under.
+ */
+export async function camsimUploadFile(
+  name: string,
+  body: Buffer,
+): Promise<{ name: string; size: number }> {
+  const url = `${controlBaseUrl()}/files/${encodeURIComponent(name)}`;
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": String(body.byteLength),
+      },
+      // Upload scales with file size — 30s/100MB on local network + margin.
+      signal: AbortSignal.timeout(300_000),
+      // Node fetch accepts a Buffer directly.
+      body: new Uint8Array(body),
+      cache: "no-store",
+    });
+  } catch (err) {
+    throw new CamsimControlError(
+      `Camera-sim upload unreachable at ${url}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+      502,
+    );
+  }
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    throw new CamsimControlError(
+      `Upload ${name} returned HTTP ${resp.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`,
+      resp.status,
+    );
+  }
+  return (await resp.json()) as { name: string; size: number };
+}
+
+export async function camsimDeleteFile(name: string): Promise<void> {
+  await call(`/files/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
