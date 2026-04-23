@@ -26,7 +26,7 @@ able to run the demo from one browser tab, not four tabs plus a terminal.
 
 ## Non-goals
 
-- **Pre-install / AWS provisioning flow** — handled by [`web/`](../web/)
+- **Pre-install / AWS provisioning flow** — handled by [`web/`](../deployer/)
   (port `:5002`), a separate minimal Next.js dashboard that owns the
   pre-flight → EC2 → cloud-init probe → ARTESCA install → GPU Operator
   → VSS phase-ready pod counts view. The Demo Console is strictly
@@ -178,7 +178,7 @@ others are hidden in kiosk mode.
 | `/logs` | — | Log streamer — pick a pod + container → live tail via SSE. Filter regex, pause/resume, download last N lines. Camera-sim `journalctl -fu camera-sim` available via an SSH tail. |
 | `/diagnostics` | — | On-demand runs of `scripts/validate-manifests.sh`, smoke tests per phase, `kubectl get events -A`, `nvidia-smi`, `kubectl top`. **VST Storage panel**: live S3 PUT rate + bytes/sec to `vss-video`, local `vst-video` emptyDir fill % against its 500 GiB limit, segment size distribution (last 200 objects), recorder frame-drop counter, last 20 objects in the bucket with sensor_id / timestamp / size. Results rendered inline. |
 | `/settings` | — | Console-level config: **Network access** sub-panel — CIDR allow-list for `:8800` with add/remove (writes to the EC2 SG via `console-aws` creds + audit log). Kiosk-mode toggle persistence, feature flags, SSH key rotation for camera-sim, inspect current ServiceAccount permissions. |
-| `/about` | — | Build info (git SHA, Next.js / Node versions), links to all docs, list of underlying service URLs, cross-link to the pre-install [`web/`](../web/) dashboard at `:5002`. |
+| `/about` | — | Build info (git SHA, Next.js / Node versions), links to all docs, list of underlying service URLs, cross-link to the pre-install [`web/`](../deployer/) dashboard at `:5002`. |
 
 ## API surface
 
