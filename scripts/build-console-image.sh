@@ -128,7 +128,6 @@ metadata:
   labels:
     app: console-image-import
 spec:
-  ttlSecondsAfterFinished: 120
   backoffLimit: 0
   template:
     spec:
@@ -179,21 +178,31 @@ echo "==> importing into containerd (job $JOB_NAME)"
 scp "${SSH_OPTS[@]}" "$JOB_YAML" "artesca-os@$PUB_IP:/tmp/${JOB_NAME}.yaml" >/dev/null
 ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" "$KUBECTL_REMOTE apply -f /tmp/${JOB_NAME}.yaml" >/dev/null
 
-# Wait for completion (up to 3 min — import is local and fast)
+# Wait for completion (up to 5 min — import is local; slow disk pushes it
+# past 1 min). On failure, dump events + pod logs so we can diagnose.
 if ! ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" \
-    "$KUBECTL_REMOTE wait --for=condition=complete --timeout=180s job/${JOB_NAME} -n default" \
-    >/dev/null 2>&1; then
-  echo "ERROR: image-import Job did not complete. Pod logs:" >&2
+    "$KUBECTL_REMOTE wait --for=condition=complete --timeout=300s job/${JOB_NAME} -n default" 2>&1 | \
+    sed 's/^/    [wait] /' >&2; then
+  echo "ERROR: image-import Job did not complete." >&2
+  echo "--- Job describe ---" >&2
   ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" \
-    "$KUBECTL_REMOTE logs -n default --tail=80 job/${JOB_NAME}" 2>&1 | sed 's/^/    /' >&2 || true
+    "$KUBECTL_REMOTE describe job ${JOB_NAME} -n default" 2>&1 | sed 's/^/    /' >&2 || true
+  echo "--- Pod describe ---" >&2
   ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" \
-    "rm -f /tmp/${JOB_NAME}.yaml /tmp/console-image.tar.gz" >/dev/null 2>&1 || true
+    "$KUBECTL_REMOTE describe pod -l job-name=${JOB_NAME} -n default" 2>&1 | sed 's/^/    /' >&2 || true
+  echo "--- Pod logs ---" >&2
+  ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" \
+    "$KUBECTL_REMOTE logs -l job-name=${JOB_NAME} -n default --tail=200" 2>&1 | sed 's/^/    /' >&2 || true
   exit 1
 fi
 
-# Cleanup remote files.
+# Success — dump the importer log so the operator has visible proof, then
+# delete the Job + tarball explicitly (no TTL race).
+echo "--- importer log ---"
 ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" \
-  "rm -f /tmp/${JOB_NAME}.yaml /tmp/console-image.tar.gz" >/dev/null 2>&1 || true
+  "$KUBECTL_REMOTE logs -l job-name=${JOB_NAME} -n default --tail=50" 2>&1 | sed 's/^/    /' || true
+ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" \
+  "$KUBECTL_REMOTE delete job ${JOB_NAME} -n default --wait=false >/dev/null 2>&1; rm -f /tmp/${JOB_NAME}.yaml /tmp/console-image.tar.gz" >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 # Record the tag so deploy-console.sh can set the kustomize override.
