@@ -7,6 +7,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { runInPod } from "@/lib/k8s";
 import { CLUSTER } from "@/lib/cluster-refs";
+import { getRedis } from "@/lib/redis";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ function makeS3Client(): S3Client {
   });
 }
 
-// ─── In-memory PUT rate cache ─────────────────────────────────────────────────
+// ─── In-memory PUT rate cache (fallback when Redis is unavailable) ────────────
 
 interface BucketSample {
   ts: number;
@@ -30,7 +31,105 @@ interface BucketSample {
   bytes: number;
 }
 
-const putRateCache = new Map<string, BucketSample>();
+const putRateCacheFallback = new Map<string, BucketSample>();
+
+// ─── Redis helpers ────────────────────────────────────────────────────────────
+
+const REDIS_SAMPLE_TTL_S = 120;
+const REDIS_TOTALS_TTL_S = 60;
+const TOTALS_SCAN_CAP = 5_000;
+
+function putRateSampleKey(bucket: string): string {
+  return `console:storage:vst:last-sample:${bucket}`;
+}
+
+function bucketTotalsKey(bucket: string): string {
+  return `console:storage:vst:bucket-totals:${bucket}`;
+}
+
+interface CachedTotals {
+  objectCount: number;
+  bytesTotal: number;
+  cachedAt: number;     // epoch ms
+  truncated: boolean;   // true if the scan was capped at TOTALS_SCAN_CAP
+}
+
+async function readPutRateSample(bucket: string): Promise<BucketSample | null> {
+  const { client } = getRedis();
+  if (!client) return null;
+  try {
+    const raw = await client.get(putRateSampleKey(bucket));
+    if (!raw) return null;
+    return JSON.parse(raw) as BucketSample;
+  } catch {
+    return null;
+  }
+}
+
+async function writePutRateSample(bucket: string, sample: BucketSample): Promise<void> {
+  const { client } = getRedis();
+  if (!client) return;
+  try {
+    await client.set(putRateSampleKey(bucket), JSON.stringify(sample), "EX", REDIS_SAMPLE_TTL_S);
+  } catch {
+    // best-effort
+  }
+}
+
+async function readCachedTotals(bucket: string): Promise<CachedTotals | null> {
+  const { client } = getRedis();
+  if (!client) return null;
+  try {
+    const raw = await client.get(bucketTotalsKey(bucket));
+    if (!raw) return null;
+    return JSON.parse(raw) as CachedTotals;
+  } catch {
+    return null;
+  }
+}
+
+async function writeCachedTotals(bucket: string, totals: CachedTotals): Promise<void> {
+  const { client } = getRedis();
+  if (!client) return;
+  try {
+    await client.set(bucketTotalsKey(bucket), JSON.stringify(totals), "EX", REDIS_TOTALS_TTL_S);
+  } catch {
+    // best-effort
+  }
+}
+
+// ─── Full paginating bucket scan ──────────────────────────────────────────────
+// Counts all objects and sums their sizes. Capped at TOTALS_SCAN_CAP on the
+// very first call (no cached value exists) to bound latency. Writes result to
+// Redis so subsequent calls serve the cache.
+
+async function scanBucketTotals(
+  s3: S3Client,
+  bucket: string,
+  cap: number
+): Promise<{ objectCount: number; bytesTotal: number; truncated: boolean }> {
+  let objectCount = 0;
+  let bytesTotal = 0;
+  let continuationToken: string | undefined;
+
+  do {
+    const resp = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        MaxKeys: 1000,
+        ContinuationToken: continuationToken,
+      })
+    );
+    for (const obj of resp.Contents ?? []) {
+      objectCount++;
+      bytesTotal += obj.Size ?? 0;
+    }
+    continuationToken = resp.NextContinuationToken;
+  } while (continuationToken && objectCount < cap);
+
+  const truncated = !!(continuationToken && objectCount >= cap);
+  return { objectCount, bytesTotal, truncated };
+}
 
 // ─── Response contract type ───────────────────────────────────────────────────
 
@@ -58,11 +157,14 @@ interface VstStorageResponse {
   putRateBytesPerSec: number;
   objectCount: number;
   bytesTotal: number;
+  bucketScanTruncated: boolean;
+  bucketScanStaleSecs: number;
   localCacheFillPercent: number | null;
   segmentSizeKBHistogram: SegmentBucket[];
   segmentDurationSecsP50: number | null;
   segmentDurationSecsP95: number | null;
   frameDropCount: number | null;
+  frameDropRatePerMin: number | null;
   recentObjects: RecentObject[];
   alerts: StorageAlert[];
 }
@@ -102,11 +204,6 @@ function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
   const idx = Math.floor((p / 100) * (sorted.length - 1));
   return sorted[idx];
-}
-
-interface SensorGroup {
-  sensorId: string;
-  objects: Array<{ ts: Date; sizeBytes: number }>;
 }
 
 function parseSensorId(key: string): string {
@@ -187,41 +284,78 @@ async function fetchLocalCacheFill(
   }
 }
 
-// ─── Prometheus frame drop count ─────────────────────────────────────────────
+// ─── Prometheus frame drop count + rate ──────────────────────────────────────
 
-async function fetchFrameDropCount(
+interface FrameDropStats {
+  count: number | null;
+  ratePerMin: number | null;
+}
+
+async function fetchFrameDropStats(
   alerts: StorageAlert[]
-): Promise<number | null> {
-  try {
-    const url = new URL("/api/v1/query", CLUSTER.prometheus.url);
-    url.searchParams.set("query", "max(recorder_frames_dropped_total)");
+): Promise<FrameDropStats> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4_000);
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4_000);
-    const resp = await fetch(url.toString(), { signal: controller.signal });
+  try {
+    const baseUrl = CLUSTER.prometheus.url;
+
+    // Run both queries in parallel
+    const [countResp, rateResp] = await Promise.all([
+      fetch(
+        `${baseUrl}/api/v1/query?query=${encodeURIComponent("max(recorder_frames_dropped_total)")}`,
+        { signal: controller.signal }
+      ),
+      fetch(
+        `${baseUrl}/api/v1/query?query=${encodeURIComponent("sum(rate(recorder_frames_dropped_total[5m]))")}`,
+        { signal: controller.signal }
+      ),
+    ]);
+
     clearTimeout(timer);
 
-    if (!resp.ok) {
-      throw new Error(`Prometheus returned ${resp.status}`);
+    // Parse count
+    let count: number | null = null;
+    if (countResp.ok) {
+      const body = (await countResp.json()) as {
+        data?: { result?: Array<{ value?: [number, string] }> };
+      };
+      const raw = body.data?.result?.[0]?.value?.[1];
+      if (raw !== undefined) {
+        const n = parseFloat(raw);
+        if (!isNaN(n)) count = n;
+      }
     }
 
-    const body = (await resp.json()) as {
-      data?: {
-        result?: Array<{ value?: [number, string] }>;
+    // Parse rate (per-second from Prometheus, convert to per-minute)
+    let ratePerMin: number | null = null;
+    if (rateResp.ok) {
+      const body = (await rateResp.json()) as {
+        data?: { result?: Array<{ value?: [number, string] }> };
       };
-    };
+      const raw = body.data?.result?.[0]?.value?.[1];
+      if (raw !== undefined) {
+        const n = parseFloat(raw);
+        if (!isNaN(n)) ratePerMin = n * 60;
+      }
+    }
 
-    const result = body.data?.result?.[0];
-    if (!result?.value?.[1]) return null;
-    const count = parseFloat(result.value[1]);
-    return isNaN(count) ? null : count;
+    if (count === null && ratePerMin === null) {
+      alerts.push({
+        severity: "warn",
+        message: "Frame drop metrics unavailable — Prometheus scrape failed",
+      });
+    }
+
+    return { count, ratePerMin };
   } catch (err) {
-    console.warn("[storage/vst] frameDropCount unavailable:", String(err));
+    clearTimeout(timer);
+    console.warn("[storage/vst] frameDropStats unavailable:", String(err));
     alerts.push({
       severity: "warn",
       message: "Frame drop count unavailable — Prometheus scrape failed",
     });
-    return null;
+    return { count: null, ratePerMin: null };
   }
 }
 
@@ -234,40 +368,20 @@ export async function GET() {
   const bucket = CLUSTER.s3.bucket;
   const s3 = makeS3Client();
   const alerts: StorageAlert[] = [];
+  const nowMs = Date.now();
 
-  // ── List up to 500 objects sorted by LastModified desc ───────────────────
-  // S3 ListObjectsV2 doesn't support server-side sort; we fetch up to 500 and
-  // sort client-side. "sorted by LastModified desc" for stats means we look at
-  // the most recent 500, which suffices for histograms + segment duration.
-  let allObjects: S3Object[] = [];
-  let objectCount = 0;
-  let bytesTotal = 0;
-  let continuationToken: string | undefined;
+  // ── Stats pass: first page (up to 500) for histogram + recent objects ─────
+  // This is the "sample window" — fast, bounded, feeds per-object analysis.
+  let sampleObjects: S3Object[] = [];
 
   try {
-    // Collect up to 500 for stats. Keep a running total for accurate counts.
-    do {
-      const resp = await s3.send(
-        new ListObjectsV2Command({
-          Bucket: bucket,
-          MaxKeys: 500,
-          ContinuationToken: continuationToken,
-        })
-      );
-
-      for (const obj of resp.Contents ?? []) {
-        objectCount++;
-        bytesTotal += obj.Size ?? 0;
-        // Accumulate first page (up to 500) for per-object analysis
-        if (allObjects.length < 500) {
-          allObjects.push(obj);
-        }
-      }
-      continuationToken = resp.NextContinuationToken;
-
-      // After 500 objects collected for analysis, keep counting but stop storing
-      // (continue loop only for count/bytes totals).
-    } while (continuationToken);
+    const resp = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        MaxKeys: 500,
+      })
+    );
+    sampleObjects = resp.Contents ?? [];
   } catch (err: unknown) {
     const awsErr = err as { name?: string; message?: string; $metadata?: { httpStatusCode?: number } };
     return NextResponse.json(
@@ -276,32 +390,100 @@ export async function GET() {
     );
   }
 
-  // Sort the collected objects by LastModified desc.
-  allObjects.sort((a, b) => {
+  // Sort sample by LastModified desc for recentObjects
+  sampleObjects.sort((a, b) => {
     const ta = a.LastModified?.getTime() ?? 0;
     const tb = b.LastModified?.getTime() ?? 0;
     return tb - ta;
   });
 
-  // ── PUT rate (in-memory delta against previous sample) ────────────────────
-  const nowMs = Date.now();
-  const prev = putRateCache.get(bucket);
+  // ── Totals pass: paginating scan, Redis-cached ────────────────────────────
+  // Read cached totals. If fresh (< REDIS_TOTALS_TTL_S), serve them.
+  // If stale or missing, either block (first ever call) or revalidate in bg.
+  let objectCount = 0;
+  let bytesTotal = 0;
+  let bucketScanTruncated = false;
+  let bucketScanStaleSecs = 0;
+
+  const cached = await readCachedTotals(bucket);
+
+  if (cached) {
+    // Stale-while-revalidate: serve the cache, kick off a background refresh.
+    objectCount = cached.objectCount;
+    bytesTotal = cached.bytesTotal;
+    bucketScanTruncated = cached.truncated;
+    bucketScanStaleSecs = Math.round((nowMs - cached.cachedAt) / 1000);
+
+    // Background refresh (do not await — caller gets the stale value)
+    scanBucketTotals(s3, bucket, Infinity)
+      .then((result) => {
+        const totals: CachedTotals = {
+          objectCount: result.objectCount,
+          bytesTotal: result.bytesTotal,
+          cachedAt: Date.now(),
+          truncated: result.truncated,
+        };
+        return writeCachedTotals(bucket, totals);
+      })
+      .catch((err) => {
+        console.warn("[storage/vst] background totals scan failed:", String(err));
+      });
+  } else {
+    // First call — block on a capped scan to bound latency.
+    try {
+      const result = await scanBucketTotals(s3, bucket, TOTALS_SCAN_CAP);
+      objectCount = result.objectCount;
+      bytesTotal = result.bytesTotal;
+      bucketScanTruncated = result.truncated;
+      bucketScanStaleSecs = 0;
+
+      // Persist for next call (TTL = REDIS_TOTALS_TTL_S)
+      await writeCachedTotals(bucket, {
+        objectCount,
+        bytesTotal,
+        cachedAt: nowMs,
+        truncated: bucketScanTruncated,
+      });
+    } catch (err: unknown) {
+      // Non-fatal — fall back to sample count from the stats pass
+      console.warn("[storage/vst] totals scan failed, using sample count:", String(err));
+      objectCount = sampleObjects.length;
+      bytesTotal = sampleObjects.reduce((s, o) => s + (o.Size ?? 0), 0);
+      bucketScanTruncated = true;
+      bucketScanStaleSecs = 0;
+    }
+  }
+
+  // ── PUT rate (Redis-backed, in-memory fallback) ───────────────────────────
   let putRateObjectsPerSec = 0;
   let putRateBytesPerSec = 0;
 
-  if (prev) {
-    const deltaS = (nowMs - prev.ts) / 1000;
+  // Try Redis first
+  let prevSample = await readPutRateSample(bucket);
+
+  // Fall back to in-memory map if Redis missed
+  if (!prevSample) {
+    prevSample = putRateCacheFallback.get(bucket) ?? null;
+  }
+
+  if (prevSample) {
+    const deltaS = (nowMs - prevSample.ts) / 1000;
     if (deltaS > 0) {
-      const deltaObjects = Math.max(0, objectCount - prev.count);
-      const deltaBytes = Math.max(0, bytesTotal - prev.bytes);
+      const deltaObjects = Math.max(0, objectCount - prevSample.count);
+      const deltaBytes = Math.max(0, bytesTotal - prevSample.bytes);
       putRateObjectsPerSec = deltaObjects / deltaS;
       putRateBytesPerSec = deltaBytes / deltaS;
     }
   }
-  putRateCache.set(bucket, { ts: nowMs, count: objectCount, bytes: bytesTotal });
 
-  // ── Segment size histogram (last 200 objects) ─────────────────────────────
-  const sampleForHistogram = allObjects.slice(0, 200);
+  const currentSample: BucketSample = { ts: nowMs, count: objectCount, bytes: bytesTotal };
+
+  // Write to Redis (best-effort) and update in-memory fallback
+  await writePutRateSample(bucket, currentSample);
+  putRateCacheFallback.set(bucket, currentSample);
+
+  // ── Segment size histogram (last 200 objects from sample) ─────────────────
+  const sampleForHistogram = sampleObjects.slice(0, 200);
   const segmentSizeKBHistogram = buildSizeHistogram(sampleForHistogram);
 
   // ── Segment duration P50 / P95 ────────────────────────────────────────────
@@ -310,7 +492,7 @@ export async function GET() {
 
   // ── Recent objects (last 20) ──────────────────────────────────────────────
   const nowSec = nowMs / 1000;
-  const recentObjects: RecentObject[] = allObjects.slice(0, 20).map((obj) => {
+  const recentObjects: RecentObject[] = sampleObjects.slice(0, 20).map((obj) => {
     const key = obj.Key ?? "";
     const ts = obj.LastModified?.toISOString() ?? "";
     const ageSecs = obj.LastModified ? nowSec - obj.LastModified.getTime() / 1000 : 0;
@@ -325,7 +507,6 @@ export async function GET() {
 
   // ── Additional alerts ─────────────────────────────────────────────────────
 
-  // No recordings after >5 min uptime
   if (objectCount === 0) {
     alerts.push({
       severity: "info",
@@ -333,7 +514,6 @@ export async function GET() {
     });
   }
 
-  // Unusual segment duration (expected ~10 s, warn if P50 outside 2–50 s)
   if (
     segmentDurationSecsP50 !== null &&
     (segmentDurationSecsP50 < 2 || segmentDurationSecsP50 > 50)
@@ -344,10 +524,10 @@ export async function GET() {
     });
   }
 
-  // ── Fan-out: local cache fill + frame drop count ──────────────────────────
-  const [localCacheFillPercent, frameDropCount] = await Promise.all([
+  // ── Fan-out: local cache fill + frame drop stats ──────────────────────────
+  const [localCacheFillPercent, frameDropStats] = await Promise.all([
     fetchLocalCacheFill(alerts),
-    fetchFrameDropCount(alerts),
+    fetchFrameDropStats(alerts),
   ]);
 
   const response: VstStorageResponse = {
@@ -355,11 +535,14 @@ export async function GET() {
     putRateBytesPerSec,
     objectCount,
     bytesTotal,
+    bucketScanTruncated,
+    bucketScanStaleSecs,
     localCacheFillPercent,
     segmentSizeKBHistogram,
     segmentDurationSecsP50,
     segmentDurationSecsP95,
-    frameDropCount,
+    frameDropCount: frameDropStats.count,
+    frameDropRatePerMin: frameDropStats.ratePerMin,
     recentObjects,
     alerts,
   };

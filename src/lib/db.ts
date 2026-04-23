@@ -60,6 +60,37 @@ export function getDb(): Database.Database {
 
 // ─── Audit log ────────────────────────────────────────────────────────────────
 
+export interface AuditLogRow {
+  action: string;
+  target: string;
+  ts: string;
+  operator: string;
+  agoSecs: number;
+  detailsJson: string;
+}
+
+export function readLastAuditLog(action: string): AuditLogRow | null {
+  const db = getDb();
+  const row = db
+    .prepare(
+      "SELECT action, target, ts, operator, details_json FROM audit_log WHERE action = ? ORDER BY ts DESC LIMIT 1"
+    )
+    .get(action) as
+    | { action: string; target: string; ts: string; operator: string; details_json: string }
+    | undefined;
+
+  if (!row) return null;
+  const agoSecs = Math.round((Date.now() - new Date(row.ts).getTime()) / 1000);
+  return {
+    action: row.action,
+    target: row.target,
+    ts: row.ts,
+    operator: row.operator,
+    agoSecs,
+    detailsJson: row.details_json,
+  };
+}
+
 export async function appendAuditLog(entry: {
   operator: string;
   action: string;
