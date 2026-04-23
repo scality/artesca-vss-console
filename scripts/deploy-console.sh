@@ -25,6 +25,16 @@ CONSOLE_DIR="$REPO_ROOT/k8s/console"
 SECRETS_EXAMPLE="$CONSOLE_DIR/10-secrets.yaml.example"
 SECRETS_FILE="$CONSOLE_DIR/10-secrets.yaml"
 
+# Laptop-side kubectl — apiserver :6443 isn't laptop-reachable, so fetch
+# admin.conf over SSH and tunnel through. Same pattern as deploy-all.sh.
+# Teardown is folded into on_exit (set below) so we don't stomp on traps.
+# shellcheck source=lib-kubectl.sh
+source "$SCRIPT_DIR/lib-kubectl.sh"
+if [[ -f "$VSS_STATE_FILE" ]]; then
+  # shellcheck source=/dev/null
+  source "$VSS_STATE_FILE"
+fi
+
 # ---------------------------------------------------------------------------
 # State file — read by web/lib/console-deploy.ts to surface stage outcome.
 # Minimal JSON: startedAt / finishedAt / exitCode plus a few progress hints.
@@ -60,14 +70,25 @@ with open(path, "w") as f:
 PY
 }
 
+OVERLAY_DIR=""
 on_exit() {
   local code=$?
+  [[ -n "$OVERLAY_DIR" ]] && rm -rf "$OVERLAY_DIR"
   write_state "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$code"
+  type teardown_laptop_kubectl >/dev/null 2>&1 && teardown_laptop_kubectl 2>/dev/null || true
 }
 trap on_exit EXIT
 
 # Mark "running" immediately so the dashboard sees active state.
 write_state "" ""
+
+# Open the SSH tunnel + kubeconfig once the state-file trap is in place.
+if [[ -n "${PUB_IP:-}" ]]; then
+  if ! setup_laptop_kubectl >/dev/null; then
+    echo "FATAL: laptop kubectl setup failed. See stderr above." >&2
+    exit 1
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Node IP resolution
@@ -211,6 +232,9 @@ fi
 # Apply the secrets (pre-apply required; kustomize skips non-kustomization files)
 # ---------------------------------------------------------------------------
 
+echo "==> ensuring namespace (Secrets target ns: console)"
+kubectl apply -f "$CONSOLE_DIR/00-namespace.yaml"
+
 echo "==> applying Secrets"
 kubectl apply -f "$SECRETS_FILE"
 
@@ -240,7 +264,7 @@ LOCAL_IMAGE_NAME="console.local"
 
 echo "==> applying kustomize stack (image override: ${LOCAL_IMAGE_NAME}:${LOCAL_IMAGE_TAG})"
 OVERLAY_DIR="$(mktemp -d -t console-overlay-XXXXXX)"
-trap 'rm -rf "$OVERLAY_DIR"' EXIT
+# on_exit handles cleanup — no separate trap here.
 cat > "$OVERLAY_DIR/kustomization.yaml" <<YAML
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
