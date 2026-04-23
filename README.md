@@ -1,4 +1,4 @@
-# Demo Console — `:8800`
+# Demo Console — `:8800` (local dev `:5003`)
 
 Operator console for the ARTESCA × Pyramid × NVIDIA VSS stack. Single-pane-of-glass for service status, live metrics, camera management, scenario editing, VLM prompt tuning, and incident playback.
 
@@ -10,7 +10,7 @@ Deploys as a K8s `Deployment` in namespace `console` on the ARTESCA MetalK8s nod
 cd console
 cp .env.example .env.local   # fill in values
 npm install
-npm run dev                  # http://localhost:8800
+npm run dev                  # http://localhost:5003
 ```
 
 The app starts without external services configured. Missing `KAFKA_BROKERS`, `REDIS_URL`, or `CAMERA_SIM_HOST` return degraded/disconnected states — no crash.
@@ -19,7 +19,7 @@ The app starts without external services configured. Missing `KAFKA_BROKERS`, `R
 
 ```bash
 npm run build   # next build --standalone
-npm start       # serves :8800 from .next/standalone
+npm start       # serves :8800 from .next/standalone (prod / in-cluster pod)
 ```
 
 ## Docker
