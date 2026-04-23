@@ -70,10 +70,8 @@ export const FeedNode = memo(function FeedNode({ data, selected }: NodeProps) {
     if (parts.length > 0) subLabel = parts.join(" · ");
   }
 
-  // Truncate label to ~14 chars for pill display
-  const displayLabel = label.length > 14 ? `${label.slice(0, 13)}…` : label;
-  // sensorId as tooltip when populated and differs from label
-  const titleHint = sensorId && sensorId !== label ? sensorId : undefined;
+  // Full sensor ID as tooltip — CSS handles overflow truncation.
+  const titleHint = sensorId ?? label;
 
   return (
     <div
@@ -85,7 +83,7 @@ export const FeedNode = memo(function FeedNode({ data, selected }: NodeProps) {
       ]
         .filter(Boolean)
         .join(" ")}
-      style={{ minWidth: "140px", height: "40px" }}
+      style={{ width: "160px", height: "40px" }}
     >
       <Handle type="target" position={Position.Left} className="!bg-border" />
 
@@ -94,7 +92,7 @@ export const FeedNode = memo(function FeedNode({ data, selected }: NodeProps) {
         <Video className="h-3 w-3 shrink-0 text-muted-foreground" />
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT_CLASS[dotVariant]}`} />
         <span className="text-[10px] font-semibold font-mono leading-tight truncate">
-          {displayLabel}
+          {label}
         </span>
       </div>
 

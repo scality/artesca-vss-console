@@ -167,6 +167,7 @@ function mergeTopologyEdges(
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React from "react";
+import { Loader2, AlertTriangle } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Page
@@ -249,7 +250,7 @@ export default function TopologyPage() {
   });
 
   // ── Topology structure (nodes + edges) — poll every 3 s ──────────────────
-  const { data: topologyPayload } = useQuery<TopologyPayload>({
+  const { data: topologyPayload, isError: topologyError, isFetching: topologyFetching } = useQuery<TopologyPayload>({
     queryKey: ["topology"],
     queryFn: async () => {
       const res = await fetch("/api/topology");
@@ -259,6 +260,13 @@ export default function TopologyPage() {
     refetchInterval: 3_000,
     staleTime: 0,
   });
+
+  // Track whether we've ever received a non-empty topology response.
+  // Used to distinguish "first load in progress" from "confirmed failure".
+  const everReceivedNodes = useRef(false);
+  if ((topologyPayload?.nodes?.length ?? 0) > 0) {
+    everReceivedNodes.current = true;
+  }
 
   // Merge structure + live runtime into React Flow nodes + edges.
   // Track the previous node-id set so we can release sparkline buffers for
@@ -314,7 +322,7 @@ export default function TopologyPage() {
           </div>
         </div>
 
-        <div className="flex-1" style={{ minHeight: "calc(100vh - 8rem)" }}>
+        <div className="flex-1 relative" style={{ minHeight: "calc(100vh - 8rem)" }}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -342,6 +350,29 @@ export default function TopologyPage() {
               className="!bg-card !border-border"
             />
           </ReactFlow>
+
+          {/* Empty / loading state — shown only while the canvas has no nodes */}
+          {nodes.length === 0 && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              {/* Don't gate on !topologyFetching — React Query retries flip
+                  isFetching back to true during each retry attempt, which
+                  would otherwise mask the error state behind a spinner for
+                  the full retry window (~30 s). Showing the error as soon
+                  as one attempt has failed + no prior data is the honest
+                  signal. */}
+              {topologyError && !everReceivedNodes.current ? (
+                <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                  <AlertTriangle className="h-5 w-5 text-amber-500/70" />
+                  <span className="text-sm">Topology unavailable — retrying</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin opacity-50" />
+                  <span className="text-sm">Connecting to pipeline…</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

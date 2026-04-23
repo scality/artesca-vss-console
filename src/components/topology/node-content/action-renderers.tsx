@@ -7,6 +7,7 @@
 import * as React from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import { RotateCw, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -263,7 +264,8 @@ function RolloutRestartRenderer({ componentKey }: RolloutRestartRendererProps) {
   if (!isKnown) {
     return (
       <div className="space-y-2">
-        <Button variant="destructive" size="sm" disabled className="w-full">
+        <Button variant="outline" size="sm" disabled className="w-full">
+          <RotateCw className="mr-1.5 h-3.5 w-3.5" />
           Restart
         </Button>
         <p className="text-xs text-muted-foreground">
@@ -282,11 +284,13 @@ function RolloutRestartRenderer({ componentKey }: RolloutRestartRendererProps) {
         </p>
         <div className="flex gap-2">
           <Button
-            variant="destructive"
+            variant="outline"
             size="sm"
             disabled={mutation.isPending}
             onClick={() => mutation.mutate()}
+            className="border-amber-500 text-amber-600 hover:bg-amber-500/10 hover:text-amber-600"
           >
+            <RotateCw className="mr-1.5 h-3.5 w-3.5" />
             {mutation.isPending ? "Restarting…" : "Confirm"}
           </Button>
           <Button
@@ -305,11 +309,12 @@ function RolloutRestartRenderer({ componentKey }: RolloutRestartRendererProps) {
   return (
     <div className="space-y-2">
       <Button
-        variant="destructive"
+        variant="outline"
         size="sm"
         onClick={() => setConfirm(true)}
-        className="w-full"
+        className="w-full border-amber-500 text-amber-600 hover:bg-amber-500/10 hover:text-amber-600"
       >
+        <RotateCw className="mr-1.5 h-3.5 w-3.5" />
         Restart
       </Button>
       <p className="text-xs text-muted-foreground">
@@ -551,7 +556,8 @@ export function FeedActionsRenderer({ nodeId, runtimeState }: TabRendererProps) 
         <p className="text-xs font-medium">RTSP URL</p>
         <div className="flex items-center gap-2">
           <span className="text-xs font-mono text-muted-foreground truncate flex-1">{rtspUrl}</span>
-          <Button variant="outline" size="sm" onClick={copyRtsp}>
+          <Button variant="ghost" size="sm" onClick={copyRtsp}>
+            <Copy className="mr-1 h-3.5 w-3.5" />
             Copy
           </Button>
         </div>
