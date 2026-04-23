@@ -89,9 +89,9 @@ interface RecentObject {
 }
 
 function RecentObjectsTable({ objects }: { objects: RecentObject[] }) {
-  const rows = objects.slice(0, 10);
+  const rows = objects.slice(0, 6);
   return (
-    <div className="max-h-52 overflow-y-auto">
+    <div className="max-h-40 overflow-y-auto">
       <Table>
         <TableHeader>
           <TableRow>
@@ -283,46 +283,47 @@ function ArtescaS3Status({ runtimeState }: TabRendererProps) {
 
   return (
     <div className="space-y-4">
-      {/* Bucket scan truncated alert */}
-      {s3.bucketScanTruncated && (
-        <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-          <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-          <span>Object count is an estimate — full scan truncated at 5 000 objects.</span>
-        </div>
-      )}
+      {/* Primary: PUT rate headline */}
+      <div className="rounded-lg border border-border bg-muted/10 px-4 py-3">
+        <p className="text-xs text-muted-foreground mb-1">PUT rate</p>
+        <p className="text-3xl font-mono font-semibold leading-none">
+          {putRateMBps}
+          <span className="text-base font-normal text-muted-foreground ml-1">MB/s</span>
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">{putRateObjMin} obj/min</p>
+        {/* Sparkline deferred to Phase 7 — shows instantaneous rate only */}
+      </div>
 
-      {/* Key metrics */}
+      {/* Supporting stats */}
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-lg border border-border bg-muted/10 p-3 space-y-0.5">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Objects</p>
-          <p className="text-2xl font-mono font-semibold">{s3.objectCount.toLocaleString()}</p>
-          <p className="text-xs text-muted-foreground">{totalGiB} GiB total</p>
+          <p className="text-xs text-muted-foreground">Objects</p>
+          <p className="text-xl font-mono font-semibold">{s3.objectCount.toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground">{totalGiB} GiB</p>
         </div>
-        <div className="rounded-lg border border-border bg-muted/10 p-3 space-y-0.5">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">PUT rate</p>
-          <p className="text-2xl font-mono font-semibold">
-            {putRateMBps}
-            <span className="text-sm font-normal text-muted-foreground ml-1">MB/s</span>
-          </p>
-          <p className="text-xs text-muted-foreground">{putRateObjMin} obj/min</p>
-          {/* Sparkline deferred to Phase 7 — shows instantaneous rate only */}
+        {/* Ceiling gauge — reads ceilingGiB from runtime.s3.ceilingGiB */}
+        <div className="rounded-lg border border-border bg-muted/10 p-3">
+          <CeilingGauge s3={s3} />
         </div>
       </div>
 
-      {/* Ceiling gauge — reads ceilingGiB from runtime.s3.ceilingGiB */}
-      <CeilingGauge s3={s3} />
-
-      {/* Scan freshness */}
-      <p className="text-xs text-muted-foreground">
-        Totals refreshed {s3.bucketScanStaleSecs}s ago
-      </p>
-
       {/* Recent objects */}
-      <div>
-        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-          Recent objects
-        </h4>
+      <div className="border-t border-border pt-3">
+        <h4 className="text-sm font-semibold mb-2">Recent objects</h4>
         <RecentObjectsFromRuntime s3={s3} />
+      </div>
+
+      {/* Meta: scan freshness + truncation notice — de-emphasized */}
+      <div className="space-y-1">
+        <p className="text-xs text-muted-foreground">
+          Totals refreshed {s3.bucketScanStaleSecs}s ago
+          {s3.bucketScanTruncated && (
+            <span className="ml-2 inline-flex items-center gap-1">
+              <Info className="h-3 w-3 shrink-0" />
+              count estimated (scan truncated at 5 000)
+            </span>
+          )}
+        </p>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { BaseEdge, getStraightPath, EdgeLabelRenderer } from "@xyflow/react";
+import { BaseEdge, getSmoothStepPath, EdgeLabelRenderer } from "@xyflow/react";
 import type { EdgeProps } from "@xyflow/react";
 import type { EdgeRuntimeState } from "@/lib/types/pipeline";
 
@@ -81,11 +81,12 @@ export const ConnectionEdge = memo(function ConnectionEdge({
     ? runtime.label
     : staticLabel;
 
-  const [edgePath, labelX, labelY] = getStraightPath({
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     targetX,
     targetY,
+    borderRadius: 8,
   });
 
   return (
@@ -117,15 +118,13 @@ export const ConnectionEdge = memo(function ConnectionEdge({
         >
           <span
             title={runtime?.errorHint}
-            className="rounded px-1.5 py-0.5 text-[9px] font-medium leading-tight"
+            className="rounded border border-border bg-background px-1.5 py-0.5 text-xs font-medium leading-tight"
             style={{
-              backgroundColor: `${strokeColor}22`,
               color: health === "error"
                 ? "hsl(0 84% 70%)"
                 : health === "flowing"
                   ? "hsl(217 91% 75%)"
-                  : "hsl(215 20% 65%)",
-              border: `1px solid ${strokeColor}55`,
+                  : "hsl(var(--foreground))",
               cursor: runtime?.errorHint ? "help" : "default",
               display: "inline-flex",
               alignItems: "center",

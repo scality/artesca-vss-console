@@ -368,25 +368,54 @@ function NimStatus({ runtimeState }: { runtimeState?: NodeRuntimeState }) {
       <PodStatusBlock pod={runtimeState?.pod} />
       <GpuBlock gpu={runtimeState?.gpu} label="GPU 0" />
       {nim && (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm mt-2">
-          <dt className="text-muted-foreground">Model</dt>
-          <dd className="font-mono text-xs truncate">{nim.model}</dd>
-          <dt className="text-muted-foreground">Warmup</dt>
-          <dd>
-            <div className="flex items-center gap-2">
-              <Progress value={nim.warmupPct} className="h-1.5 flex-1" />
-              <span className="text-xs">{nim.warmupPct}%</span>
+        <>
+          {/* Primary: tokens/sec + P95 latency as large stat tiles */}
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <div className="rounded-lg border border-border bg-muted/10 px-3 py-2.5">
+              <p className="text-xs text-muted-foreground mb-1">Tokens / sec</p>
+              <p className="text-3xl font-mono font-semibold leading-none">
+                {nim.tokensPerSec != null ? nim.tokensPerSec.toFixed(1) : "—"}
+                {nim.tokensPerSec != null && (
+                  <span className="text-base font-normal text-muted-foreground ml-1">tok/s</span>
+                )}
+              </p>
             </div>
-          </dd>
-          <dt className="text-muted-foreground">Tok/s</dt>
-          <dd>{nim.tokensPerSec != null ? nim.tokensPerSec.toFixed(1) : "—"}</dd>
-          <dt className="text-muted-foreground">P50 lat</dt>
-          <dd>{nim.inferenceLatencyP50Ms != null ? `${nim.inferenceLatencyP50Ms.toFixed(0)} ms` : "—"}</dd>
-          <dt className="text-muted-foreground">P95 lat</dt>
-          <dd>{nim.inferenceLatencyP95Ms != null ? `${nim.inferenceLatencyP95Ms.toFixed(0)} ms` : "—"}</dd>
-          <dt className="text-muted-foreground">Queue</dt>
-          <dd>{nim.queueDepth != null ? nim.queueDepth : "—"}</dd>
-        </dl>
+            <div className="rounded-lg border border-border bg-muted/10 px-3 py-2.5">
+              <p className="text-xs text-muted-foreground mb-1">P95 latency</p>
+              <p className="text-3xl font-mono font-semibold leading-none">
+                {nim.inferenceLatencyP95Ms != null ? nim.inferenceLatencyP95Ms.toFixed(0) : "—"}
+                {nim.inferenceLatencyP95Ms != null && (
+                  <span className="text-base font-normal text-muted-foreground ml-1">ms</span>
+                )}
+              </p>
+              {nim.queueDepth != null && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  queue: {nim.queueDepth}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Secondary: model context, warmup, P50 */}
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+            <dt className="text-muted-foreground">Model</dt>
+            <dd className="font-mono text-xs truncate">{nim.model}</dd>
+            <dt className="text-muted-foreground">Warmup</dt>
+            <dd>
+              <div className="flex items-center gap-2">
+                <Progress value={nim.warmupPct} className="h-1.5 flex-1" />
+                <span className="text-xs">{nim.warmupPct}%</span>
+              </div>
+            </dd>
+            <dt className="text-muted-foreground">P50 lat</dt>
+            <dd className="text-muted-foreground">
+              {nim.inferenceLatencyP50Ms != null ? `${nim.inferenceLatencyP50Ms.toFixed(0)} ms` : "—"}
+            </dd>
+          </dl>
+
+          {/* Muted supporting text */}
+          <p className="text-xs text-muted-foreground">GPU 0 · swap model in /prompt</p>
+        </>
       )}
       {!nim && <p className="text-sm text-muted-foreground">NIM metrics unavailable.</p>}
     </div>

@@ -14,6 +14,10 @@ export interface ServiceNodeData {
   [key: string]: unknown;
 }
 
+// Health ring colour only — ring WIDTH is applied conditionally below so that
+// the selection ring (ring-2) deterministically wins over the health ring (ring-1).
+// Stacking both widths on the same element leaves the winner to stylesheet ordering,
+// which is non-deterministic and was swallowing the selection indicator.
 const HEALTH_RING: Record<Health, string> = {
   ok: "ring-green-500 bg-green-500/10",
   warn: "ring-yellow-500 bg-yellow-500/10",
@@ -37,13 +41,16 @@ export const ServiceNode = memo(function ServiceNode({
 
   return (
     <div
-      className={`
-        rounded-lg border ring-1 px-3 py-2 min-w-[120px] cursor-pointer
-        bg-card border-border text-foreground shadow-md
-        ${HEALTH_RING[health]}
-        ${selected ? "ring-2 ring-primary" : ""}
-        transition-all
-      `}
+      className={[
+        "rounded-lg border px-3 py-2 min-w-[120px] cursor-pointer",
+        "bg-card border-border text-foreground shadow-md transition-all",
+        HEALTH_RING[health],
+        selected
+          ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
+          : "ring-1",
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       <Handle type="target" position={Position.Left} className="!bg-border" />
 
