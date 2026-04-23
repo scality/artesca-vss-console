@@ -283,18 +283,41 @@ LOCAL_IMAGE_NAME="console.local"
 # ---------------------------------------------------------------------------
 
 echo "==> applying kustomize stack (image override: ${LOCAL_IMAGE_NAME}:${LOCAL_IMAGE_TAG})"
-# Render the base, then patch two things in-memory:
+# Render the base, then patch three things in-memory:
 #   1. console Deployment container: image -> local tag + Never
 #   2. console-data PV nodeAffinity: hostname placeholder -> live node
+#   3. console-env ConfigMap: CAMERA_SIM_HOST placeholder -> camera-sim EIP
 # Avoids kustomize's "new root cannot be absolute" issue when overlay
 # resources: point outside the overlay directory.
 IMAGE_REPO="${LOCAL_IMAGE_NAME}:${LOCAL_IMAGE_TAG}"
 NODE_HOSTNAME="$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')"
+
+# Camera-sim substitution. The console talks to the camera-sim's control
+# plane on :8080 and mediamtx API on :9997; both need the EC2 public IP.
+# Source: scripts/camera-sim-instances/<camsim>/.camera-sim-state.env (PUB_IP).
+CAMSIM_INSTANCE_NAME="${CAMSIM_INSTANCE:-main}"
+CAMSIM_STATE="$SCRIPT_DIR/camera-sim-instances/$CAMSIM_INSTANCE_NAME/.camera-sim-state.env"
+CAMSIM_PUB_IP=""
+if [[ -f "$CAMSIM_STATE" ]]; then
+  # shellcheck disable=SC1090
+  CAMSIM_PUB_IP="$(awk -F= '/^PUB_IP=/{print $2; exit}' "$CAMSIM_STATE")"
+fi
+if [[ -z "$CAMSIM_PUB_IP" ]]; then
+  echo "WARN: no camera-sim PUB_IP found at $CAMSIM_STATE" >&2
+  echo "      Launch a camera-sim first (scripts/launch-camera-sim.sh) or set" >&2
+  echo "      CAMSIM_INSTANCE to point at an existing one. The console's" >&2
+  echo "      Cameras page will show an error until CAMERA_SIM_HOST is set." >&2
+  CAMSIM_PUB_IP="<camera-sim-public-ip>"
+else
+  echo "==> camera-sim=$CAMSIM_INSTANCE_NAME pub IP=$CAMSIM_PUB_IP"
+fi
+
 kubectl kustomize "$CONSOLE_DIR" \
   | python3 -c '
 import sys, yaml
 new_image = sys.argv[1]
 node_hostname = sys.argv[2]
+camsim_pub_ip = sys.argv[3]
 docs = list(yaml.safe_load_all(sys.stdin))
 for d in docs:
     if not d:
@@ -311,8 +334,14 @@ for d in docs:
             for expr in t.get("matchExpressions", []):
                 if expr.get("key") == "kubernetes.io/hostname":
                     expr["values"] = [node_hostname]
+    elif kind == "ConfigMap" and name == "console-env":
+        data = d.setdefault("data", {})
+        # Only substitute if the committed value is still the placeholder —
+        # dont clobber an operator override.
+        if data.get("CAMERA_SIM_HOST") in (None, "<camera-sim-public-ip>", ""):
+            data["CAMERA_SIM_HOST"] = camsim_pub_ip
 yaml.safe_dump_all([d for d in docs if d], sys.stdout, default_flow_style=False)
-' "$IMAGE_REPO" "$NODE_HOSTNAME" \
+' "$IMAGE_REPO" "$NODE_HOSTNAME" "$CAMSIM_PUB_IP" \
   | kubectl apply -f -
 
 # Resolve the image tag used by the just-applied manifest for the state file.

@@ -3,28 +3,27 @@ import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { vstListSensors } from "@/lib/helpers/vst";
 import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
-import { patchConfigMapKey, readConfigMapKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
-import { sshScp, sshExec } from "@/lib/ssh";
-import { batchV1 } from "@/lib/k8s";
-import { CLUSTER } from "@/lib/cluster-refs";
+import { sshScp } from "@/lib/ssh";
 import type { Camera, Feed } from "@/lib/types";
-import { CameraSchema, FeedSchema } from "@/lib/schemas";
+import {
+  camsimListCameras,
+  camsimAddCamera,
+  controlPlaneHost,
+  CamsimControlError,
+} from "@/lib/helpers/camsim-control";
 
-// Real cameras.yaml schema (k8s/pyramid-ingress/11-configmap-cameras.yaml):
-//   cameras:
-//     - name: checkout-1          ← maps to Camera.id
-//       source: euroshop.ts       ← maps to Feed.source (single feed per camera)
-//       description: "..."
+// The camera-sim's control-plane API (http://<camera-sim>:8080) is the
+// authoritative source for cameras.yaml — it owns the YAML, triggers the
+// restart, and its POST /cameras is idempotent. VST registration status
+// and mediamtx "is the stream actually flowing" status are best-effort
+// enrichment layered on top.
 //
-// The console UI model has cameras with multiple feeds; the real cluster has
-// one source-file per camera entry.  We bridge by treating each camera entry
-// as a single-feed camera where feed.id = "default" and feed.source = entry.source.
-type RealCameraEntry = {
-  name: string;
-  source: string;
-  description?: string;
-};
+// Old orchestration (SCP + patch ConfigMap "cameras" in pyramid-ingress +
+// ssh systemctl restart + create register-cameras Job) is gone. The k8s
+// ConfigMap approach couldn't tell whether the camera-sim had actually
+// picked up the change — now we know because the control-plane returns
+// the restart exit code inline.
 
 export const dynamic = "force-dynamic";
 
@@ -32,212 +31,159 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const warnings: string[] = [];
+
+  let eip = "";
+  try {
+    eip = controlPlaneHost();
+  } catch (err) {
+    return NextResponse.json(
+      {
+        cameras: [],
+        eip: "",
+        warnings: [
+          err instanceof Error ? err.message : String(err),
+          "Set CAMERA_SIM_HOST in the console-env ConfigMap and rollout restart deploy/console.",
+        ],
+      },
+      { status: 200 },
+    );
+  }
+
+  let entries: Awaited<ReturnType<typeof camsimListCameras>> = [];
+  try {
+    entries = await camsimListCameras();
+  } catch (err) {
+    const msg =
+      err instanceof CamsimControlError ? err.message : String(err);
+    warnings.push(msg);
+  }
 
   const [vstResult, mtxResult] = await Promise.all([
     vstListSensors(),
     mediamtxListPaths(),
   ]);
-
   if (vstResult.warning) warnings.push(vstResult.warning);
   if (mtxResult.warning) warnings.push(mtxResult.warning);
+  const vstRegistered = new Set(vstResult.sensors.map((s) => s.sensor_id));
+  const mtxReady = new Map(mtxResult.paths.map((p) => [p.name, p.ready]));
 
-  // Build a map of sensorId → vst registered
-  const vstRegisteredIds = new Set(vstResult.sensors.map((s) => s.sensor_id));
+  const cameras: Camera[] = entries.map((e) => {
+    const feed: Feed = {
+      id: "default",
+      sensorId: e.name,
+      source: e.source,
+      rtspUrl: `rtsp://${eip}:8554/${e.name}`,
+      vstRegistered: vstRegistered.has(e.name),
+      replayReady: mtxReady.get(e.name) ?? false,
+    };
+    return {
+      id: e.name,
+      role: "other",
+      description: e.description,
+      feeds: [feed],
+    };
+  });
 
-  // Build a map of pathName → ready from mediamtx
-  const mtxReadyMap = new Map(mtxResult.paths.map((p) => [p.name, p.ready]));
-
-  // Read "cameras" ConfigMap (k8s/pyramid-ingress/11-configmap-cameras.yaml).
-  // Schema: each entry has name (=sensor id), source (=.ts file), description.
-  let cameras: Camera[] = [];
-
-  try {
-    const { value: configData } = await readConfigMapKey<{ cameras?: RealCameraEntry[] }>(
-      CLUSTER.cameras.namespace,
-      CLUSTER.cameras.configMap,
-      CLUSTER.cameras.yamlKey
-    );
-
-    const cameraDefs = configData?.cameras ?? [];
-    const eip = process.env.CAMERA_SIM_HOST ?? "camera-sim-host";
-
-    cameras = cameraDefs.map((cam): Camera => {
-      // Each entry is a single-feed camera.  sensorId = cam.name.
-      const sensorId = cam.name;
-      const feed: Feed = {
-        id: "default",
-        sensorId,
-        source: cam.source,
-        rtspUrl: `rtsp://${eip}:8554/${sensorId}`,
-        vstRegistered: vstRegisteredIds.has(sensorId),
-        replayReady: mtxReadyMap.get(sensorId) ?? false,
-      };
-      return {
-        id: cam.name,
-        role: "other",
-        description: cam.description,
-        feeds: [feed],
-      };
-    });
-  } catch {
-    warnings.push("cameras ConfigMap unreadable — deriving from VST + mediamtx");
-
-    // Fallback: group VST sensors by camera prefix
-    const cameraMap = new Map<string, Camera>();
-    const eip = process.env.CAMERA_SIM_HOST ?? "camera-sim-host";
-
-    for (const sensor of vstResult.sensors) {
-      const sensorId = sensor.sensor_id;
-      const parts = sensorId.split("-");
-      if (parts.length < 2) continue;
-      const feedId = parts[parts.length - 1];
-      const cameraId = parts.slice(0, -1).join("-");
-
-      if (!cameraMap.has(cameraId)) {
-        cameraMap.set(cameraId, {
-          id: cameraId,
-          role: "other",
-          feeds: [],
-        });
-      }
-
-      const camera = cameraMap.get(cameraId)!;
-      const feed: Feed = {
-        id: feedId,
-        sensorId,
-        source: `${sensorId}.ts`,
-        rtspUrl: `rtsp://${eip}:8554/${sensorId}`,
-        vstRegistered: true,
-        replayReady: mtxReadyMap.get(sensorId) ?? false,
-      };
-      camera.feeds.push(feed);
-    }
-
-    cameras = Array.from(cameraMap.values());
-  }
-
-  return NextResponse.json({ cameras, warnings });
+  return NextResponse.json({ cameras, eip, warnings });
 }
 
 // ─── POST — add a new camera ───────────────────────────────────────────────────
+//
+// Expected body (from AddCameraDialog):
+//   {
+//     cameraId: "checkout-1",
+//     role: "checkout",
+//     description: "...",
+//     feeds: [{ feedId: "default", fileName: "clip.ts", fileBase64: "..." }]
+//   }
+//
+// Real cluster schema allows exactly one source file per camera; if the
+// dialog submits multiple feeds we use feeds[0] and warn about the rest.
 
-const AddFeedSchema = FeedSchema.omit({ vstRegistered: true, replayReady: true }).extend({
-  fileBase64: z.string().min(1), // base64-encoded .ts file content
+const AddFeedSchema = z.object({
+  feedId: z.string().optional(),
+  fileName: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(ts|mp4|mkv|mov)$/),
+  fileBase64: z.string().min(1),
 });
 
-const AddCameraSchema = CameraSchema.omit({ feeds: true }).extend({
+const AddCameraSchema = z.object({
+  cameraId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,31}$/),
+  role: z.string().optional(),
+  description: z.string().optional(),
   feeds: z.array(AddFeedSchema).min(1),
 });
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => null);
   const parsed = AddCameraSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Validation failed", issues: parsed.error.issues }, { status: 400 });
+    return NextResponse.json(
+      { error: "Validation failed", issues: parsed.error.issues },
+      { status: 400 },
+    );
   }
 
   const operator = session.user?.name ?? session.user?.email ?? "unknown";
-  const camera = parsed.data;
+  const { cameraId, description, feeds } = parsed.data;
   const warnings: string[] = [];
 
-  // 1. SCP .ts files to camera-sim
-  for (const feed of camera.feeds) {
-    const buf = Buffer.from(feed.fileBase64, "base64");
-    const remotePath = `/opt/camera-sim/data/${feed.source}`;
-    try {
-      await sshScp(buf, remotePath, operator);
-    } catch (err) {
-      return NextResponse.json(
-        { error: `SCP failed for feed ${feed.id}: ${String(err)}` },
-        { status: 502 }
-      );
-    }
+  const primary = feeds[0];
+  if (feeds.length > 1) {
+    warnings.push(
+      `Only the first feed is used — cluster schema is one source file per camera (dropped: ${feeds
+        .slice(1)
+        .map((f) => f.fileName)
+        .join(", ")})`,
+    );
   }
 
-  // 2. Patch ConfigMap "cameras" with real schema (name + source + description).
-  // Use first feed's source file — the cluster schema has one source per camera.
-  const ifMatch = req.headers.get("If-Match") ?? undefined;
+  // 1. SCP the source file to /opt/camera-sim/data/.
   try {
-    const { value: existing, resourceVersion } = await readConfigMapKey<{ cameras?: RealCameraEntry[] }>(
-      CLUSTER.cameras.namespace,
-      CLUSTER.cameras.configMap,
-      CLUSTER.cameras.yamlKey
-    );
-
-    const existingCameras = existing?.cameras ?? [];
-    const newEntry: RealCameraEntry = {
-      name: camera.id,
-      source: camera.feeds[0].source,
-      ...(camera.description ? { description: camera.description } : {}),
-    };
-    existingCameras.push(newEntry);
-
-    await patchConfigMapKey(
-      CLUSTER.cameras.namespace,
-      CLUSTER.cameras.configMap,
-      CLUSTER.cameras.yamlKey,
-      { cameras: existingCameras },
-      ifMatch ?? resourceVersion
-    );
-  } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
-    if (k8sErr.statusCode === 409) {
-      return NextResponse.json(
-        { error: "Config modified by another operator — reload and retry" },
-        { status: 409 }
-      );
-    }
+    const buf = Buffer.from(primary.fileBase64, "base64");
+    await sshScp(buf, `/opt/camera-sim/data/${primary.fileName}`, operator);
+  } catch (err) {
     return NextResponse.json(
-      { error: `ConfigMap patch failed: ${String(err)}` },
-      { status: 502 }
+      { error: `SCP failed: ${String(err)}` },
+      { status: 502 },
     );
   }
 
-  // 3. Restart camera-sim
+  // 2. Register with the camera-sim control-plane (rewrites cameras.yaml +
+  //    mediamtx.yml, restarts the stack).
   try {
-    await sshExec("sudo systemctl restart camera-sim");
+    await camsimAddCamera({
+      name: cameraId,
+      source: primary.fileName,
+      description,
+    });
   } catch (err) {
-    warnings.push(`camera-sim restart failed: ${String(err)}`);
+    const msg = err instanceof Error ? err.message : String(err);
+    const status =
+      err instanceof CamsimControlError ? err.status : 502;
+    return NextResponse.json(
+      {
+        error: `Control-plane add failed: ${msg}`,
+      },
+      { status },
+    );
   }
 
-  // 4. Create register-cameras Job (template name: "register-cameras" per k8s/pyramid-ingress/30-register-job.yaml)
-  const jobName = `register-cameras-${Date.now()}`;
-  try {
-    const existingJob = await batchV1().listNamespacedJob({ namespace: CLUSTER.cameras.namespace });
-    const templateJob = existingJob.items.find((j) => j.metadata?.name?.startsWith(CLUSTER.cameras.registerJobPrefix));
-
-    if (templateJob?.spec?.template) {
-      await batchV1().createNamespacedJob({
-        namespace: CLUSTER.cameras.namespace,
-        body: {
-          apiVersion: "batch/v1",
-          kind: "Job",
-          metadata: { name: jobName, namespace: CLUSTER.cameras.namespace },
-          spec: {
-            ...templateJob.spec,
-            template: templateJob.spec.template,
-          },
-        },
-      });
-    } else {
-      warnings.push("register-cameras Job template not found — skipping re-registration");
-    }
-  } catch (err) {
-    warnings.push(`register-cameras Job creation failed: ${String(err)}`);
-  }
-
-  // 5. Audit log
-  await auditLog("camera-add", `camera/${camera.id}`, {
-    cameraId: camera.id,
-    feeds: camera.feeds.map((f) => f.id),
-    jobName,
+  await auditLog("camera-add", `camera/${cameraId}`, {
+    cameraId,
+    source: primary.fileName,
   });
 
-  return NextResponse.json({ ok: true, cameraId: camera.id, jobName, warnings });
+  return NextResponse.json({
+    ok: true,
+    cameraId,
+    warnings,
+  });
 }

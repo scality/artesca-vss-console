@@ -2,119 +2,112 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { vstDeleteSensor } from "@/lib/helpers/vst";
-import { patchConfigMapKey, readConfigMapKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
 import { sshScp, sshExec } from "@/lib/ssh";
-import { FeedSchema } from "@/lib/schemas";
-import { CLUSTER } from "@/lib/cluster-refs";
+import {
+  camsimListCameras,
+  camsimDeleteCamera,
+  camsimAddCamera,
+  CamsimControlError,
+} from "@/lib/helpers/camsim-control";
 
 export const dynamic = "force-dynamic";
 
-// Real schema from k8s/pyramid-ingress/11-configmap-cameras.yaml.
-// Each camera entry has: name (=sensor id), source (.ts file), optional description.
-type CameraConfigEntry = {
-  name: string;
-  source: string;
-  description?: string;
-};
+// ─── PATCH — update a camera ──────────────────────────────────────────────────
+//
+// The control-plane has no PATCH endpoint (by design — cameras.yaml entries
+// are immutable except for add + delete). "Updating" a camera = DELETE the
+// existing entry + ADD it back with the new source/description. Both calls
+// restart the stack; we wrap them so the operator sees a single UI action.
 
-type CamerasConfig = { cameras?: CameraConfigEntry[] };
-
-// ─── PATCH — update a camera ───────────────────────────────────────────────────
-
-const PatchFeedSchema = FeedSchema.omit({ vstRegistered: true, replayReady: true }).extend({
-  fileBase64: z.string().optional(), // optional — only upload if changed
+const PatchFeedSchema = z.object({
+  feedId: z.string().optional(),
+  fileName: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(ts|mp4|mkv|mov)$/)
+    .optional(),
+  fileBase64: z.string().optional(),
 });
 
 const PatchCameraSchema = z.object({
-  role: z.enum(["checkout", "aisle", "dock", "backroom", "other"]).optional(),
+  role: z.string().optional(),
   description: z.string().optional(),
   feeds: z.array(PatchFeedSchema).min(1).optional(),
 });
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
   const body = await req.json().catch(() => null);
   const parsed = PatchCameraSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Validation failed", issues: parsed.error.issues }, { status: 400 });
+    return NextResponse.json(
+      { error: "Validation failed", issues: parsed.error.issues },
+      { status: 400 },
+    );
   }
 
   const operator = session.user?.name ?? session.user?.email ?? "unknown";
   const update = parsed.data;
   const warnings: string[] = [];
 
-  // SCP changed feeds only
-  if (update.feeds) {
-    for (const feed of update.feeds) {
-      if (feed.fileBase64) {
-        const buf = Buffer.from(feed.fileBase64, "base64");
-        const remotePath = `/opt/camera-sim/data/${feed.source}`;
-        try {
-          await sshScp(buf, remotePath, operator);
-        } catch (err) {
-          return NextResponse.json(
-            { error: `SCP failed for feed ${feed.id}: ${String(err)}` },
-            { status: 502 }
-          );
-        }
-      }
-    }
+  // Read current state from control-plane.
+  let current: Awaited<ReturnType<typeof camsimListCameras>>[number] | undefined;
+  try {
+    const all = await camsimListCameras();
+    current = all.find((c) => c.name === id);
+  } catch (err) {
+    const status = err instanceof CamsimControlError ? err.status : 502;
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status },
+    );
+  }
+  if (!current) {
+    return NextResponse.json(
+      { error: `Camera '${id}' not found on camera-sim` },
+      { status: 404 },
+    );
   }
 
-  // Patch "cameras" ConfigMap using real schema (name + source + description).
-  const ifMatch = req.headers.get("If-Match") ?? undefined;
-  try {
-    const { value: existing, resourceVersion } = await readConfigMapKey<CamerasConfig>(
-      CLUSTER.cameras.namespace,
-      CLUSTER.cameras.configMap,
-      CLUSTER.cameras.yamlKey
-    );
+  const feed = update.feeds?.[0];
+  const newSource = feed?.fileName ?? current.source;
+  const newDescription = update.description ?? current.description;
 
-    const cameras = existing?.cameras ?? [];
-    const idx = cameras.findIndex((c) => c.name === id);
-    if (idx === -1) {
-      return NextResponse.json({ error: `Camera ${id} not found in ConfigMap` }, { status: 404 });
-    }
-
-    // role is not stored in real schema — description and source can be updated
-    if (update.description !== undefined) cameras[idx].description = update.description;
-    if (update.feeds && update.feeds.length > 0) {
-      cameras[idx].source = update.feeds[0].source;
-    }
-
-    await patchConfigMapKey(
-      CLUSTER.cameras.namespace,
-      CLUSTER.cameras.configMap,
-      CLUSTER.cameras.yamlKey,
-      { cameras },
-      ifMatch ?? resourceVersion
-    );
-  } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
-    if (k8sErr.statusCode === 409) {
+  // SCP replacement file if one was supplied.
+  if (feed?.fileName && feed.fileBase64) {
+    try {
+      const buf = Buffer.from(feed.fileBase64, "base64");
+      await sshScp(buf, `/opt/camera-sim/data/${feed.fileName}`, operator);
+    } catch (err) {
       return NextResponse.json(
-        { error: "Config modified by another operator — reload and retry" },
-        { status: 409 }
+        { error: `SCP failed: ${String(err)}` },
+        { status: 502 },
       );
     }
-    return NextResponse.json(
-      { error: `ConfigMap patch failed: ${String(err)}` },
-      { status: 502 }
-    );
   }
 
-  // Restart camera-sim
+  // Replace the entry atomically: delete then re-add. Two stack restarts
+  // worst-case (~20s) — acceptable for a rarely-used operation.
   try {
-    await sshExec("sudo systemctl restart camera-sim");
+    await camsimDeleteCamera(id);
+    await camsimAddCamera({
+      name: id,
+      source: newSource,
+      description: newDescription,
+    });
   } catch (err) {
-    warnings.push(`camera-sim restart failed: ${String(err)}`);
+    const status = err instanceof CamsimControlError ? err.status : 502;
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status },
+    );
   }
 
   await auditLog("camera-update", `camera/${id}`, { update });
@@ -125,83 +118,57 @@ export async function PATCH(
 // ─── DELETE — unregister a camera ─────────────────────────────────────────────
 
 export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
   const warnings: string[] = [];
 
-  // 1. Read "cameras" ConfigMap using real schema to discover sensor id and source file.
-  // Each camera entry: name = sensor id, source = .ts file (single source per camera).
-  let feedIds: string[] = [];
-  let feedSources: string[] = [];
-  const ifMatch = req.headers.get("If-Match") ?? undefined;
-
+  // Look up the source file BEFORE delete so we can remove it from /data/.
+  let sourceFile: string | undefined;
   try {
-    const { value: existing, resourceVersion } = await readConfigMapKey<CamerasConfig>(
-      CLUSTER.cameras.namespace,
-      CLUSTER.cameras.configMap,
-      CLUSTER.cameras.yamlKey
-    );
-
-    const cameras = existing?.cameras ?? [];
-    const cam = cameras.find((c) => c.name === id);
-    if (!cam) {
-      return NextResponse.json({ error: `Camera ${id} not found` }, { status: 404 });
-    }
-
-    // sensor id = camera name; single source file per camera in real schema
-    feedIds = [cam.name];
-    feedSources = [cam.source];
-
-    const updated = cameras.filter((c) => c.name !== id);
-    await patchConfigMapKey(
-      CLUSTER.cameras.namespace,
-      CLUSTER.cameras.configMap,
-      CLUSTER.cameras.yamlKey,
-      { cameras: updated },
-      ifMatch ?? resourceVersion
-    );
-  } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
-    if (k8sErr.statusCode === 409) {
-      return NextResponse.json(
-        { error: "Config modified by another operator — reload and retry" },
-        { status: 409 }
-      );
-    }
-    return NextResponse.json(
-      { error: `ConfigMap patch failed: ${String(err)}` },
-      { status: 502 }
-    );
-  }
-
-  // 2. Unregister from VST
-  for (const sensorId of feedIds) {
-    const { ok, warning } = await vstDeleteSensor(sensorId);
-    if (!ok && warning) warnings.push(warning);
-  }
-
-  // 3. Remove .ts files from camera-sim via SSH
-  for (const source of feedSources) {
-    try {
-      await sshExec(`rm -f /opt/camera-sim/data/${source}`);
-    } catch (err) {
-      warnings.push(`rm ${source} failed: ${String(err)}`);
-    }
-  }
-
-  // 4. Restart camera-sim
-  try {
-    await sshExec("sudo systemctl restart camera-sim");
+    const entries = await camsimListCameras();
+    sourceFile = entries.find((c) => c.name === id)?.source;
   } catch (err) {
-    warnings.push(`camera-sim restart failed: ${String(err)}`);
+    // Can't list cameras? Delete will fail next anyway.
+    warnings.push(err instanceof Error ? err.message : String(err));
   }
 
-  await auditLog("camera-delete", `camera/${id}`, { feedIds, feedSources });
+  // 1. Remove from cameras.yaml + mediamtx.yml via control-plane.
+  try {
+    await camsimDeleteCamera(id);
+  } catch (err) {
+    const status = err instanceof CamsimControlError ? err.status : 502;
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status },
+    );
+  }
+
+  // 2. Unregister from VST (best-effort — a stale VST sensor is harmless).
+  const vstDel = await vstDeleteSensor(id);
+  if (!vstDel.ok && vstDel.warning) warnings.push(vstDel.warning);
+
+  // 3. Delete the .ts file from /opt/camera-sim/data/ (best-effort — leaving
+  //    it is harmless, just consumes disk).
+  if (sourceFile) {
+    try {
+      await sshExec(
+        `rm -f /opt/camera-sim/data/${sourceFile.replace(/[^A-Za-z0-9._-]/g, "")}`,
+      );
+    } catch (err) {
+      warnings.push(`rm ${sourceFile} failed: ${String(err)}`);
+    }
+  }
+
+  await auditLog("camera-delete", `camera/${id}`, {
+    cameraId: id,
+    source: sourceFile,
+  });
 
   return NextResponse.json({ ok: true, cameraId: id, warnings });
 }

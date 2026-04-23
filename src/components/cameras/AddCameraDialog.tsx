@@ -90,8 +90,12 @@ export function AddCameraDialog({
     setSubmitting(true);
     setSteps(DEFAULT_STEPS.map((s) => ({ ...s, status: "pending" })));
 
+    // POST /api/cameras is now synchronous: the console route SCPs the .ts
+    // file, calls the camera-sim control-plane (which rewrites YAML +
+    // restarts the stack), and returns. No more k8s Job + SSE — the whole
+    // request takes ~10s. We still show the progress steps so the operator
+    // sees the phases, but flip them in sequence during a single await.
     try {
-      // Step 0: upload
       setStep(0, "running");
       const body = {
         cameraId,
@@ -109,67 +113,25 @@ export function AddCameraDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
       setStep(0, "done");
+      setStep(1, "done");
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Unknown error" }));
         throw new Error(err.error ?? "Request failed");
       }
 
-      const data = await res.json();
-      const jobName: string = data.jobName;
-
-      // Steps 1-3: tail SSE job logs
-      const stepLabels = [
-        "Patching ConfigMap",
-        "Restarting camera-sim",
-        "Re-registering",
-      ];
-
-      const sse = new EventSource(`/api/cameras/job-logs?job=${encodeURIComponent(jobName)}`);
-
-      let currentStep = 1;
-      setStep(1, "running");
-
-      sse.onmessage = (event) => {
-        try {
-          const line: { step?: number; done?: boolean; error?: string; log?: string } =
-            JSON.parse(event.data);
-
-          if (line.error) {
-            setStep(currentStep, "error", line.error);
-            sse.close();
-            setSubmitting(false);
-            toast({ title: "Camera registration failed", description: line.error, variant: "destructive" });
-            return;
-          }
-
-          if (line.step !== undefined && line.step !== currentStep) {
-            setStep(currentStep, "done");
-            currentStep = line.step;
-            if (currentStep <= 3) setStep(currentStep, "running");
-          }
-
-          if (line.done) {
-            // mark all remaining as done
-            for (let i = currentStep; i <= 3; i++) setStep(i, "done");
-            sse.close();
-            queryClient.invalidateQueries({ queryKey: ["cameras"] });
-            toast({ title: "Camera added", description: `${cameraId} registered successfully.` });
-            setTimeout(() => {
-              reset();
-              onOpenChange(false);
-            }, 1200);
-          }
-        } catch {}
-      };
-
-      sse.onerror = () => {
-        setStep(currentStep, "error", "Lost connection to job log stream");
-        sse.close();
-        setSubmitting(false);
-      };
+      setStep(2, "done");
+      setStep(3, "done");
+      queryClient.invalidateQueries({ queryKey: ["cameras"] });
+      toast({
+        title: "Camera added",
+        description: `${cameraId} registered successfully.`,
+      });
+      setTimeout(() => {
+        reset();
+        onOpenChange(false);
+      }, 800);
     } catch (err: unknown) {
       setStep(0, "error", err instanceof Error ? err.message : "Unknown error");
       setSubmitting(false);

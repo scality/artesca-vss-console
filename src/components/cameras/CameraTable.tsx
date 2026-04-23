@@ -21,6 +21,7 @@ import { AddCameraDialog } from "./AddCameraDialog";
 const CamerasResponseSchema = z.object({
   cameras: z.array(CameraSchema),
   eip: z.string(),
+  warnings: z.array(z.string()).optional(),
 });
 
 export function CameraTable() {
