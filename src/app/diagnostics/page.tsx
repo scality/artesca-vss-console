@@ -6,6 +6,7 @@ import { useKiosk } from "@/components/KioskProvider";
 import { Shell } from "@/components/Shell";
 import { DiagnosticCard, type DiagnosticTest } from "@/components/diagnostics/DiagnosticCard";
 import { DiagnosticOutputDrawer } from "@/components/diagnostics/DiagnosticOutputDrawer";
+import { VstStoragePanel } from "@/components/diagnostics/VstStoragePanel";
 import { useToast } from "@/hooks/use-toast";
 
 const AVAILABLE_TESTS: Array<{ id: string; label: string; description: string }> = [
@@ -137,6 +138,12 @@ export default function DiagnosticsPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             On-demand cluster health checks and smoke tests.
           </p>
+        </div>
+
+        {/* VST Storage panel */}
+        <div className="rounded-lg border border-border p-5">
+          <h2 className="text-lg font-semibold mb-4">VST Storage</h2>
+          <VstStoragePanel />
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

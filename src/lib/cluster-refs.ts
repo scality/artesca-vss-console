@@ -47,6 +47,21 @@ const VST_SENSOR_URL =
   process.env.VST_SENSOR_URL ??
   "http://sensor-ms.vst.svc.cluster.local:30000/api/v1/live/sensor";
 
+// VST sensor list endpoint — full URL (list all registered sensors with live stats).
+const VST_SENSOR_LIST_URL =
+  process.env.VST_SENSOR_LIST_URL ??
+  "http://sensor-ms.vst.svc.cluster.local:30000/api/v1/live/sensor/list";
+
+// VST ConfigMap + Deployment constants used by tuning/storage routes.
+const VST = {
+  namespace: "vst",
+  configMap: "vst-config",
+  configKey: "vst_config.json",
+  sensorDeployment: "sensor-ms",
+  streamProcessingDeployment: "streamprocessing-ms",
+  sensorListUrl: VST_SENSOR_LIST_URL,
+} as const;
+
 // ─── mediamtx ────────────────────────────────────────────────────────────────
 // mediamtx runs in the "replay-server" Deployment in namespace
 // "pyramid-ingress" (k8s/pyramid-ingress/21-replay-server.yaml).
@@ -253,6 +268,7 @@ export const CLUSTER = {
   },
   vst: {
     sensorUrl: VST_SENSOR_URL,
+    ...VST,
   },
   mediamtx: {
     apiUrl: MEDIAMTX_API_URL,

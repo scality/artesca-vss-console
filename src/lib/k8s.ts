@@ -1,4 +1,5 @@
-import { KubeConfig, CoreV1Api, AppsV1Api, BatchV1Api } from "@kubernetes/client-node";
+import { KubeConfig, CoreV1Api, AppsV1Api, BatchV1Api, Exec } from "@kubernetes/client-node";
+import { Writable } from "node:stream";
 
 let _kc: KubeConfig | null = null;
 
@@ -29,6 +30,120 @@ export function batchV1(): BatchV1Api {
 export function watchedNamespaces(): string[] {
   const raw = process.env.KUBE_NAMESPACES ?? "vst,rtvi,agent,alerts,demo-data,pyramid-ingress";
   return raw.split(",").map((ns) => ns.trim()).filter(Boolean);
+}
+
+export interface PodRunResult {
+  stdout: string;
+  stderr: string;
+  /** Exit code, or null if the WebSocket closed before the status callback fired. */
+  code: number | null;
+}
+
+/**
+ * Run a command inside the first Running pod matching `labelSelector` in
+ * `namespace`, collecting stdout/stderr into strings.
+ *
+ * Internally uses the Kubernetes Exec WebSocket API (not child_process).
+ * The `command` array is passed directly to the container runtime — no shell
+ * expansion occurs, so no injection risk.
+ */
+export async function runInPod(
+  namespace: string,
+  labelSelector: string,
+  command: string[],
+  timeoutMs = 10_000
+): Promise<PodRunResult> {
+  const kc = getKubeConfig();
+  const core = kc.makeApiClient(CoreV1Api);
+
+  const podList = await core.listNamespacedPod({
+    namespace,
+    labelSelector,
+    fieldSelector: "status.phase=Running",
+    limit: 1,
+  });
+  const pod = podList.items[0];
+  if (!pod?.metadata?.name) {
+    throw new Error(`No running pod found in ${namespace} matching ${labelSelector}`);
+  }
+  const podName = pod.metadata.name;
+  const containerName = pod.spec?.containers?.[0]?.name ?? "";
+
+  const podExec = new Exec(kc);
+
+  return new Promise<PodRunResult>((resolve, reject) => {
+    let stdoutBuf = "";
+    let stderrBuf = "";
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error(`runInPod timed out after ${timeoutMs}ms`));
+      }
+    }, timeoutMs);
+
+    const stdoutStream = new Writable({
+      write(chunk: Buffer, _enc: string, cb: () => void) {
+        stdoutBuf += chunk.toString();
+        cb();
+      },
+    });
+    const stderrStream = new Writable({
+      write(chunk: Buffer, _enc: string, cb: () => void) {
+        stderrBuf += chunk.toString();
+        cb();
+      },
+    });
+
+    podExec
+      .exec(
+        namespace,
+        podName,
+        containerName,
+        command,
+        stdoutStream,
+        stderrStream,
+        null,
+        false,
+        (status) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            const code =
+              status.status === "Success"
+                ? 0
+                : typeof status.details?.causes?.[0]?.message === "string"
+                ? parseInt(status.details.causes[0].message, 10) || 1
+                : 1;
+            resolve({ stdout: stdoutBuf, stderr: stderrBuf, code });
+          }
+        }
+      )
+      .then((ws) => {
+        ws.on("close", () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            resolve({ stdout: stdoutBuf, stderr: stderrBuf, code: null });
+          }
+        });
+        ws.on("error", (err: Error) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            reject(err);
+          }
+        });
+      })
+      .catch((err: unknown) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(err);
+        }
+      });
+  });
 }
 
 /**
