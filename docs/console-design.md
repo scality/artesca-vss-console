@@ -165,12 +165,12 @@ others are hidden in kiosk mode.
 | `/cameras` | — | Table of cameras, each with N feeds (default 2 per Pyramid rail). Per-camera actions: edit / remove / restart. Per-feed actions: swap `.ts` file / disable / re-register. "Add camera" dialog uploads one or more `.ts` files → SCP to camera-sim → patch ConfigMap + restart replay + re-run register Job. |
 | `/scenarios` | — | Table of scenario rules (from `k8s/alerts/12-configmap-scenarios.yaml`). Inline edit per row: keywords (chips), sensor_filter (glob input with live match preview against current camera feeds), severity, channels, **per-scenario cooldown override**, enabled. Save issues `kubectl patch configmap` + rollout-restart of the alert-worker. |
 | `/prompt` | — | **VLM prompt editor** (Monaco). Current prompt in one pane; diff vs proposed in the other. "Preview" button sends a test message to the NIM and shows the response. Inline **NIM model swap** selector (cosmos-reason2 ↔ cosmos-reason1) rewrites the rtvi-vlm + NIM ConfigMaps and rollout-restarts both Deployments. "Save + restart" writes the ConfigMap + rollout-restart of rtvi-vlm. |
-| `/tuning` | — | Knobs for rtvi-vlm (`max_num_seqs`, `kv_cache_percent`, `max_model_len`) and alert worker (global `cooldown_seconds`, Slack webhook). Form edits → ConfigMap patches → rollout-restart the affected Deployment. |
+| `/tuning` | — | Knobs for rtvi-vlm (`max_num_seqs`, `kv_cache_percent`, `max_model_len`), alert worker (global `cooldown_seconds`, Slack webhook), and **VST ingest** (`always_recording` / `event_recording` mode, `event_record_length_secs`, `default_gov_length`, `supported_video_codecs`, `storage_threshold_percentage`, `default_file_expiry_minutes`). Form edits → ConfigMap patches → rollout-restart the affected Deployment. VST form shows live observed bitrate + GoP per camera next to the inputs so the operator sees the impact of a change. |
 | `/demo-data` | — | Toggle the synthetic demo-data producer (scale 0 ↔ 1). Tick rate + match probability sliders → `kubectl set env`. Quick "rehearsal mode" button that scales to 1 with high match probability for a 60 s burst. |
 | `/profiles` | — | **Save / load named demo profiles** — a profile bundles scenarios + VLM prompt + cameras + rtvi tuning + alert tuning + NIM model into one object stored in a `console-profiles` ConfigMap. Use cases: "pyramid-jun-8" config snapshotted after rehearsal; "aarco-oct" variant; roll back to a known-good before a new demo. Load applies every component atomically. |
 | `/secrets` | — | **Secret rotation UI** — NGC key, NVIDIA API key, HuggingFace token, Slack webhook, console auth password. Paste a new value, confirm, and the console patches the target K8s Secret + rolls the consuming Deployment. |
 | `/logs` | — | Log streamer — pick a pod + container → live tail via SSE. Filter regex, pause/resume, download last N lines. Camera-sim `journalctl -fu camera-sim` available via an SSH tail. |
-| `/diagnostics` | — | On-demand runs of `scripts/validate-manifests.sh`, smoke tests per phase, `kubectl get events -A`, `nvidia-smi`, `kubectl top`. Results rendered inline. |
+| `/diagnostics` | — | On-demand runs of `scripts/validate-manifests.sh`, smoke tests per phase, `kubectl get events -A`, `nvidia-smi`, `kubectl top`. **VST Storage panel**: live S3 PUT rate + bytes/sec to `vss-video`, local `vst-video` emptyDir fill % against its 500 GiB limit, segment size distribution (last 200 objects), recorder frame-drop counter, last 20 objects in the bucket with sensor_id / timestamp / size. Results rendered inline. |
 | `/settings` | — | Console-level config: **Network access** sub-panel — CIDR allow-list for `:8800` with add/remove (writes to the EC2 SG via `console-aws` creds + audit log). Kiosk-mode toggle persistence, feature flags, SSH key rotation for camera-sim, inspect current ServiceAccount permissions. |
 | `/about` | — | Build info (git SHA, Next.js / Node versions), links to all docs, list of underlying service URLs, cross-link to the pre-install [`web/`](../web/) dashboard at `:5002`. |
 
@@ -191,6 +191,8 @@ All under `src/app/api/*`. JSON in + out except SSE streams.
 | GET | `/api/incidents?limit=50` | Recent incidents (proxies alert-worker `/api/incidents/recent`) |
 | GET | `/api/gpu` | `nvidia-smi` output parsed as JSON |
 | GET | `/api/topology` | Nodes + edges for React Flow, with live health |
+| GET | `/api/tuning/vst` | Current subset of `vst-config` ConfigMap (recording mode, GoP, codecs, storage thresholds, file expiry) + per-camera observed bitrate / GoP from `:30000/api/v1/sensor/list` |
+| GET | `/api/storage/vst` | `vss-video` object count + bytes + recent-object listing (S3 `ListObjectsV2` limit=20 sorted by LastModified), local `vst-video` emptyDir fill % (`kubectl exec sensor-ms -- df`), segment-size histogram from last 200 S3 objects, frame-drop counter from `sensor-ms` Prometheus at `:8080/metrics` |
 
 ### Write
 
@@ -203,6 +205,7 @@ All under `src/app/api/*`. JSON in + out except SSE streams.
 | PATCH | `/api/prompt` | Patch `RTVI_VLM_SYSTEM_PROMPT` in `k8s/rtvi/11-configmap-runtime-env.yaml` + rollout-restart rtvi-vlm |
 | POST | `/api/restart/:component` | Rollout restart a Deployment or StatefulSet — whitelisted set |
 | POST | `/api/prompt/preview` | Send a one-shot prompt to the NIM, return the VLM response (dry-run) |
+| PATCH | `/api/tuning/vst` | Patch the `vst-config` ConfigMap (guarded subset only — recording mode, GoP, codecs, thresholds, expiry) + rollout-restart `sensor-ms` + `streamprocessing-ms`. Rejects changes that flip `cloud_storage_*` fields — those rotate through `/secrets`, not `/tuning`. |
 
 ### Live streams (SSE)
 
@@ -521,9 +524,57 @@ L4 guesswork):
 Huge headroom — room for future model upgrades (Cosmos 3? Qwen3 12B?)
 without another instance-type change.
 
+## Implementation decisions (round 4 — VST ingest exposure)
+
+Gap surfaced during live-flow review: the full VST recording/segmentation/storage config surface in [`k8s/vst/11-configmap-vst-config.yaml`](../k8s/vst/11-configmap-vst-config.yaml) is not editable anywhere in the UI today. Only `/cameras` (CRUD + observed bitrate display) and read-only pod status + `kubectl logs` cover VST. Operators currently have to edit YAML and rollout-restart by hand to change recording mode, GoP, local cache thresholds, or the cloud storage target.
+
+| # | Decision | Impact |
+| --- | --- | --- |
+| L | **Expose VST ingest config in `/tuning` + VST storage panel on `/diagnostics`.** Extends the existing ConfigMap-patch + rollout pattern (same as `RtviTuningForm` / `AlertsTuningForm`). | Adds `VstRecordingForm` component + `/api/tuning/vst` GET/PATCH routes + `VstStoragePanel` component + `/api/storage/vst` GET route. Reads from the existing `vst-config` ConfigMap and the `:30000/api/v1/sensor/list` live metrics endpoint. +1.5 dev-days (new phase 11). |
+
+### What the VST Recording form edits
+
+Fields are a **guarded subset** of `vst_config.json` — the ones an operator can reasonably change without breaking the pipeline. Secrets and endpoint fields stay in `/secrets`.
+
+| Field | Path in `vst_config.json` | Control | Default |
+| --- | --- | --- | --- |
+| Recording mode | `data.always_recording` / `data.event_recording` | Radio (always / event-only / both) | `always_recording: true`, `event_recording: false` |
+| Event clip length | `data.event_record_length_secs` | Slider 5–60 s (enabled only when event-mode) | 10 |
+| Event pre-roll | `data.record_buffer_length_secs` | Slider 0–10 s | 2 |
+| Keyframe interval (GoP) | `onvif.default_gov_length` | Number input (frames) | 60 |
+| Codecs allowed | `data.supported_video_codecs` | Multi-select (h264, h265) | `["h264", "h265"]` |
+| Local cache eviction threshold | `data.storage_threshold_percentage` | Slider 50–99 % | 95 |
+| Cache monitor frequency | `data.storage_monitoring_frequency_secs` | Number 1–60 s | 2 |
+| File retention | `data.default_file_expiry_minutes` | Number (minutes) | 10080 (7 d) |
+| Aging policy | `data.enable_aging_policy` | Toggle | false |
+| Recorder frame drop | `data.recorder_enable_frame_drop` | Toggle + warning when off | true |
+
+### What the VST Storage panel shows
+
+Read-only diagnostic surface on `/diagnostics`. All numbers update every 5 s via React Query.
+
+| Widget | Source | Refresh |
+| --- | --- | --- |
+| S3 PUT rate (objects/s, MB/s) | Derived from `ListObjectsV2` on `vss-video` between two samples | 5 s |
+| `vss-video` object count + total bytes | `ListObjectsV2` with pagination | 30 s |
+| Local `vst-video` emptyDir fill % | `kubectl exec sensor-ms -- df /home/vst/vst_release/vst_video` | 10 s |
+| Segment size histogram | Last 200 S3 objects, bucketed by size | 30 s |
+| Segment duration (empirical) | Consecutive-object timestamp deltas per sensor | 30 s |
+| Frame drop counter | `sensor-ms` Prometheus `:8080/metrics` (`recorder_frames_dropped_total`) | 5 s |
+| Recent objects | Last 20 S3 objects with sensor_id / ts / size / age | 10 s |
+| Storage ceiling alert | When `vst-video` fill > 90 % OR S3 PUT error-rate > 1 % | computed |
+
+### Why not a standalone `/storage` page
+
+Discoverability. Operators looking for "why aren't recordings landing?" check `/diagnostics` — putting the storage panel there means one place to debug ingest. Putting it behind a standalone `/storage` route buries it. The `/tuning` page already bundles three subsystems (rtvi, alerts, VST) on one route; that's the right shape for this console.
+
+### Why not editable cloud storage fields in `/tuning`
+
+`cloud_storage_endpoint`, `cloud_storage_bucket`, `cloud_storage_access_key`, `cloud_storage_secret_key`, `cloud_storage_region` flip the recording target to a different S3 system — a destructive operation that usually wants a coordinated bucket + IAM change on the ARTESCA side first. These rotate through `/secrets` with a confirm dialog and an audit log entry, not through a recording tuning form.
+
 ## Open questions
 
-None remaining. All three rounds of decisions are documented above.
+None remaining. All four rounds of decisions are documented above.
 First live run is the only remaining validation surface.
 
 ## Estimated effort
@@ -541,7 +592,8 @@ First live run is the only remaining validation surface.
 | 8 | 0.5 day | Demo-data controls + Diagnostics |
 | 9 | 1.5 day | Profiles (SQLite-backed save/load) + Secrets rotation (incl. AWS creds + **90-day nag banners**) + Settings (**SG whitelist CRUD**) |
 | 10 | 1 day | **Observability sidecar** — DCGM exporter DaemonSet + Prometheus + Grafana in a new `k8s/observability/` namespace. Console reads GPU metrics from Prometheus. |
-| Total | **~12.5 dev-days** | — |
+| 11 | 1.5 day | **VST ingest config + storage visibility** — `VstRecordingForm` on `/tuning` (guarded subset of `vst_config.json` — see round-4 decisions), `VstStoragePanel` on `/diagnostics` (S3 PUT rate, local cache fill, segment histogram, frame drops). `/api/tuning/vst` + `/api/storage/vst` routes. Playwright E2E: edit GoP in UI → ConfigMap mutates → sensor-ms rolls → new value visible on readback. |
+| Total | **~14 dev-days** | — |
 
 Kiosk mode is tested with every phase (every kiosk-flagged page must
 render correctly with config tabs hidden). Playwright E2E covers both
