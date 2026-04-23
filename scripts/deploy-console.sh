@@ -263,29 +263,26 @@ LOCAL_IMAGE_NAME="console.local"
 # ---------------------------------------------------------------------------
 
 echo "==> applying kustomize stack (image override: ${LOCAL_IMAGE_NAME}:${LOCAL_IMAGE_TAG})"
-OVERLAY_DIR="$(mktemp -d -t console-overlay-XXXXXX)"
-# on_exit handles cleanup — no separate trap here.
-cat > "$OVERLAY_DIR/kustomization.yaml" <<YAML
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-- ${CONSOLE_DIR}
-images:
-- name: ghcr.io/scality/isv-nvidia-vss/console
-  newName: ${LOCAL_IMAGE_NAME}
-  newTag: ${LOCAL_IMAGE_TAG}
-patches:
-- target:
-    kind: Deployment
-    name: console
-  patch: |-
-    - op: add
-      path: /spec/template/spec/containers/0/imagePullPolicy
-      value: Never
-YAML
-
-kubectl kustomize --load-restrictor=LoadRestrictionsNone "$OVERLAY_DIR" | kubectl apply -f -
+# Render the base, then rewrite the console Deployment's image and force
+# imagePullPolicy: Never via a tiny Python post-processor. Avoids the
+# "new root cannot be absolute" issue that kustomize overlays hit when
+# resources: point outside the overlay's own directory.
 IMAGE_REPO="${LOCAL_IMAGE_NAME}:${LOCAL_IMAGE_TAG}"
+kubectl kustomize "$CONSOLE_DIR" \
+  | python3 -c '
+import sys, yaml
+new_image = sys.argv[1]
+docs = list(yaml.safe_load_all(sys.stdin))
+for d in docs:
+    if not d:
+        continue
+    if d.get("kind") == "Deployment" and d.get("metadata", {}).get("name") == "console":
+        c = d["spec"]["template"]["spec"]["containers"][0]
+        c["image"] = new_image
+        c["imagePullPolicy"] = "Never"
+yaml.safe_dump_all([d for d in docs if d], sys.stdout, default_flow_style=False)
+' "$IMAGE_REPO" \
+  | kubectl apply -f -
 
 # Resolve the image tag used by the just-applied manifest for the state file.
 IMAGE_TAG="$(kubectl -n console get deployment console \
