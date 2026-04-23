@@ -32,12 +32,13 @@ async function fetchPods(): Promise<PodSummary[]> {
   try {
     const hdrs = await headers();
     const cookie = hdrs.get("cookie") ?? "";
-    const res = await fetch(`${baseUrl}/api/status/pods`, {
+    const res = await fetch(`${baseUrl}/api/pods`, {
       cache: "no-store",
       headers: cookie ? { cookie } : {},
     });
     if (!res.ok) return [];
-    return await res.json();
+    const body = (await res.json()) as { pods?: PodSummary[] };
+    return body.pods ?? [];
   } catch {
     return [];
   }
