@@ -41,9 +41,9 @@ data:
   # The original .env.example used port 5010, which is wrong.
   VST_SENSOR_URL: "http://sensor-ms.vst.svc.cluster.local:30000/api/v1/live/sensor"
 
-  # alert-worker HTTP API (k8s/alerts/20-alert-worker.yaml, hostPort 9100).
+  # alert-worker HTTP API (k8s/alerts/20-alert-worker.yaml, hostPort 9101).
   # Headless Service defined in k8s/alerts/21-alert-worker-service.yaml.
-  ALERT_WORKER_URL: "http://alert-worker.alerts.svc.cluster.local:9100"
+  ALERT_WORKER_URL: "http://alert-worker.alerts.svc.cluster.local:9101"
 
   # Prometheus — ARTESCA kube-prometheus-stack in artesca-monitoring namespace.
   # Service name "prometheus-operated" confirmed on the live cluster (headless,
