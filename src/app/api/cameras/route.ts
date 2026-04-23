@@ -4,11 +4,11 @@ import { z } from "zod";
 import { vstListSensors } from "@/lib/helpers/vst";
 import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
 import { auditLog } from "@/lib/helpers/audit";
-import { sshScp } from "@/lib/ssh";
 import type { Camera, Feed } from "@/lib/types";
 import {
   camsimListCameras,
   camsimAddCamera,
+  camsimUploadFile,
   controlPlaneHost,
   CamsimControlError,
 } from "@/lib/helpers/camsim-control";
@@ -131,7 +131,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const operator = session.user?.name ?? session.user?.email ?? "unknown";
   const { cameraId, description, feeds } = parsed.data;
   const warnings: string[] = [];
 
@@ -145,14 +144,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 1. SCP the source file to /opt/camera-sim/data/.
+  // 1. Upload the source file to /opt/camera-sim/data/ via the control-plane
+  //    (no SSH — console pod has no SSH key mounted anymore).
   try {
     const buf = Buffer.from(primary.fileBase64, "base64");
-    await sshScp(buf, `/opt/camera-sim/data/${primary.fileName}`, operator);
+    await camsimUploadFile(primary.fileName, buf);
   } catch (err) {
+    const status = err instanceof CamsimControlError ? err.status : 502;
     return NextResponse.json(
-      { error: `SCP failed: ${String(err)}` },
-      { status: 502 },
+      { error: `Upload failed: ${err instanceof Error ? err.message : String(err)}` },
+      { status },
     );
   }
 
