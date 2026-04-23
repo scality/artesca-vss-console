@@ -136,10 +136,10 @@ spec:
       - operator: Exists
       containers:
       - name: importer
-        # Needs glibc -- /usr/bin/ctr on the host is dynamically linked
-        # against libdl.so.2, which is absent from musl images (busybox,
-        # alpine). debian:12-slim is ~30 MB and anonymously pullable.
-        image: docker.io/library/debian:12-slim
+        # Match the host OS (Rocky 8.10, glibc 2.28) so /host-ctr resolves
+        # libdl.so.2 + friends in /lib64 as it was linked. Debian's
+        # /lib/x86_64-linux-gnu layout doesn't satisfy Rocky binaries.
+        image: docker.io/library/rockylinux:8
         command:
         - /bin/sh
         - -c
