@@ -10,12 +10,15 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
  * Creates an SSE response.
  *
  * @param signal  - AbortSignal from the incoming request (`req.signal`).
- * @param onStart - Async producer. Call `write(data)` to emit `data: <json>\n\n`.
+ * @param onStart - Async producer. Call `write(data, eventName?)` to emit either
+ *                  a default `message` event (`data: <json>\n\n`) or a named event
+ *                  (`event: <name>\ndata: <json>\n\n`). Named events let the client
+ *                  use `EventSource.addEventListener("<name>", ...)`.
  *                  Return void or a cleanup thunk (called on disconnect).
  */
 export function createSseResponse<T>(
   signal: AbortSignal,
-  onStart: (write: (event: T) => void) => Promise<void | (() => void)>
+  onStart: (write: (event: T, eventName?: string) => void) => Promise<void | (() => void)>
 ): NextResponse {
   const stream = new ReadableStream({
     async start(controller) {
@@ -25,9 +28,10 @@ export function createSseResponse<T>(
       const encode = (chunk: string) =>
         controller.enqueue(new TextEncoder().encode(chunk));
 
-      const write = (event: T) => {
+      const write = (event: T, eventName?: string) => {
         if (signal.aborted) return;
-        encode(`data: ${JSON.stringify(event)}\n\n`);
+        const prefix = eventName ? `event: ${eventName}\n` : "";
+        encode(`${prefix}data: ${JSON.stringify(event)}\n\n`);
       };
 
       const stop = () => {

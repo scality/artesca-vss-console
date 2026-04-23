@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ReactFlow,
@@ -19,138 +19,288 @@ import "@xyflow/react/dist/style.css";
 
 import { Shell } from "@/components/Shell";
 import { ServiceNode, type ServiceNodeData } from "@/components/topology/ServiceNode";
+import { StorageNode } from "@/components/topology/nodes/StorageNode";
+import { FeedNode } from "@/components/topology/nodes/FeedNode";
 import { ConnectionEdge } from "@/components/topology/ConnectionEdge";
-import { NodeDetailDialog } from "@/components/topology/NodeDetailDialog";
-import type { Health } from "@/lib/types";
+import { NodeDetailPanel } from "@/components/topology/NodeDetailPanel";
+import { NODE_CONTENT } from "@/components/topology/node-content";
+import { getFeedContent } from "@/components/topology/node-content/feeds";
+import { getFeedActionsContent } from "@/components/topology/node-content/actions";
+import { clearNodeSparklines } from "@/components/topology/node-content/compute";
+import type { NodeType, PipelineHealth, PipelineSnapshot, NodeRuntimeState } from "@/lib/types/pipeline";
 
-/** Hand-placed positions for the VSS pipeline:
- *  camera-sim → mediamtx → VST → rtvi-vlm → Kafka → alert-worker → agent-ui
- *  NIM on the side; S3 bottom.
- */
-const BASE_NODES: Array<Omit<Node<ServiceNodeData>, "data"> & { data: ServiceNodeData }> = [
-  {
-    id: "camera-sim",
-    position: { x: 0, y: 200 },
-    data: { label: "camera-sim", health: "unknown", namespace: "camera-sim" },
-    type: "service",
-  },
-  {
-    id: "mediamtx",
-    position: { x: 220, y: 200 },
-    data: { label: "mediamtx", health: "unknown", namespace: "vss" },
-    type: "service",
-  },
-  {
-    id: "vst",
-    position: { x: 440, y: 200 },
-    data: { label: "VST", health: "unknown", namespace: "vss" },
-    type: "service",
-  },
-  {
-    id: "rtvi-vlm",
-    position: { x: 660, y: 200 },
-    data: { label: "rtvi-vlm", health: "unknown", namespace: "vss" },
-    type: "service",
-  },
-  {
-    id: "kafka",
-    position: { x: 880, y: 200 },
-    data: { label: "Kafka", health: "unknown", namespace: "kafka" },
-    type: "service",
-  },
-  {
-    id: "alert-worker",
-    position: { x: 1100, y: 200 },
-    data: { label: "alert-worker", health: "unknown", namespace: "vss" },
-    type: "service",
-  },
-  {
-    id: "agent-ui",
-    position: { x: 1320, y: 200 },
-    data: { label: "agent-ui", health: "unknown", namespace: "vss" },
-    type: "service",
-  },
-  // NIM on the side
-  {
-    id: "nim",
-    position: { x: 660, y: 0 },
-    data: { label: "NIM", health: "unknown", namespace: "nim" },
-    type: "service",
-  },
-  // S3 bottom
-  {
-    id: "s3",
-    position: { x: 880, y: 400 },
-    data: { label: "S3 / ARTESCA", health: "unknown", namespace: "artesca" },
-    type: "service",
-  },
-];
+// ─────────────────────────────────────────────────────────────────────────────
+// Topology node data — superset of all node-type-specific shapes
+// ─────────────────────────────────────────────────────────────────────────────
 
-const BASE_EDGES: Edge[] = [
-  { id: "e-cam-mtx", source: "camera-sim", target: "mediamtx", type: "connection", data: { protocol: "RTSP" } },
-  { id: "e-mtx-vst", source: "mediamtx", target: "vst", type: "connection", data: { protocol: "RTSP" } },
-  { id: "e-vst-vlm", source: "vst", target: "rtvi-vlm", type: "connection", data: { protocol: "gRPC" } },
-  { id: "e-vlm-nim", source: "rtvi-vlm", target: "nim", type: "connection", data: { protocol: "HTTP" } },
-  { id: "e-vlm-kafka", source: "rtvi-vlm", target: "kafka", type: "connection", data: { protocol: "Kafka" } },
-  { id: "e-kafka-alert", source: "kafka", target: "alert-worker", type: "connection", data: { protocol: "Kafka" } },
-  { id: "e-alert-ui", source: "alert-worker", target: "agent-ui", type: "connection", data: { protocol: "HTTP" } },
-  { id: "e-alert-s3", source: "alert-worker", target: "s3", type: "connection", data: { protocol: "HTTP" } },
-];
-
-const NODE_TYPES: NodeTypes = { service: ServiceNode };
-const EDGE_TYPES: EdgeTypes = { connection: ConnectionEdge };
-
-interface TopologyPayload {
-  nodes?: Array<{ id: string; health?: Health; namespace?: string; podCount?: number; restarts?: number }>;
+interface TopologyNodeData {
+  label: string;
+  health: PipelineHealth;
+  namespace?: string;
+  nodeType?: NodeType;
+  // ServiceNode fields
+  podCount?: number;
+  restarts?: number;
+  // StorageNode fields (Agent 4 shape)
+  subtype?: "s3" | "cache" | "postgres" | "redis";
+  runtime?: NodeRuntimeState;
+  // FeedNode fields (Agent 3 shape)
+  sensorId?: string;
+  // Index signature required by React Flow NodeData constraint
+  [key: string]: unknown;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Graph is built entirely from the /api/topology response — no static layout.
+// Initial state is empty until the first payload lands (~300 ms typical).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BASE_NODES: Node<TopologyNodeData>[] = [];
+const BASE_EDGES: Edge[] = [];
+
+function deriveSubtype(nodeType: NodeType | undefined, nodeId: string): TopologyNodeData["subtype"] {
+  if (nodeType === "storage") return nodeId.includes("cache") ? "cache" : "s3";
+  if (nodeType === "database") return "postgres";
+  if (nodeType === "redis") return "redis";
+  return undefined;
+}
+
+function reactFlowTypeFor(nodeType: NodeType | undefined): "service" | "storage" | "feed" {
+  if (nodeType === "feed") return "feed";
+  if (nodeType === "storage" || nodeType === "database" || nodeType === "redis") return "storage";
+  return "service";
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const NODE_TYPES: NodeTypes = {
+  service: ServiceNode as any,
+  storage: StorageNode as any,
+  feed: FeedNode as any,
+};
+
+const EDGE_TYPES: EdgeTypes = { connection: ConnectionEdge };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Topology API shape
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface TopologyApiNode {
+  id: string;
+  label?: string;
+  health?: PipelineHealth;
+  namespace?: string;
+  podCount?: number;
+  restarts?: number;
+  type?: NodeType;
+  // Feed-specific fields emitted by Agent 1
+  sensorId?: string;
+  position?: { x: number; y: number };
+}
+
+interface TopologyApiEdge {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+  protocol?: string;
+  dormant?: boolean;
+}
+
+interface TopologyPayload {
+  nodes?: TopologyApiNode[];
+  edges?: TopologyApiEdge[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Merge helper
+// ─────────────────────────────────────────────────────────────────────────────
+
 function mergeTopologyData(
-  baseNodes: typeof BASE_NODES,
-  payload: TopologyPayload | null
-): typeof BASE_NODES {
-  if (!payload?.nodes) return baseNodes;
-  return baseNodes.map((node) => {
-    const live = payload.nodes!.find((n) => n.id === node.id);
-    if (!live) return node;
+  payload: TopologyPayload | null,
+  snapshot: PipelineSnapshot | null,
+): Node<TopologyNodeData>[] {
+  const apiNodes = payload?.nodes ?? [];
+  return apiNodes.map((n, idx) => {
+    const runtimeState = snapshot?.nodes[n.id];
+    const health: PipelineHealth = runtimeState?.health ?? n.health ?? "unknown";
+    const rfType = reactFlowTypeFor(n.type);
     return {
-      ...node,
+      id: n.id,
+      position: n.position ?? { x: idx * 180, y: 200 },
+      type: rfType,
       data: {
-        ...node.data,
-        health: live.health ?? node.data.health,
-        namespace: live.namespace ?? node.data.namespace,
-        podCount: live.podCount,
-        restarts: live.restarts,
+        label: n.label ?? n.sensorId ?? n.id,
+        health,
+        namespace: n.namespace,
+        nodeType: n.type,
+        subtype: deriveSubtype(n.type, n.id),
+        podCount: n.podCount,
+        restarts: n.restarts,
+        sensorId: n.sensorId,
+        runtime: runtimeState,
       },
     };
   });
 }
 
-export default function TopologyPage() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<ServiceNodeData>>(BASE_NODES as Node<ServiceNodeData>[]);
-  const [edges, , onEdgesChange] = useEdgesState(BASE_EDGES);
-  const [selectedNode, setSelectedNode] = useState<{
-    id: string;
-    data: ServiceNodeData;
-  } | null>(null);
+function mergeTopologyEdges(
+  payload: TopologyPayload | null,
+  snapshot: PipelineSnapshot | null,
+): Edge[] {
+  const apiEdges = payload?.edges ?? [];
+  return apiEdges.map((e) => ({
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    type: "connection",
+    data: {
+      protocol: e.protocol,
+      staticLabel: e.label,
+      dormant: e.dormant,
+      runtime: snapshot?.edges[e.id],
+    },
+  }));
+}
 
-  // Poll topology API every 3 s and merge live health data into React Flow nodes
-  useQuery<TopologyPayload>({
+// ─────────────────────────────────────────────────────────────────────────────
+// React import (needed for NODE_TYPES cast)
+// ─────────────────────────────────────────────────────────────────────────────
+
+import React from "react";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Page
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function TopologyPage() {
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<TopologyNodeData>>(BASE_NODES);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(BASE_EDGES);
+
+  // Selected node for the detail panel
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  // Live pipeline snapshot — populated via SSE; falls back to polling.
+  const [snapshot, setSnapshot] = useState<PipelineSnapshot | null>(null);
+  const [sseFailed, setSseFailed] = useState(false);
+
+  // ── SSE subscription with exponential back-off reconnect ─────────────────
+  useEffect(() => {
+    let es: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    let disposed = false;
+    const MAX_ATTEMPTS = 5;
+    const MAX_BACKOFF_MS = 30_000;
+
+    function scheduleReconnect() {
+      if (disposed) return;
+      if (attempt >= MAX_ATTEMPTS) {
+        setSseFailed(true);
+        return;
+      }
+      const backoff = Math.min(1_000 * 2 ** attempt, MAX_BACKOFF_MS);
+      attempt += 1;
+      reconnectTimer = setTimeout(connect, backoff);
+    }
+
+    function connect() {
+      if (disposed) return;
+      es = new EventSource("/api/pipeline/live");
+
+      es.addEventListener("snapshot", (evt: MessageEvent<string>) => {
+        try {
+          const parsed: PipelineSnapshot = JSON.parse(evt.data);
+          setSnapshot(parsed);
+          setSseFailed(false);
+          attempt = 0; // healthy tick → reset back-off
+        } catch {
+          // malformed event — ignore
+        }
+      });
+
+      es.onerror = () => {
+        es?.close();
+        es = null;
+        scheduleReconnect();
+      };
+    }
+
+    connect();
+    return () => {
+      disposed = true;
+      if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
+      es?.close();
+    };
+  }, []);
+
+  // ── Polling fallback (/api/pipeline/snapshot every 5 s when SSE dead) ─────
+  useQuery<PipelineSnapshot>({
+    queryKey: ["pipeline-snapshot"],
+    queryFn: async () => {
+      const res = await fetch("/api/pipeline/snapshot");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: PipelineSnapshot = await res.json();
+      setSnapshot(data);
+      return data;
+    },
+    refetchInterval: 5_000,
+    staleTime: 0,
+    enabled: sseFailed,
+  });
+
+  // ── Topology structure (nodes + edges) — poll every 3 s ──────────────────
+  const { data: topologyPayload } = useQuery<TopologyPayload>({
     queryKey: ["topology"],
     queryFn: async () => {
       const res = await fetch("/api/topology");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: TopologyPayload = await res.json();
-      const merged = mergeTopologyData(BASE_NODES as typeof BASE_NODES, data);
-      setNodes(merged as Node<ServiceNodeData>[]);
-      return data;
+      return res.json() as Promise<TopologyPayload>;
     },
     refetchInterval: 3_000,
     staleTime: 0,
   });
 
-  const onNodeClick: NodeMouseHandler<Node<ServiceNodeData>> = useCallback((_evt, node) => {
-    setSelectedNode({ id: node.id, data: node.data });
+  // Merge structure + live runtime into React Flow nodes + edges.
+  // Track the previous node-id set so we can release sparkline buffers for
+  // nodes that have disappeared (e.g. a camera feed was removed).
+  const prevNodeIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const merged = mergeTopologyData(topologyPayload ?? null, snapshot);
+    const mergedIds = new Set(merged.map((n) => n.id));
+    for (const prevId of prevNodeIdsRef.current) {
+      if (!mergedIds.has(prevId)) clearNodeSparklines(prevId);
+    }
+    prevNodeIdsRef.current = mergedIds;
+    setNodes(merged);
+    setEdges(mergeTopologyEdges(topologyPayload ?? null, snapshot));
+  }, [topologyPayload, snapshot, setNodes, setEdges]);
+
+  const onNodeClick: NodeMouseHandler<Node<TopologyNodeData>> = useCallback((_evt, node) => {
+    setSelectedNodeId(node.id);
   }, []);
+
+  // Resolve the selected node's data for the panel.
+  const selectedNode = selectedNodeId
+    ? nodes.find((n) => n.id === selectedNodeId)
+    : null;
+
+  const panelLabel = selectedNode?.data.label ?? selectedNodeId ?? "";
+  const panelNamespace = selectedNode?.data.namespace;
+  const panelNodeType: NodeType = selectedNode?.data.nodeType ?? "service";
+  // StorageNode + FeedNode store live state under `.runtime`; ServiceNode stores it directly.
+  const panelRuntimeState: NodeRuntimeState | undefined =
+    selectedNode?.data.runtime ??
+    (selectedNode?.data.health
+      ? { health: selectedNode.data.health as PipelineHealth }
+      : undefined);
+
+  // Resolve content: static registry first, then dynamic feed Status + Actions for "feed:*" nodes.
+  const panelContent = selectedNodeId
+    ? (NODE_CONTENT[selectedNodeId] ?? {
+        ...(getFeedContent(selectedNodeId) ?? {}),
+        ...(getFeedActionsContent(selectedNodeId) ?? {}),
+      })
+    : undefined;
 
   return (
     <Shell className="p-0">
@@ -182,8 +332,8 @@ export default function TopologyPage() {
             <Controls />
             <MiniMap
               nodeColor={(node) => {
-                const data = node.data as ServiceNodeData;
-                const h = data?.health ?? "unknown";
+                const d = node.data as TopologyNodeData;
+                const h = d?.health ?? "unknown";
                 if (h === "ok") return "#22c55e";
                 if (h === "warn") return "#eab308";
                 if (h === "fail") return "#ef4444";
@@ -195,14 +345,17 @@ export default function TopologyPage() {
         </div>
       </div>
 
-      {selectedNode && (
-        <NodeDetailDialog
-          open={!!selectedNode}
-          onClose={() => setSelectedNode(null)}
-          nodeData={selectedNode.data}
-          componentId={selectedNode.id}
-        />
-      )}
+      <NodeDetailPanel
+        open={!!selectedNodeId}
+        nodeId={selectedNodeId}
+        nodeLabel={panelLabel}
+        nodeType={panelNodeType}
+        namespace={panelNamespace}
+        content={panelContent}
+        runtimeState={panelRuntimeState}
+        snapshot={snapshot ?? undefined}
+        onClose={() => setSelectedNodeId(null)}
+      />
     </Shell>
   );
 }
