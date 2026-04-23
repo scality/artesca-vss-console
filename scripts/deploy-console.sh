@@ -232,8 +232,28 @@ fi
 # Apply the secrets (pre-apply required; kustomize skips non-kustomization files)
 # ---------------------------------------------------------------------------
 
-echo "==> ensuring namespace (Secrets target ns: console)"
-kubectl apply -f "$CONSOLE_DIR/00-namespace.yaml"
+echo "==> ensuring namespaces (Secrets + RoleBindings across workload ns)"
+# Console Secrets land in ns: console. The RBAC bindings in 01-rbac.yaml
+# grant the console-sa read access in ns: vst, rtvi, agent, alerts,
+# demo-data, pyramid-ingress. Pre-create any that don't exist yet so
+# RoleBinding creation doesn't fail.
+for ns in console vst rtvi agent alerts demo-data pyramid-ingress; do
+  kubectl get ns "$ns" >/dev/null 2>&1 || kubectl create ns "$ns"
+done
+
+echo "==> creating host directory for console PV (/srv/scality/console-data)"
+# Same salt-call pattern as bootstrap-rtvi.sh + bootstrap-vst.sh —
+# artesca-os sudoers blocks mkdir/chmod but permits salt-call, which
+# runs as root on the node.
+KEY_PATH_HOST="${KEY_PATH:-$HOME/.ssh/${KEY_NAME:-isv-nvidia-vss}.pem}"
+ssh -i "$KEY_PATH_HOST" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+  -o ConnectTimeout=10 "artesca-os@$PUB_IP" \
+  "sudo -n salt-call --local --out=quiet cmd.run '
+     mkdir -p /srv/scality/console-data &&
+     chmod 0777 /srv/scality/console-data
+   '" >/dev/null 2>&1 || {
+  echo "WARN: could not create /srv/scality/console-data via salt-call — PV may fail to bind" >&2
+}
 
 echo "==> applying Secrets"
 kubectl apply -f "$SECRETS_FILE"
@@ -263,25 +283,36 @@ LOCAL_IMAGE_NAME="console.local"
 # ---------------------------------------------------------------------------
 
 echo "==> applying kustomize stack (image override: ${LOCAL_IMAGE_NAME}:${LOCAL_IMAGE_TAG})"
-# Render the base, then rewrite the console Deployment's image and force
-# imagePullPolicy: Never via a tiny Python post-processor. Avoids the
-# "new root cannot be absolute" issue that kustomize overlays hit when
-# resources: point outside the overlay's own directory.
+# Render the base, then patch two things in-memory:
+#   1. console Deployment container: image -> local tag + Never
+#   2. console-data PV nodeAffinity: hostname placeholder -> live node
+# Avoids kustomize's "new root cannot be absolute" issue when overlay
+# resources: point outside the overlay directory.
 IMAGE_REPO="${LOCAL_IMAGE_NAME}:${LOCAL_IMAGE_TAG}"
+NODE_HOSTNAME="$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')"
 kubectl kustomize "$CONSOLE_DIR" \
   | python3 -c '
 import sys, yaml
 new_image = sys.argv[1]
+node_hostname = sys.argv[2]
 docs = list(yaml.safe_load_all(sys.stdin))
 for d in docs:
     if not d:
         continue
-    if d.get("kind") == "Deployment" and d.get("metadata", {}).get("name") == "console":
+    kind = d.get("kind")
+    name = d.get("metadata", {}).get("name")
+    if kind == "Deployment" and name == "console":
         c = d["spec"]["template"]["spec"]["containers"][0]
         c["image"] = new_image
         c["imagePullPolicy"] = "Never"
+    elif kind == "PersistentVolume" and name == "console-data":
+        terms = d["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"]
+        for t in terms:
+            for expr in t.get("matchExpressions", []):
+                if expr.get("key") == "kubernetes.io/hostname":
+                    expr["values"] = [node_hostname]
 yaml.safe_dump_all([d for d in docs if d], sys.stdout, default_flow_style=False)
-' "$IMAGE_REPO" \
+' "$IMAGE_REPO" "$NODE_HOSTNAME" \
   | kubectl apply -f -
 
 # Resolve the image tag used by the just-applied manifest for the state file.

@@ -11,6 +11,7 @@ resources:
 - 01-rbac.yaml
 - 11-configmap-env.yaml
 - 12-pvc.yaml
+- 15-storage.yaml
 - 20-console.yaml
 
 labels:

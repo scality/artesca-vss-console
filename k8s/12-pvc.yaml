@@ -9,7 +9,7 @@ spec:
   resources:
     requests:
       storage: 5Gi
-  # storageClassName omitted — uses the MetalK8s default StorageClass.
-  # On a single-node ARTESCA dev install this is the sparseLoopDevice-backed
-  # class provisioned by the demo profile. Override explicitly if you need a
-  # specific class (e.g. for a multi-node prod-lite cluster).
+  # Bind statically to the local PV created in 15-storage.yaml. MetalK8s
+  # has no default StorageClass, so an omitted className leaves the PVC
+  # Pending forever.
+  storageClassName: console-local
