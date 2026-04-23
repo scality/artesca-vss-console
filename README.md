@@ -33,6 +33,24 @@ docker run -p 8800:8800 \
   console:local
 ```
 
+## Pages
+
+| Route | Purpose |
+| ----- | ------- |
+| `/` | Overview — cluster health, pod summary, active incidents |
+| `/topology` | Service graph — namespace, pod, and dependency map |
+| `/incidents` | Incident list + detail; kiosk-mode (`?mode=kiosk`) hides nav |
+| `/cameras` | Camera registry, feed status, add-camera stepper |
+| `/scenarios` | Scenario keyword editor, threshold tuning |
+| `/prompt` | VLM prompt editor (Monaco), model selector, live preview |
+| `/tuning` | Three tuning cards: **RTVI** (NeMo inference params), **Alerts** (Kafka thresholds), and **VST Recording** (recording mode, GoP / `default_gov_length`, H264/H265 codec selection, storage threshold, file retention). Changes to the VST card patch `vst-config` ConfigMap and trigger a rollout-restart of `sensor-ms` + `streamprocessing-ms` with a ~10 s recording gap. |
+| `/diagnostics` | Cluster diagnostics. Leads with a **VST Storage** panel: S3 PUT rate with 5-min sparkline, object count, local `vst-video` cache fill percentage, segment histogram, and frame-drop rate. Below: pod logs, GPU utilisation, Kafka consumer lag. |
+| `/demo-data` | Synthetic VLM event generator (exercises alerts without GPU) |
+| `/profiles` | Load/save named config profiles (snapshot + restore tuning state) |
+| `/secrets` | S3 credentials and cloud-storage fields — the fields excluded from `/tuning` |
+| `/logs` | Structured log viewer with namespace + pod filter |
+| `/settings` | Console settings (auth, NEXTAUTH_URL, theme) |
+
 ## Tests
 
 ```bash

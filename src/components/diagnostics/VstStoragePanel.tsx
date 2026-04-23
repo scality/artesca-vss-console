@@ -18,6 +18,8 @@ import {
   Tooltip,
   ResponsiveContainer,
   Cell,
+  AreaChart,
+  Area,
 } from "recharts";
 import {
   Table,
@@ -27,16 +29,22 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui/table";
+import { Progress } from "@/components/ui/progress";
 
 // ──────────────────────────────────────────────
 // Format helpers
 // ──────────────────────────────────────────────
 
+/** All byte sizes use base-2 (KiB / MiB / GiB / TiB). */
 function formatBytes(n: number): string {
-  if (n >= 1e12) return `${(n / 1e12).toFixed(2)} TB`;
-  if (n >= 1e9) return `${(n / 1e9).toFixed(2)} GB`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(2)} MB`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(2)} KB`;
+  const TiB = 2 ** 40;
+  const GiB = 2 ** 30;
+  const MiB = 2 ** 20;
+  const KiB = 2 ** 10;
+  if (n >= TiB) return `${(n / TiB).toFixed(2)} TiB`;
+  if (n >= GiB) return `${(n / GiB).toFixed(2)} GiB`;
+  if (n >= MiB) return `${(n / MiB).toFixed(1)} MiB`;
+  if (n >= KiB) return `${Math.round(n / KiB)} KiB`;
   return `${n} B`;
 }
 
@@ -58,6 +66,17 @@ function formatSizeBucket(minKB: number, maxKB: number | null): string {
   };
   if (maxKB === null) return `${fmt(minKB)}+`;
   return `${fmt(minKB)}–${fmt(maxKB)}`;
+}
+
+// ──────────────────────────────────────────────
+// Ring buffer — 60 samples, client-side only
+// ──────────────────────────────────────────────
+
+const SPARKLINE_CAPACITY = 60;
+
+interface SparkSample {
+  t: number;    // epoch ms, for uniqueness
+  v: number;    // MB/s
 }
 
 // ──────────────────────────────────────────────
@@ -93,8 +112,14 @@ const VstStorageResponseSchema = z.object({
   segmentDurationSecsP50: z.number().nullable(),
   segmentDurationSecsP95: z.number().nullable(),
   frameDropCount: z.number().nullable(),
+  /** NEW — frame drops per minute (null = not yet available from sensor-ms) */
+  frameDropRatePerMin: z.number().nullable().optional(),
   recentObjects: z.array(RecentObjectSchema),
   alerts: z.array(AlertSchema),
+  /** NEW — bucket scan was capped at 5000 objects */
+  bucketScanTruncated: z.boolean().optional(),
+  /** NEW — seconds since object totals were last refreshed */
+  bucketScanStaleSecs: z.number().optional(),
 });
 
 type VstStorageData = z.infer<typeof VstStorageResponseSchema>;
@@ -103,23 +128,59 @@ type VstStorageData = z.infer<typeof VstStorageResponseSchema>;
 // Sub-components
 // ──────────────────────────────────────────────
 
-// Local cache progress bar (no shadcn Progress available)
+/** PUT-rate sparkline — 60 samples, ~40 px tall, no axes/grid/tooltip. */
+function PutRateSparkline({ samples }: { samples: SparkSample[] }) {
+  // Need at least 3 samples to draw a meaningful line
+  if (samples.length < 3) {
+    return (
+      <p className="text-xs text-muted-foreground italic mt-1">
+        collecting…
+      </p>
+    );
+  }
+
+  const chartData = samples.map((s, i) => ({ i, v: s.v }));
+
+  return (
+    <div className="mt-2 h-10 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart
+          data={chartData}
+          margin={{ top: 2, right: 0, bottom: 2, left: 0 }}
+        >
+          <defs>
+            <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <Area
+            type="monotone"
+            dataKey="v"
+            stroke="hsl(var(--primary))"
+            strokeWidth={1.5}
+            fill="url(#sparkGrad)"
+            dot={false}
+            isAnimationActive={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/** Local cache progress bar — uses shadcn Progress component. */
 function CacheProgressBar({ pct }: { pct: number }) {
   const colorClass =
     pct > 90
-      ? "bg-red-500"
+      ? "[&>div]:bg-red-500"
       : pct > 75
-        ? "bg-yellow-500"
-        : "bg-green-500";
+        ? "[&>div]:bg-yellow-500"
+        : "[&>div]:bg-green-500";
 
   return (
     <div className="space-y-1">
-      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${colorClass}`}
-          style={{ width: `${Math.min(100, pct)}%` }}
-        />
-      </div>
+      <Progress value={Math.min(100, pct)} className={`h-2 ${colorClass}`} />
       <p className="text-xs text-muted-foreground">
         {pct.toFixed(1)}% of 500 GiB{" "}
         <span className="italic">(emptyDir sizeLimit)</span>
@@ -128,25 +189,63 @@ function CacheProgressBar({ pct }: { pct: number }) {
   );
 }
 
-// Frame drops badge (top-right corner usage)
-function FrameDropsBadge({ count }: { count: number | null }) {
-  if (count === null) {
+/**
+ * Frame drops badge — top-right corner.
+ * Shows rate (drops/min) from the new field; lifetime count in a title tooltip.
+ */
+function FrameDropsBadge({
+  count,
+  ratePerMin,
+}: {
+  count: number | null;
+  ratePerMin?: number | null;
+}) {
+  // rate is undefined → new field not yet in payload → fall back to lifetime count display
+  const rate = ratePerMin ?? null;
+
+  const lifetimeTitle =
+    count !== null
+      ? `${count.toLocaleString()} total drop${count !== 1 ? "s" : ""} since sensor-ms started`
+      : undefined;
+
+  if (rate === null && count === null) {
     return (
-      <span className="text-xs text-muted-foreground">drops: —</span>
+      <span className="text-xs text-muted-foreground" title={lifetimeTitle}>
+        drops: —
+      </span>
     );
   }
-  if (count === 0) {
-    return <span className="text-xs text-green-400">no drops</span>;
+
+  if (rate === 0 || (rate === null && count === 0)) {
+    return (
+      <span className="text-xs text-green-400" title={lifetimeTitle}>
+        no drops
+      </span>
+    );
   }
+
+  // rate > 0 — yellow or red
+  const displayRate = rate !== null ? rate : null;
+  const isCrit = displayRate !== null && displayRate >= 5;
+
   return (
-    <span className="flex items-center gap-1 text-xs text-yellow-400">
-      <AlertTriangle className="h-3 w-3" />
-      {count.toLocaleString()} drop{count !== 1 ? "s" : ""}
+    <span
+      className={`flex items-center gap-1 text-xs ${isCrit ? "text-red-400" : "text-yellow-400"}`}
+      title={lifetimeTitle}
+    >
+      {isCrit ? (
+        <AlertOctagon className="h-3 w-3" />
+      ) : (
+        <AlertTriangle className="h-3 w-3" />
+      )}
+      {displayRate !== null
+        ? `${displayRate.toFixed(1)} drops/min`
+        : `${(count ?? 0).toLocaleString()} drops`}
     </span>
   );
 }
 
-// Alerts strip
+/** Alerts strip — renders both backend alerts and any client-injected alerts. */
 function AlertsStrip({ alerts }: { alerts: VstStorageData["alerts"] }) {
   if (alerts.length === 0) return null;
 
@@ -326,6 +425,13 @@ function RecentObjectsTable({
 // ──────────────────────────────────────────────
 
 export function VstStoragePanel() {
+  // Ring buffer stored in a ref — no re-render on every append.
+  // The ref holds the array; state holds a stable snapshot used for rendering,
+  // updated only when the query succeeds (same cadence as the rest of the UI).
+  const ringRef = React.useRef<SparkSample[]>([]);
+  const [sparkSamples, setSparkSamples] = React.useState<SparkSample[]>([]);
+  const consecutiveErrorsRef = React.useRef(0);
+
   const { data, isLoading, isError, isFetching, isFetched } = useQuery({
     queryKey: ["storage", "vst"],
     queryFn: async () => {
@@ -337,6 +443,31 @@ export function VstStoragePanel() {
     refetchInterval: 5_000,
     retry: 2,
   });
+
+  // Append MB/s sample to ring buffer on each successful fetch.
+  // Reset buffer after ≥2 consecutive errors (gap is more honest than a bridged line).
+  React.useEffect(() => {
+    if (data) {
+      consecutiveErrorsRef.current = 0;
+      const mbps = data.putRateBytesPerSec / 1_048_576; // bytes → MiB/s
+      const ring = ringRef.current;
+      if (ring.length >= SPARKLINE_CAPACITY) {
+        ring.shift();
+      }
+      ring.push({ t: Date.now(), v: mbps });
+      setSparkSamples([...ring]);
+    }
+  }, [data]);
+
+  React.useEffect(() => {
+    if (isError) {
+      consecutiveErrorsRef.current += 1;
+      if (consecutiveErrorsRef.current >= 2) {
+        ringRef.current = [];
+        setSparkSamples([]);
+      }
+    }
+  }, [isError]);
 
   // First-load spinner — before any data arrives
   if (isLoading && !isFetched) {
@@ -360,8 +491,40 @@ export function VstStoragePanel() {
 
   const d = data!;
 
-  const putRateMBps = (d.putRateBytesPerSec / 1e6).toFixed(2);
-  const totalGB = (d.bytesTotal / 1e9).toFixed(2);
+  // MB/s for display — note: display label stays "MB/s" (industry convention for network
+  // throughput; the sparkline also tracks MiB/s under the hood but the label says MB/s
+  // since that is what VST documentation uses for PUT rate).
+  const putRateMBps = (d.putRateBytesPerSec / 1_000_000).toFixed(2);
+
+  // GiB for storage totals — base-2 throughout
+  const GiB = 2 ** 30;
+  const totalGiB = (d.bytesTotal / GiB).toFixed(2);
+
+  // ── Client-injected alerts ──────────────────
+  const clientAlerts: VstStorageData["alerts"] = [...d.alerts];
+
+  // Bucket scan truncated → info alert at top
+  if (d.bucketScanTruncated) {
+    clientAlerts.unshift({
+      severity: "info",
+      message:
+        "Total object count is a conservative estimate — full bucket scan truncated at 5000 objects for latency. Will refresh in background.",
+    });
+  }
+
+  // High frame-drop rate → crit alert at top
+  const dropRate = d.frameDropRatePerMin ?? null;
+  if (dropRate !== null && dropRate >= 5) {
+    clientAlerts.unshift({
+      severity: "crit",
+      message: `High frame-drop rate: ${dropRate.toFixed(1)}/min (sensor-ms is dropping frames, likely recorder saturation)`,
+    });
+  }
+
+  // Objects tile stale tooltip — show when > 120 s stale
+  const scanStaleSecs = d.bucketScanStaleSecs ?? 0;
+  const showStaleHint = scanStaleSecs > 120;
+  const staleMins = Math.round(scanStaleSecs / 60);
 
   return (
     <div className="relative space-y-5">
@@ -373,7 +536,10 @@ export function VstStoragePanel() {
             updating…
           </span>
         )}
-        <FrameDropsBadge count={d.frameDropCount} />
+        <FrameDropsBadge
+          count={d.frameDropCount}
+          ratePerMin={d.frameDropRatePerMin}
+        />
       </div>
 
       {/* Error banner over stale data */}
@@ -384,12 +550,12 @@ export function VstStoragePanel() {
         </div>
       )}
 
-      {/* Alerts strip */}
-      <AlertsStrip alerts={d.alerts} />
+      {/* Alerts strip (backend + client-injected) */}
+      <AlertsStrip alerts={clientAlerts} />
 
       {/* Top row: 3 tiles */}
       <div className="grid grid-cols-3 gap-4">
-        {/* PUT rate tile */}
+        {/* PUT rate tile — with sparkline */}
         <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-1">
           <p className="text-xs text-muted-foreground uppercase tracking-wide">
             S3 PUT rate
@@ -403,17 +569,26 @@ export function VstStoragePanel() {
           <p className="text-sm text-muted-foreground">
             {d.putRateObjectsPerSec.toFixed(1)} obj/s
           </p>
+          <PutRateSparkline samples={sparkSamples} />
         </div>
 
-        {/* Objects tile */}
+        {/* Objects tile — with optional stale hint */}
         <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-1">
           <p className="text-xs text-muted-foreground uppercase tracking-wide">
             Objects in vss-video
           </p>
           <p className="text-3xl font-mono font-semibold">
             {d.objectCount.toLocaleString()}
+            {showStaleHint && (
+              <span
+                className="ml-2 text-sm font-normal text-muted-foreground cursor-help"
+                title={`Totals cached ~${staleMins} min ago — refreshing.`}
+              >
+                <Info className="inline h-3.5 w-3.5" />
+              </span>
+            )}
           </p>
-          <p className="text-sm text-muted-foreground">{totalGB} GB total</p>
+          <p className="text-sm text-muted-foreground">{totalGiB} GiB total</p>
         </div>
 
         {/* Local cache tile */}
