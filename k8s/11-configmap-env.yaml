@@ -60,6 +60,13 @@ data:
   # Flag: ASSUMED — no nim-preview Deployment found in k8s/rtvi/; confirm name at deploy.
   NIM_PREVIEW_ENDPOINT: "http://nvila-lite-preview.rtvi.svc.cluster.local:8000"
 
+  # Model catalog selection — drives which card in console/src/data/model-catalog.json
+  # is rendered as primary / preview on the Prompt page. Matched against ModelCard.image
+  # (exact) first, then partial match on image or displayName.
+  # cosmos-reason1-7b is the L4-capable primary (cosmos-reason2-8b needs >56 GB VRAM).
+  NIM_CURRENT_MODEL: "cosmos-reason1-7b"
+  NIM_PREVIEW_MODEL: "nvila-lite-2b"
+
   # next-auth base URL — must be reachable from inside the pod for callbacks.
   # For in-cluster callers (health probes, AI agents) use the ClusterIP service.
   # If the console is reached from a laptop via NodePort, set NEXTAUTH_URL to

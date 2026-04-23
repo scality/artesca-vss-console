@@ -30,6 +30,16 @@ SECRETS_FILE="$CONSOLE_DIR/10-secrets.yaml"
 # Teardown is folded into on_exit (set below) so we don't stomp on traps.
 # shellcheck source=lib-kubectl.sh
 source "$SCRIPT_DIR/lib-kubectl.sh"
+
+# Source env files in the same order as launch-stack.sh / install-artesca.sh:
+# global scripts/.env.local first (ARTESCA_BASE_DOMAIN, shared creds), then
+# per-instance .env.local (S3 creds), then per-instance .stack-state.env
+# (PUB_IP, SG_ID, AWS_REGION). Each stage overrides the previous.
+GLOBAL_ENV_LOCAL="$SCRIPT_DIR/.env.local"
+# shellcheck disable=SC1090
+[[ -f "$GLOBAL_ENV_LOCAL" ]] && source "$GLOBAL_ENV_LOCAL"
+# shellcheck disable=SC1090
+[[ -f "$VSS_ENV_LOCAL" ]] && source "$VSS_ENV_LOCAL" || true
 if [[ -f "$VSS_STATE_FILE" ]]; then
   # shellcheck source=/dev/null
   source "$VSS_STATE_FILE"
@@ -283,10 +293,11 @@ LOCAL_IMAGE_NAME="console.local"
 # ---------------------------------------------------------------------------
 
 echo "==> applying kustomize stack (image override: ${LOCAL_IMAGE_NAME}:${LOCAL_IMAGE_TAG})"
-# Render the base, then patch three things in-memory:
+# Render the base, then patch four things in-memory:
 #   1. console Deployment container: image -> local tag + Never
 #   2. console-data PV nodeAffinity: hostname placeholder -> live node
-#   3. console-env ConfigMap: CAMERA_SIM_HOST placeholder -> camera-sim EIP
+#   3. console-env ConfigMap CAMERA_SIM_HOST: placeholder -> camera-sim EIP
+#   4. console-env ConfigMap S3_ENDPOINT: <base-domain> -> ARTESCA_BASE_DOMAIN
 # Avoids kustomize's "new root cannot be absolute" issue when overlay
 # resources: point outside the overlay directory.
 IMAGE_REPO="${LOCAL_IMAGE_NAME}:${LOCAL_IMAGE_TAG}"
@@ -312,12 +323,19 @@ else
   echo "==> camera-sim=$CAMSIM_INSTANCE_NAME pub IP=$CAMSIM_PUB_IP"
 fi
 
+# ARTESCA base domain — same default as scripts/install-artesca.sh.
+# Precedence: env var set by the caller > global scripts/.env.local
+# > per-instance .env.local > compile-time default.
+BASE_DOMAIN="${ARTESCA_BASE_DOMAIN:-artesca.isv-lab.local}"
+echo "==> base domain=$BASE_DOMAIN (S3_ENDPOINT=https://s3.$BASE_DOMAIN)"
+
 kubectl kustomize "$CONSOLE_DIR" \
   | python3 -c '
 import sys, yaml
 new_image = sys.argv[1]
 node_hostname = sys.argv[2]
 camsim_pub_ip = sys.argv[3]
+base_domain = sys.argv[4]
 docs = list(yaml.safe_load_all(sys.stdin))
 for d in docs:
     if not d:
@@ -340,8 +358,11 @@ for d in docs:
         # dont clobber an operator override.
         if data.get("CAMERA_SIM_HOST") in (None, "<camera-sim-public-ip>", ""):
             data["CAMERA_SIM_HOST"] = camsim_pub_ip
+        s3_endpoint = data.get("S3_ENDPOINT", "")
+        if "<base-domain>" in s3_endpoint or s3_endpoint in (None, ""):
+            data["S3_ENDPOINT"] = f"https://s3.{base_domain}"
 yaml.safe_dump_all([d for d in docs if d], sys.stdout, default_flow_style=False)
-' "$IMAGE_REPO" "$NODE_HOSTNAME" "$CAMSIM_PUB_IP" \
+' "$IMAGE_REPO" "$NODE_HOSTNAME" "$CAMSIM_PUB_IP" "$BASE_DOMAIN" \
   | kubectl apply -f -
 
 # Resolve the image tag used by the just-applied manifest for the state file.

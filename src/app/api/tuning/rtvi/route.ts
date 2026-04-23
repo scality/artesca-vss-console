@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
-import { rolloutRestart } from "@/lib/k8s";
+import { coreV1, rolloutRestart } from "@/lib/k8s";
 import { patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
@@ -16,6 +16,54 @@ const RtviTuningSchema = z.object({
   (d) => Object.values(d).some((v) => v !== undefined),
   { message: "At least one tuning field is required" }
 );
+
+// Defaults align with k8s/rtvi/11-configmap-runtime-env.yaml + the
+// RtviTuningForm client contract (field names `maxNumSeqs`, `kvCachePct`,
+// `maxModelLen`). Note: client uses `kvCachePct` while PATCH accepts
+// `kvCachePercent` — GET mirrors the client schema.
+const RTVI_TUNING_DEFAULTS = {
+  maxNumSeqs: 4,
+  kvCachePct: 0.8,
+  maxModelLen: 32768,
+} as const;
+
+function parseIntOrDefault(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw === null || raw === "") return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function parseFloatOrDefault(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw === null || raw === "") return fallback;
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+export async function GET() {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  let data: Record<string, string> | undefined;
+  try {
+    const cm = await coreV1().readNamespacedConfigMap({
+      name: CLUSTER.rtvi.runtimeEnvCm,
+      namespace: CLUSTER.rtvi.nimNamespace,
+    });
+    data = cm.data;
+  } catch (err: unknown) {
+    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
+    return NextResponse.json(
+      { error: k8sErr.body?.message ?? String(err), k8sCode: k8sErr.statusCode },
+      { status: k8sErr.statusCode ?? 502 }
+    );
+  }
+
+  return NextResponse.json({
+    maxNumSeqs: parseIntOrDefault(data?.[CLUSTER.rtvi.nimMaxNumSeqsKey], RTVI_TUNING_DEFAULTS.maxNumSeqs),
+    kvCachePct: parseFloatOrDefault(data?.[CLUSTER.rtvi.nimKvCacheKey], RTVI_TUNING_DEFAULTS.kvCachePct),
+    maxModelLen: parseIntOrDefault(data?.[CLUSTER.rtvi.nimMaxModelLenKey], RTVI_TUNING_DEFAULTS.maxModelLen),
+  });
+}
 
 export async function PATCH(req: NextRequest) {
   const session = await auth();
