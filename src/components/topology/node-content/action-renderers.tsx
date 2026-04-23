@@ -331,7 +331,11 @@ export const SensorMsActionsRenderer = makeRolloutRenderer("sensor-ms");
 export const StreamProcessingActionsRenderer = makeRolloutRenderer("streamprocessing-ms");
 export const RtviVlmActionsRenderer = makeRolloutRenderer("rtvi-vlm");
 export const RtviEmbedActionsRenderer = makeRolloutRenderer("rtvi-embed");
-export const NimCosmosActionsRenderer = makeRolloutRenderer("nim-cosmos-reason2");
+// Internal only — callers use NimCosmosActionsFullRenderer (defined below),
+// which composes this rollout renderer with the "Swap model in /prompt" link.
+// Exporting the bare rollout renderer would let a future caller accidentally
+// wire it into ACTIONS_CONTENT and drop the model-swap affordance.
+const NimCosmosActionsRenderer = makeRolloutRenderer("nim-cosmos-reason2");
 export const AlertWorkerActionsRenderer = makeRolloutRenderer("alert-worker");
 export const AgentActionsRenderer = makeRolloutRenderer("agent");
 
