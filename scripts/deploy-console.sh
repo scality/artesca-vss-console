@@ -215,49 +215,53 @@ echo "==> applying Secrets"
 kubectl apply -f "$SECRETS_FILE"
 
 # ---------------------------------------------------------------------------
-# Image pullability preflight
-# ---------------------------------------------------------------------------
-# The console manifest pulls from ghcr.io/scality/isv-nvidia-vss/console.
-# No imagePullSecret is wired up (matches the alert-worker pattern), so the
-# package must be public — otherwise the pod lands in ImagePullBackOff.
-# Test anon pullability; on failure, surface the two fixes and bail early.
-
-IMAGE_REPO="ghcr.io/scality/isv-nvidia-vss/console"
-GHCR_TOKEN="$(curl -sf "https://ghcr.io/token?scope=repository:scality/isv-nvidia-vss/console:pull" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))' 2>/dev/null || true)"
-if [ -n "$GHCR_TOKEN" ]; then
-  HTTP_CODE=$(curl -so /dev/null -w "%{http_code}" -H "Authorization: Bearer $GHCR_TOKEN" \
-    "https://ghcr.io/v2/scality/isv-nvidia-vss/console/manifests/latest" 2>/dev/null || echo "000")
-  if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "000" ]; then
-    echo
-    echo "ERROR: ${IMAGE_REPO}:latest is not anonymously pullable (HTTP ${HTTP_CODE})."
-    echo
-    echo "The cluster has no imagePullSecret wired for GHCR, so the pod will"
-    echo "ImagePullBackOff. Pick one fix:"
-    echo
-    echo "  A) Make the package public (simplest; matches alert-worker):"
-    echo "       gh api --method PATCH \\"
-    echo "         /orgs/scality/packages/container/isv-nvidia-vss%2Fconsole \\"
-    echo "         -f visibility=public"
-    echo
-    echo "  B) Keep private + add an imagePullSecret:"
-    echo "       kubectl -n console create secret docker-registry ghcr-login \\"
-    echo "         --docker-server=ghcr.io \\"
-    echo "         --docker-username=stef9github \\"
-    echo "         --docker-password=\$GHCR_PAT \\"
-    echo "         --docker-email=stef.richard@gmail.com"
-    echo "       # Then edit k8s/console/20-console.yaml and add under spec.template.spec:"
-    echo "       #   imagePullSecrets: [{ name: ghcr-login }]"
-    echo
-    exit 1
-  fi
-fi
-
-# ---------------------------------------------------------------------------
-# Apply the full kustomize stack
+# Build + sideload the console image onto the node's containerd store.
+# Avoids the GHCR auth/visibility dance entirely — kubelet finds the image
+# in its local cache and never reaches out to a registry.
 # ---------------------------------------------------------------------------
 
-echo "==> applying kustomize stack (k8s/console)"
-kubectl apply -k "$CONSOLE_DIR"
+echo "==> provisioning console image (build on laptop, sideload to node)"
+bash "$SCRIPT_DIR/build-console-image.sh" --instance "$VSS_INSTANCE"
+
+LOCAL_IMAGE_TAG_FILE="$VSS_INSTANCE_DIR/.console-image-tag"
+[[ -f "$LOCAL_IMAGE_TAG_FILE" ]] || {
+  echo "ERROR: $LOCAL_IMAGE_TAG_FILE missing — build-console-image.sh did not run to completion" >&2
+  exit 1
+}
+LOCAL_IMAGE_TAG="$(tr -d '[:space:]' < "$LOCAL_IMAGE_TAG_FILE")"
+LOCAL_IMAGE_NAME="console.local"
+
+# ---------------------------------------------------------------------------
+# Apply the kustomize stack with the local image override. A tmp overlay
+# rewrites ghcr.io/scality/isv-nvidia-vss/console:latest ->
+# console.local:<git-hash> and forces imagePullPolicy: Never so kubelet
+# never attempts a registry pull.
+# ---------------------------------------------------------------------------
+
+echo "==> applying kustomize stack (image override: ${LOCAL_IMAGE_NAME}:${LOCAL_IMAGE_TAG})"
+OVERLAY_DIR="$(mktemp -d -t console-overlay-XXXXXX)"
+trap 'rm -rf "$OVERLAY_DIR"' EXIT
+cat > "$OVERLAY_DIR/kustomization.yaml" <<YAML
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ${CONSOLE_DIR}
+images:
+- name: ghcr.io/scality/isv-nvidia-vss/console
+  newName: ${LOCAL_IMAGE_NAME}
+  newTag: ${LOCAL_IMAGE_TAG}
+patches:
+- target:
+    kind: Deployment
+    name: console
+  patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/imagePullPolicy
+      value: Never
+YAML
+
+kubectl kustomize --load-restrictor=LoadRestrictionsNone "$OVERLAY_DIR" | kubectl apply -f -
+IMAGE_REPO="${LOCAL_IMAGE_NAME}:${LOCAL_IMAGE_TAG}"
 
 # Resolve the image tag used by the just-applied manifest for the state file.
 IMAGE_TAG="$(kubectl -n console get deployment console \
