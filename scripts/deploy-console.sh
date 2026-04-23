@@ -36,7 +36,7 @@ if [[ -f "$VSS_STATE_FILE" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# State file — read by web/lib/console-deploy.ts to surface stage outcome.
+# State file — read by deployer/lib/console-deploy.ts to surface stage outcome.
 # Minimal JSON: startedAt / finishedAt / exitCode plus a few progress hints.
 # All writes are best-effort (python3 -c) so no behavior change if it fails.
 # ---------------------------------------------------------------------------

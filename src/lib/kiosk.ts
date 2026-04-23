@@ -1,4 +1,4 @@
-import { type ReadonlyHeaders } from "next/dist/server/web/spec-extension/adapters/headers";
+import { type ReadonlyHeaders } from "next/dist/server/deployer/spec-extension/adapters/headers";
 
 export const KIOSK_HIDDEN_ROUTES = [
   "/cameras",
