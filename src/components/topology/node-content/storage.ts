@@ -1,5 +1,6 @@
 // src/components/topology/node-content/storage.ts
-// Agent 4 owns this file: storage nodes (artesca-s3, vst-local-cache, vst-postgres, vst-redis, alerts-redis)
+// Storage-category topology nodes: artesca-s3, vst-local-cache, vst-postgres, vst-redis.
+// vst-redis also covers alert-worker cooldown keys (alerts reuses VST Redis).
 import type { NodeContentMap } from "../registry";
 import { STORAGE_RENDERERS } from "./storage-renderers";
 

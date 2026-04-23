@@ -146,8 +146,14 @@ not to Vercel).
 - **Vercel deploy** — hosted inside the ARTESCA cluster so it has native
   access to all the in-cluster services without public exposure of Kafka /
   Redis / kubeconfig.
-- **pgSQL / any database** — stateless. All state lives in K8s ConfigMaps
-  or in Redis; console rebuilds its view on every request.
+- **External SaaS DBs (Supabase, Neon, RDS)** — no external DB. The console
+  persists its own operator-facing state in a local SQLite DB on a PVC
+  (`k8s/console/12-pvc.yaml` → `/data/console-data.db`): VLM-prompt profiles,
+  audit log, SG-whitelist entries, and secret-rotation timestamps (schema in
+  [`console/src/lib/db.ts`](../console/src/lib/db.ts)). Pipeline state —
+  pod/GPU/NIM/Kafka health, prompt + scenario config — still reads live
+  from K8s ConfigMaps, Secrets, Pods, and Redis on each request; the SQLite
+  DB only holds data the console itself owns.
 
 ## Pages
 
