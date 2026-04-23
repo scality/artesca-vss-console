@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Save, AlertTriangle } from "lucide-react";
 import {
@@ -72,6 +73,66 @@ function expiryLabel(minutes: number): string {
   return `= ${days} day${days !== 1 ? "s" : ""}`;
 }
 
+// ── Audit "last changed" endpoint contract ────────────────────────────────────
+interface AuditLastEntry {
+  action: string;
+  target: string;
+  ts: string;
+  operator: string;
+  agoSecs: number;
+  detailsJson: string;
+}
+
+function formatAgoSecs(secs: number): string {
+  if (secs < 60) return `${Math.floor(secs)}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  if (secs < 86400) {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    return `${h}h ${m}m`;
+  }
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  return `${d}d ${h}h`;
+}
+
+// ── Field diff helpers ────────────────────────────────────────────────────────
+type DiffRow = {
+  field: string;
+  oldVal: string;
+  newVal: string;
+};
+
+function formatFieldValue(field: string, val: unknown): string {
+  if (Array.isArray(val)) return `[${val.join(", ")}]`;
+  if (typeof val === "boolean") return val ? "on" : "off";
+  if (field === "storageThresholdPercentage") return `${val}%`;
+  return String(val);
+}
+
+function computeDiff(local: VstPatch, data: VstTuning): DiffRow[] {
+  const { observed: _observed, ...dataRest } = data;
+  void _observed;
+  const rows: DiffRow[] = [];
+
+  for (const key of Object.keys(local) as Array<keyof VstPatch>) {
+    const localVal = local[key];
+    const dataVal = (dataRest as VstPatch)[key];
+    // Deep-compare by JSON serialisation for arrays
+    if (JSON.stringify(localVal) !== JSON.stringify(dataVal)) {
+      rows.push({
+        field: key,
+        oldVal: formatFieldValue(key, dataVal),
+        newVal: formatFieldValue(key, localVal),
+      });
+    }
+  }
+
+  rows.sort((a, b) => a.field.localeCompare(b.field));
+  return rows;
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 export function VstRecordingForm() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -90,6 +151,23 @@ export function VstRecordingForm() {
     staleTime: 30_000,
   });
 
+  // Audit — last changed strip
+  const { data: auditEntry } = useQuery<AuditLastEntry | null>({
+    queryKey: ["audit", "last", "tuning-vst"],
+    queryFn: async () => {
+      try {
+        const res = await fetch("/api/audit/last?action=tuning-vst");
+        if (!res.ok) return null;
+        const json = await res.json() as unknown;
+        if (!json) return null;
+        return json as AuditLastEntry;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 60_000,
+  });
+
   const [local, setLocal] = React.useState<VstPatch | null>(null);
 
   React.useEffect(() => {
@@ -106,6 +184,11 @@ export function VstRecordingForm() {
     const { observed: _observed, ...dataRest } = data;
     void _observed;
     return JSON.stringify(local) !== JSON.stringify(dataRest);
+  }, [local, data]);
+
+  const diffRows = React.useMemo<DiffRow[]>(() => {
+    if (!local || !data) return [];
+    return computeDiff(local, data);
   }, [local, data]);
 
   const setStep = (idx: number, status: StepState["status"]) => {
@@ -149,6 +232,7 @@ export function VstRecordingForm() {
       setStep(3, "done");
 
       await queryClient.invalidateQueries({ queryKey: ["tuning", "vst"] });
+      await queryClient.invalidateQueries({ queryKey: ["audit", "last", "tuning-vst"] });
       toast({ title: "VST recording tuning saved — restarting" });
       setTimeout(() => setConfirmOpen(false), 1000);
     } catch (err) {
@@ -200,6 +284,15 @@ export function VstRecordingForm() {
         </Button>
       </div>
 
+      {/* Last changed strip */}
+      {auditEntry !== undefined && (
+        <p className="text-xs text-muted-foreground">
+          {auditEntry === null
+            ? "No prior changes via console."
+            : `Last changed ${formatAgoSecs(auditEntry.agoSecs)} ago by ${auditEntry.operator}`}
+        </p>
+      )}
+
       {/* Loading / error states */}
       {isLoading && (
         <div className="flex items-center gap-2 text-muted-foreground">
@@ -240,19 +333,21 @@ export function VstRecordingForm() {
               Recording Mode
             </h4>
 
-            <fieldset className="flex flex-col gap-2">
+            <RadioGroup
+              value={local.recordingMode}
+              onValueChange={(v) =>
+                update("recordingMode", v as "always" | "event" | "both")
+              }
+            >
               {(["always", "event", "both"] as const).map((mode) => (
                 <label
                   key={mode}
+                  htmlFor={`recording-mode-${mode}`}
                   className="flex items-center gap-2 cursor-pointer"
                 >
-                  <input
-                    type="radio"
-                    name="recordingMode"
+                  <RadioGroupItem
                     value={mode}
-                    checked={local.recordingMode === mode}
-                    onChange={() => update("recordingMode", mode)}
-                    className="accent-primary h-4 w-4"
+                    id={`recording-mode-${mode}`}
                   />
                   <span className="text-sm capitalize">{mode}</span>
                   {mode === "always" && (
@@ -272,7 +367,7 @@ export function VstRecordingForm() {
                   )}
                 </label>
               ))}
-            </fieldset>
+            </RadioGroup>
 
             <div className="pl-1 space-y-4">
               <SliderWithLabel
@@ -347,11 +442,19 @@ export function VstRecordingForm() {
                 }
                 className="w-32"
               />
-              <p className="text-xs text-muted-foreground">
-                Keyframe every {local.defaultGovLength} frames (≈
-                {(local.defaultGovLength / 30).toFixed(1)} s at 30 fps).
-                Segments can only split on a keyframe.
-              </p>
+              {local.defaultGovLength <= 0 ? (
+                <p className="text-xs text-destructive">
+                  Invalid GOP — must be ≥ 1
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Keyframe every {local.defaultGovLength} frames ≈{" "}
+                  {(local.defaultGovLength / 30).toFixed(2)}s at 30 fps. VST
+                  segments split on keyframe boundaries — a smaller GoP allows
+                  finer segment durations (and more S3 PUTs); a larger one means
+                  coarser segments and fewer PUTs.
+                </p>
+              )}
             </div>
           </div>
 
@@ -515,12 +618,39 @@ export function VstRecordingForm() {
               ))}
             </ul>
           ) : (
-            <div className="flex items-start gap-2 rounded-md border border-yellow-600/40 bg-yellow-600/10 p-3">
-              <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
-              <p className="text-sm text-yellow-300">
-                sensor-ms and streamprocessing-ms will restart — expect a 5–10 s
-                recording gap while RTSP streams reconnect.
-              </p>
+            <div className="space-y-3">
+              {/* Field-level diff */}
+              {diffRows.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No changes to apply.</p>
+              ) : (
+                <div className="rounded-md border border-border bg-muted/10 p-3 space-y-1">
+                  {diffRows.map((row) => (
+                    <div
+                      key={row.field}
+                      className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-x-2 font-mono text-xs"
+                    >
+                      <span className="text-muted-foreground truncate">
+                        {row.field}
+                      </span>
+                      <span className="text-muted-foreground whitespace-nowrap">
+                        {row.oldVal}
+                      </span>
+                      <span className="text-foreground font-semibold whitespace-nowrap before:content-['→'] before:mx-1 before:text-muted-foreground">
+                        {row.newVal}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Warning banner */}
+              <div className="flex items-start gap-2 rounded-md border border-yellow-600/40 bg-yellow-600/10 p-3">
+                <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
+                <p className="text-sm text-yellow-300">
+                  sensor-ms and streamprocessing-ms will restart — expect a 5–10 s
+                  recording gap while RTSP streams reconnect.
+                </p>
+              </div>
             </div>
           )}
 
