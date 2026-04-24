@@ -20,6 +20,15 @@
 #   REPO_ROOT      — repo checkout (default: parent of scripts/)
 #   IMAGE_REPO     — override image repo (default: console.local)
 #   FORCE_BUILD=1  — rebuild + re-import even if tag is already present
+#                    (does NOT invalidate the buildx layer cache — unchanged
+#                    layers still replay instantly)
+#   BUILDX_CACHE_DIR — override buildx local cache path
+#                    (default: ${TMPDIR:-/tmp}/vss-console-buildx-cache)
+#
+# Buildx cache: persistent local layer cache at ${TMPDIR:-/tmp}/vss-console-buildx-cache
+# (outside the repo on purpose — it's gitignored build state). Reruns with no
+# source change replay layers in seconds instead of re-running `npm ci` +
+# `next build`. To bust it:  rm -rf "${TMPDIR:-/tmp}/vss-console-buildx-cache"
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,11 +94,19 @@ fi
 # ---------------------------------------------------------------------------
 # Build — force linux/amd64 since the EC2 node is amd64 and laptops are
 # often arm64 (Apple Silicon). --load makes the image available locally.
+#
+# Persistent local buildx cache keeps `npm ci` + `next build` layers across
+# reruns. Path lives outside the repo (laptop-local state). mode=max exports
+# intermediate layers too so subsequent builds can resume mid-Dockerfile.
 # ---------------------------------------------------------------------------
-echo "==> building $FULL_IMAGE (platform linux/amd64)"
+BUILDX_CACHE_DIR="${BUILDX_CACHE_DIR:-${TMPDIR:-/tmp}/vss-console-buildx-cache}"
+mkdir -p "$BUILDX_CACHE_DIR"
+echo "==> building $FULL_IMAGE (platform linux/amd64, cache $BUILDX_CACHE_DIR)"
 docker buildx build \
   --platform linux/amd64 \
   --tag "$FULL_IMAGE" \
+  --cache-to "type=local,dest=${BUILDX_CACHE_DIR},mode=max" \
+  --cache-from "type=local,src=${BUILDX_CACHE_DIR}" \
   --load \
   "$REPO_ROOT/console"
 
