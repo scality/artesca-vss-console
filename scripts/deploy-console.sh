@@ -323,11 +323,30 @@ else
   echo "==> camera-sim=$CAMSIM_INSTANCE_NAME pub IP=$CAMSIM_PUB_IP"
 fi
 
-# ARTESCA base domain — same default as scripts/install-artesca.sh.
-# Precedence: env var set by the caller > global scripts/.env.local
-# > per-instance .env.local > compile-time default.
+# Object-store endpoint + bucket. Unified contract:
+#   $VSS_INSTANCE_DIR/.objectstore.env (written by scripts/install-objectstore/*)
+#   provides OBJECTSTORE_ENDPOINT and OBJECTSTORE_BUCKET regardless of mode
+#   (artesca, aws-s3, none). When that file is absent, fall back to the legacy
+#   ARTESCA_BASE_DOMAIN-derived URL so the AWS+ARTESCA happy path keeps working
+#   on stacks deployed before this refactor.
+OBJECTSTORE_ENV_FILE="$VSS_INSTANCE_DIR/.objectstore.env"
+S3_ENDPOINT_VALUE=""
+S3_BUCKET_VALUE=""
+if [[ -f "$OBJECTSTORE_ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$OBJECTSTORE_ENV_FILE"
+  S3_ENDPOINT_VALUE="${OBJECTSTORE_ENDPOINT:-}"
+  S3_BUCKET_VALUE="${OBJECTSTORE_BUCKET:-}"
+  echo "==> objectstore=$OBJECTSTORE_ENV_FILE (mode=${OBJECTSTORE_MODE:-?})"
+fi
 BASE_DOMAIN="${ARTESCA_BASE_DOMAIN:-artesca.isv-lab.local}"
-echo "==> base domain=$BASE_DOMAIN (S3_ENDPOINT=https://s3.$BASE_DOMAIN)"
+if [[ -z "$S3_ENDPOINT_VALUE" ]]; then
+  S3_ENDPOINT_VALUE="https://s3.${BASE_DOMAIN}"
+fi
+if [[ -z "$S3_BUCKET_VALUE" ]]; then
+  S3_BUCKET_VALUE="vss-video"
+fi
+echo "==> S3_ENDPOINT=$S3_ENDPOINT_VALUE  S3_BUCKET=$S3_BUCKET_VALUE"
 
 kubectl kustomize "$CONSOLE_DIR" \
   | python3 -c '
@@ -335,7 +354,8 @@ import sys, yaml
 new_image = sys.argv[1]
 node_hostname = sys.argv[2]
 camsim_pub_ip = sys.argv[3]
-base_domain = sys.argv[4]
+s3_endpoint_value = sys.argv[4]
+s3_bucket_value = sys.argv[5]
 docs = list(yaml.safe_load_all(sys.stdin))
 for d in docs:
     if not d:
@@ -358,11 +378,14 @@ for d in docs:
         # dont clobber an operator override.
         if data.get("CAMERA_SIM_HOST") in (None, "<camera-sim-public-ip>", ""):
             data["CAMERA_SIM_HOST"] = camsim_pub_ip
-        s3_endpoint = data.get("S3_ENDPOINT", "")
-        if "<base-domain>" in s3_endpoint or s3_endpoint in (None, ""):
-            data["S3_ENDPOINT"] = f"https://s3.{base_domain}"
+        s3_endpoint = data.get("S3_ENDPOINT", "") or ""
+        if s3_endpoint == "" or "<base-domain>" in s3_endpoint:
+            data["S3_ENDPOINT"] = s3_endpoint_value
+        s3_bucket = data.get("S3_BUCKET", "") or ""
+        if s3_bucket in ("", "vss-video"):
+            data["S3_BUCKET"] = s3_bucket_value
 yaml.safe_dump_all([d for d in docs if d], sys.stdout, default_flow_style=False)
-' "$IMAGE_REPO" "$NODE_HOSTNAME" "$CAMSIM_PUB_IP" "$BASE_DOMAIN" \
+' "$IMAGE_REPO" "$NODE_HOSTNAME" "$CAMSIM_PUB_IP" "$S3_ENDPOINT_VALUE" "$S3_BUCKET_VALUE" \
   | kubectl apply -f -
 
 # Resolve the image tag used by the just-applied manifest for the state file.
