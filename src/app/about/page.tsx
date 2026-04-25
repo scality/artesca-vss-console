@@ -45,14 +45,21 @@ function buildServiceUrls(): ServiceUrlRow[] {
       value: process.env.PROMETHEUS_URL ?? "http://prometheus.monitoring.svc.cluster.local:9090",
     },
     {
-      label: "S3 Endpoint",
-      envVar: "S3_ENDPOINT",
-      value: process.env.S3_ENDPOINT ?? "(AWS default — path-style disabled)",
+      label: "Object-store Endpoint",
+      envVar: "OBJECTSTORE_ENDPOINT",
+      value:
+        process.env.OBJECTSTORE_ENDPOINT ??
+        process.env.S3_ENDPOINT ??
+        "(AWS default — virtual-hosted style)",
     },
     {
-      label: "S3 Bucket (video)",
-      envVar: "VSS_VIDEO_BUCKET",
-      value: process.env.VSS_VIDEO_BUCKET ?? "vss-video",
+      label: "Object-store Bucket (video)",
+      envVar: "OBJECTSTORE_BUCKET",
+      value:
+        process.env.OBJECTSTORE_BUCKET ??
+        process.env.S3_BUCKET ??
+        process.env.VSS_VIDEO_BUCKET ??
+        "vss-video",
     },
     {
       label: "NIM Preview Endpoint",

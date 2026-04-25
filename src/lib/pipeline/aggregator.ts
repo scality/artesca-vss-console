@@ -4,10 +4,8 @@ import { coreV1, runInPod, watchedNamespaces } from "@/lib/k8s";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { promQuery } from "@/lib/helpers/prometheus";
 import { getKafka } from "@/lib/kafka";
-import {
-  S3Client,
-  ListObjectsV2Command,
-} from "@aws-sdk/client-s3";
+import { ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { makeS3Client } from "@/lib/s3";
 import type {
   PipelineSnapshot,
   NodeRuntimeState,
@@ -221,14 +219,6 @@ async function collectGpus(warnings: string[]): Promise<GpuEntry[]> {
 }
 
 // ─── S3 ───────────────────────────────────────────────────────────────────────
-
-function makeS3Client(): S3Client {
-  return new S3Client({
-    region: process.env.AWS_REGION ?? "us-east-1",
-    endpoint: CLUSTER.s3.endpoint || undefined,
-    forcePathStyle: !!CLUSTER.s3.endpoint,
-  });
-}
 
 // Simple in-memory put-rate sample (mirrors storage/vst logic; no Redis dep here)
 interface BucketSample {

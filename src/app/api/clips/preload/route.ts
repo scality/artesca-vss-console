@@ -15,7 +15,8 @@ import {
   CLIP_CACHE_TTL_MS,
 } from "@/lib/streams/clip-cache";
 import { transcodeToHls, extractThumbnail } from "@/lib/streams/ffmpeg";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { makeS3Client, s3Bucket } from "@/lib/s3";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -32,13 +33,9 @@ async function fetchFromS3(
   sensor: string,
   tsRounded: Date
 ): Promise<Buffer | null> {
-  const bucket = process.env.VSS_VIDEO_BUCKET ?? "vss-video";
+  const bucket = s3Bucket();
   const key = `${sensor}/${tsRounded.toISOString().replace(/[:.]/g, "-")}.mp4`;
-  const client = new S3Client({
-    region: process.env.AWS_REGION ?? "us-west-2",
-    endpoint: process.env.S3_ENDPOINT,
-    forcePathStyle: !!process.env.S3_ENDPOINT,
-  });
+  const client = makeS3Client();
   try {
     const resp = await client.send(
       new GetObjectCommand({ Bucket: bucket, Key: key })

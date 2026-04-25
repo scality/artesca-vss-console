@@ -187,9 +187,15 @@ const DEMO_DATA = {
 } as const;
 
 // ─── S3 ──────────────────────────────────────────────────────────────────────
+// Honors the unified OBJECTSTORE_* contract. See @/lib/s3 for client construction.
 const S3 = {
-  bucket: process.env.S3_BUCKET ?? "vss-video",
-  endpoint: process.env.S3_ENDPOINT ?? "",
+  bucket:
+    process.env.OBJECTSTORE_BUCKET ??
+    process.env.S3_BUCKET ??
+    process.env.VSS_VIDEO_BUCKET ??
+    "vss-video",
+  endpoint:
+    process.env.OBJECTSTORE_ENDPOINT ?? process.env.S3_ENDPOINT ?? "",
 } as const;
 
 // ─── Restartable components ───────────────────────────────────────────────────

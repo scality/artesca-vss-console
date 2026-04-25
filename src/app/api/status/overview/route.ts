@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { coreV1, watchedNamespaces } from "@/lib/k8s";
 import { getKafka } from "@/lib/kafka";
 import { s3Stats } from "@/lib/aws";
+import { s3Bucket } from "@/lib/s3";
 import { promQuery } from "@/lib/helpers/prometheus";
 import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
 import type { OverviewSnapshot, GpuState } from "@/lib/types";
@@ -166,15 +167,15 @@ export async function GET() {
   }
 
   // ── S3 stats ────────────────────────────────────────────────────────────────
-  const s3Bucket = process.env.S3_BUCKET ?? "vss-video";
+  const bucket = s3Bucket();
   let s3: OverviewSnapshot["s3"] = {
-    bucket: s3Bucket,
+    bucket,
     objectCount: 0,
     bytesTotal: 0,
     growth24h: 0,
   };
   try {
-    const stats = await s3Stats(s3Bucket);
+    const stats = await s3Stats(bucket);
     s3 = { ...stats, growth24h: 0 };
   } catch (err) {
     warnings.push(`S3 stats failed: ${String(err)}`);
