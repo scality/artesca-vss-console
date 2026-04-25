@@ -1,27 +1,16 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import {
-  S3Client,
+  type S3Client,
   ListObjectsV2Command,
   type _Object as S3Object,
 } from "@aws-sdk/client-s3";
 import { runInPod } from "@/lib/k8s";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { getRedis } from "@/lib/redis";
+import { makeS3Client } from "@/lib/s3";
 
 export const dynamic = "force-dynamic";
-
-// ─── S3 client (reuses env vars already used by aws.ts) ──────────────────────
-
-function makeS3Client(): S3Client {
-  return new S3Client({
-    region: process.env.AWS_REGION ?? "us-east-1",
-    endpoint: CLUSTER.s3.endpoint || undefined,
-    forcePathStyle: !!CLUSTER.s3.endpoint,
-    // Credentials come from env vars (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)
-    // injected by k8s/console secrets at runtime. SDK picks them up automatically.
-  });
-}
 
 // ─── In-memory PUT rate cache (fallback when Redis is unavailable) ────────────
 

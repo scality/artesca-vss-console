@@ -1,5 +1,6 @@
 import { EC2Client, DescribeSecurityGroupsCommand, AuthorizeSecurityGroupIngressCommand, RevokeSecurityGroupIngressCommand, type IpPermission } from "@aws-sdk/client-ec2";
-import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { makeS3Client } from "@/lib/s3";
 
 function ec2Client(): EC2Client {
   return new EC2Client({
@@ -7,13 +8,7 @@ function ec2Client(): EC2Client {
   });
 }
 
-function s3Client(): S3Client {
-  return new S3Client({
-    region: process.env.AWS_REGION ?? "us-west-2",
-    endpoint: process.env.S3_ENDPOINT,
-    forcePathStyle: !!process.env.S3_ENDPOINT,
-  });
-}
+const s3Client = makeS3Client;
 
 export interface SgIngressRule {
   cidr: string;
