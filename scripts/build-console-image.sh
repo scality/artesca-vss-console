@@ -46,6 +46,7 @@ source "$VSS_STATE_FILE"
 KEY_NAME="${KEY_NAME:-isv-nvidia-vss}"
 KEY_PATH="${CAMERA_SIM_KEY_FILE:-$HOME/.ssh/${KEY_NAME}.pem}"
 [[ -f "$KEY_PATH" ]] || { echo "ERROR: SSH key $KEY_PATH missing" >&2; exit 1; }
+: "${SSH_USER:=artesca-os}"
 
 # Image naming: use a repo-local name that is never fetched remotely. Tag
 # from git so reruns skip unchanged builds.
@@ -69,7 +70,7 @@ KUBECTL_REMOTE="sudo -n kubectl --kubeconfig=/etc/kubernetes/admin.conf"
 # Short-circuit: is the tag already in the cluster's containerd cache?
 # ---------------------------------------------------------------------------
 if [[ "${FORCE_BUILD:-0}" != "1" ]]; then
-  if ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" \
+  if ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
       "sudo -n crictl images --no-trunc 2>/dev/null | grep -qE '^${IMAGE_REPO}\\s+${TAG_HASH}\\s'" \
       2>/dev/null; then
     echo "==> $FULL_IMAGE already present in containerd — skipping build"
@@ -123,7 +124,7 @@ ls -lh "$TARBALL" | awk '{print "   ", $5, $9}'
 # Ship to node
 # ---------------------------------------------------------------------------
 echo "==> scp to $PUB_IP:/tmp/console-image.tar.gz"
-scp "${SSH_OPTS[@]}" "$TARBALL" "artesca-os@$PUB_IP:/tmp/console-image.tar.gz"
+scp "${SSH_OPTS[@]}" "$TARBALL" "${SSH_USER:-artesca-os}@$PUB_IP:/tmp/console-image.tar.gz"
 
 # ---------------------------------------------------------------------------
 # Import into containerd via a one-shot privileged Job.
@@ -198,23 +199,23 @@ spec:
 YAML
 
 echo "==> importing into containerd (job $JOB_NAME)"
-scp "${SSH_OPTS[@]}" "$JOB_YAML" "artesca-os@$PUB_IP:/tmp/${JOB_NAME}.yaml" >/dev/null
-ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" "$KUBECTL_REMOTE apply -f /tmp/${JOB_NAME}.yaml" >/dev/null
+scp "${SSH_OPTS[@]}" "$JOB_YAML" "${SSH_USER:-artesca-os}@$PUB_IP:/tmp/${JOB_NAME}.yaml" >/dev/null
+ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" "$KUBECTL_REMOTE apply -f /tmp/${JOB_NAME}.yaml" >/dev/null
 
 # Wait for completion (up to 5 min — import is local; slow disk pushes it
 # past 1 min). On failure, dump events + pod logs so we can diagnose.
-if ! ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" \
+if ! ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
     "$KUBECTL_REMOTE wait --for=condition=complete --timeout=300s job/${JOB_NAME} -n default" 2>&1 | \
     sed 's/^/    [wait] /' >&2; then
   echo "ERROR: image-import Job did not complete." >&2
   echo "--- Job describe ---" >&2
-  ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" \
+  ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
     "$KUBECTL_REMOTE describe job ${JOB_NAME} -n default" 2>&1 | sed 's/^/    /' >&2 || true
   echo "--- Pod describe ---" >&2
-  ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" \
+  ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
     "$KUBECTL_REMOTE describe pod -l job-name=${JOB_NAME} -n default" 2>&1 | sed 's/^/    /' >&2 || true
   echo "--- Pod logs ---" >&2
-  ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" \
+  ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
     "$KUBECTL_REMOTE logs -l job-name=${JOB_NAME} -n default --tail=200" 2>&1 | sed 's/^/    /' >&2 || true
   exit 1
 fi
@@ -222,9 +223,9 @@ fi
 # Success — dump the importer log so the operator has visible proof, then
 # delete the Job + tarball explicitly (no TTL race).
 echo "--- importer log ---"
-ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" \
+ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
   "$KUBECTL_REMOTE logs -l job-name=${JOB_NAME} -n default --tail=50" 2>&1 | sed 's/^/    /' || true
-ssh "${SSH_OPTS[@]}" "artesca-os@$PUB_IP" \
+ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
   "$KUBECTL_REMOTE delete job ${JOB_NAME} -n default --wait=false >/dev/null 2>&1; rm -f /tmp/${JOB_NAME}.yaml /tmp/console-image.tar.gz" >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
