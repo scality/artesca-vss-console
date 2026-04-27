@@ -100,7 +100,7 @@ export async function PATCH(req: NextRequest) {
 
   if (model) {
     try {
-      // cosmos-reason2-8b is a StatefulSet (k8s/rtvi/30-nim-cosmos-reason2-8b.yaml)
+      // cosmos-reason2-8b is a StatefulSet (k8s/vss/rtvi/30-nim-cosmos-reason2-8b.yaml)
       await rolloutRestart("StatefulSet", CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.nimStatefulSet);
     } catch {
       // Best-effort — NIM restart may be disallowed by RBAC or timing

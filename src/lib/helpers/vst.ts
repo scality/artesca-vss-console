@@ -1,7 +1,7 @@
 import "server-only";
 import { CLUSTER } from "../cluster-refs";
 
-// sensor-ms exposes its HTTP API on port 30000 (k8s/vst/30-sensor-ms.yaml).
+// sensor-ms exposes its HTTP API on port 30000 (k8s/vss/vst/30-sensor-ms.yaml).
 // The original default used port 5010, which sensor-ms does not expose.
 const VST_BASE = CLUSTER.vst.sensorUrl;
 

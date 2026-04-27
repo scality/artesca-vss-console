@@ -16,7 +16,7 @@ const AlertsTuningSchema = z.object({
   { message: "At least one tuning field is required" }
 );
 
-// Defaults align with k8s/alerts/11-configmap-runtime-env.yaml + the
+// Defaults align with k8s/vss/alerts/11-configmap-runtime-env.yaml + the
 // AlertsTuningForm client contract (cooldownSeconds default 120,
 // slackWebhookConfigured default false).
 const ALERTS_TUNING_DEFAULTS = {
@@ -77,7 +77,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   try {
-    // Real ConfigMap is "alerts-runtime-env" (k8s/alerts/11-configmap-runtime-env.yaml),
+    // Real ConfigMap is "alerts-runtime-env" (k8s/vss/alerts/11-configmap-runtime-env.yaml),
     // not "alert-worker-config".
     for (const [key, val] of patches) {
       await patchConfigMapRawKey(CLUSTER.alertsTuning.namespace, CLUSTER.alertsTuning.configMap, key, val);

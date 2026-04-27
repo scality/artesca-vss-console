@@ -4,7 +4,7 @@ import { CLUSTER } from "@/lib/cluster-refs";
 
 export const dynamic = "force-dynamic";
 
-// alert-worker exposes :9100 via hostPort (k8s/alerts/20-alert-worker.yaml).
+// alert-worker exposes :9100 via hostPort (k8s/vss/alerts/20-alert-worker.yaml).
 // The console uses the ClusterIP service name.  If no ClusterIP Service exists
 // for alert-worker, operators must override ALERT_WORKER_URL with the node IP.
 // Flag: ASSUMED — confirm that a ClusterIP Service for alert-worker exists at deploy.

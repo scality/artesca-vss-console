@@ -169,7 +169,7 @@ others are hidden in kiosk mode.
 | `/topology` | [kiosk] | Interactive **React Flow** diagram — nodes = services, edges = connections (RTSP, gRPC, Kafka, HTTP). Live-colored by health. Click a node for its detail panel. |
 | `/incidents` | [kiosk] | Live feed (replaces the standalone alert dashboard for console users). Filter by scenario / sensor / severity / time-window. Click an incident → **play the source clip** (HLS via `hls.js`, server-side ffmpeg proxy from ARTESCA S3) + raw Kafka payload + thumbnail. |
 | `/cameras` | — | Table of cameras, each with N feeds (default 2 per Pyramid rail). Per-camera actions: edit / remove / restart. Per-feed actions: swap `.ts` file / disable / re-register. "Add camera" dialog uploads one or more `.ts` files → SCP to camera-sim → patch ConfigMap + restart replay + re-run register Job. |
-| `/scenarios` | — | Table of scenario rules (from `k8s/alerts/12-configmap-scenarios.yaml`). Inline edit per row: keywords (chips), sensor_filter (glob input with live match preview against current camera feeds), severity, channels, **per-scenario cooldown override**, enabled. Save issues `kubectl patch configmap` + rollout-restart of the alert-worker. |
+| `/scenarios` | — | Table of scenario rules (from `k8s/vss/alerts/12-configmap-scenarios.yaml`). Inline edit per row: keywords (chips), sensor_filter (glob input with live match preview against current camera feeds), severity, channels, **per-scenario cooldown override**, enabled. Save issues `kubectl patch configmap` + rollout-restart of the alert-worker. |
 | `/prompt` | — | **VLM prompt editor** (Monaco). Current prompt in one pane; diff vs proposed in the other. "Preview" button sends a test message to the NIM and shows the response. Inline **NIM model swap** selector (cosmos-reason2 ↔ cosmos-reason1) rewrites the rtvi-vlm + NIM ConfigMaps and rollout-restarts both Deployments. "Save + restart" writes the ConfigMap + rollout-restart of rtvi-vlm. |
 | `/tuning` | — | Knobs for rtvi-vlm (`max_num_seqs`, `kv_cache_percent`, `max_model_len`), alert worker (global `cooldown_seconds`, Slack webhook), and **VST ingest** (`always_recording` / `event_recording` mode, `event_record_length_secs`, `default_gov_length`, `supported_video_codecs`, `storage_threshold_percentage`, `default_file_expiry_minutes`). Form edits → ConfigMap patches → rollout-restart the affected Deployment. VST form shows live observed bitrate + GoP per camera next to the inputs so the operator sees the impact of a change. |
 | `/demo-data` | — | Toggle the synthetic demo-data producer (scale 0 ↔ 1). Tick rate + match probability sliders → `kubectl set env`. Quick "rehearsal mode" button that scales to 1 with high match probability for a 60 s burst. |
@@ -192,7 +192,7 @@ All under `src/app/api/*`. JSON in + out except SSE streams.
 | GET | `/api/pods?ns=<ns>` | Pods in a namespace with summary status |
 | GET | `/api/pods/:ns/:name` | Single pod detail |
 | GET | `/api/cameras` | Registered sensors (VST) + replay-side sources (camera-sim) unified |
-| GET | `/api/scenarios` | Parsed `k8s/alerts/12-configmap-scenarios.yaml` |
+| GET | `/api/scenarios` | Parsed `k8s/vss/alerts/12-configmap-scenarios.yaml` |
 | GET | `/api/prompt` | Current VLM system prompt |
 | GET | `/api/incidents?limit=50` | Recent incidents (proxies alert-worker `/api/incidents/recent`) |
 | GET | `/api/gpu` | `nvidia-smi` output parsed as JSON |
@@ -204,11 +204,11 @@ All under `src/app/api/*`. JSON in + out except SSE streams.
 
 | Method | Path | Action |
 | --- | --- | --- |
-| POST | `/api/cameras` | Add camera — dual-write: SCP to camera-sim + patch `k8s/pyramid-ingress/11-configmap-cameras.yaml` + restart both sides |
+| POST | `/api/cameras` | Add camera — dual-write: SCP to camera-sim + patch `k8s/vss/pyramid-ingress/11-configmap-cameras.yaml` + restart both sides |
 | PATCH | `/api/cameras/:id` | Update a camera — same dual-write path |
 | DELETE | `/api/cameras/:id` | Remove — dual-unwrite |
 | PATCH | `/api/scenarios` | Patch the entire scenarios ConfigMap + rollout-restart alert-worker |
-| PATCH | `/api/prompt` | Patch `RTVI_VLM_SYSTEM_PROMPT` in `k8s/rtvi/11-configmap-runtime-env.yaml` + rollout-restart rtvi-vlm |
+| PATCH | `/api/prompt` | Patch `RTVI_VLM_SYSTEM_PROMPT` in `k8s/vss/rtvi/11-configmap-runtime-env.yaml` + rollout-restart rtvi-vlm |
 | POST | `/api/restart/:component` | Rollout restart a Deployment or StatefulSet — whitelisted set |
 | POST | `/api/prompt/preview` | Send a one-shot prompt to the NIM, return the VLM response (dry-run) |
 | PATCH | `/api/tuning/vst` | Patch the `vst-config` ConfigMap (guarded subset only — recording mode, GoP, codecs, thresholds, expiry) + rollout-restart `sensor-ms` + `streamprocessing-ms`. Rejects changes that flip `cloud_storage_*` fields — those rotate through `/secrets`, not `/tuning`. |
@@ -488,11 +488,11 @@ All remaining implementation questions resolved.
 
 | # | Decision | Impact |
 | --- | --- | --- |
-| G | **GPU metrics: DCGM exporter → Prometheus → Grafana.** Not `kubectl exec nvidia-smi`. | Adds a foundational observability layer (new `k8s/observability/` namespace). Console reads GPU metrics from Prometheus, gets history graphs for free. Same stack benefits future Kafka / pod-level metrics. +1 dev-day (new phase 10). |
+| G | **GPU metrics: DCGM exporter → Prometheus → Grafana.** Not `kubectl exec nvidia-smi`. | Adds a foundational observability layer (new `k8s/vss/observability/` namespace). Console reads GPU metrics from Prometheus, gets history graphs for free. Same stack benefits future Kafka / pod-level metrics. +1 dev-day (new phase 10). |
 | H | **Camera-sim SSH key rotation: 90-day nag banner.** `/settings` flashes red when the key is > 90 days old. | UI-only: timestamp stored alongside the key in `console-data` SQLite; banner component on `/settings` and `/secrets`. |
 | I | **AWS creds rotation: 90-day nag banner.** Same pattern as (H). | Same UI-only change. |
 | J | **Preview NIM model: NVILA-Lite-2B.** Not Cosmos 1 7B — 14 GB weights + 16 GB primary = 30 GB won't fit even on L40S if we also want real KV cache. NVILA-Lite 2B weights ≈ 4 GB, proven on L4 per Rahul Padigela's Dec 2025 POC. | Smaller + faster preview (~1 min warmup vs. 20+ for Cosmos 1). Preview output differs from live inference — that's a feature: if a prompt works on 2B, it's likely OK on 8B. First-line prompt iteration is cheap. |
-| K | **Instance upgrade: `g6.12xlarge` → `g6e.12xlarge` (4× L40S 48 GB).** Removes the "L4 not in blueprint profile" risk flagged in every `k8s/rtvi/README.md` and gives every component memory headroom. | **+$4.60/h** ($110/day; $3,300/mo always-on). Drop-in upgrade: edit `INSTANCE_TYPE` default in `scripts/launch-stack.sh` + swap NIM `.env` to the blueprint's L40S profile (replaces our hand-tuned L4 guesses). |
+| K | **Instance upgrade: `g6.12xlarge` → `g6e.12xlarge` (4× L40S 48 GB).** Removes the "L4 not in blueprint profile" risk flagged in every `k8s/vss/rtvi/README.md` and gives every component memory headroom. | **+$4.60/h** ($110/day; $3,300/mo always-on). Drop-in upgrade: edit `INSTANCE_TYPE` default in `scripts/launch-stack.sh` + swap NIM `.env` to the blueprint's L40S profile (replaces our hand-tuned L4 guesses). |
 
 ### Instance-type upgrade — specifics
 
@@ -532,7 +532,7 @@ without another instance-type change.
 
 ## Implementation decisions (round 4 — VST ingest exposure)
 
-Gap surfaced during live-flow review: the full VST recording/segmentation/storage config surface in [`k8s/vst/11-configmap-vst-config.yaml`](../k8s/vst/11-configmap-vst-config.yaml) is not editable anywhere in the UI today. Only `/cameras` (CRUD + observed bitrate display) and read-only pod status + `kubectl logs` cover VST. Operators currently have to edit YAML and rollout-restart by hand to change recording mode, GoP, local cache thresholds, or the cloud storage target.
+Gap surfaced during live-flow review: the full VST recording/segmentation/storage config surface in [`k8s/vss/vst/11-configmap-vst-config.yaml`](../k8s/vss/vst/11-configmap-vst-config.yaml) is not editable anywhere in the UI today. Only `/cameras` (CRUD + observed bitrate display) and read-only pod status + `kubectl logs` cover VST. Operators currently have to edit YAML and rollout-restart by hand to change recording mode, GoP, local cache thresholds, or the cloud storage target.
 
 | # | Decision | Impact |
 | --- | --- | --- |
@@ -597,7 +597,7 @@ First live run is the only remaining validation surface.
 | 7 | 0.5 day | Topology (React Flow) |
 | 8 | 0.5 day | Demo-data controls + Diagnostics |
 | 9 | 1.5 day | Profiles (SQLite-backed save/load) + Secrets rotation (incl. AWS creds + **90-day nag banners**) + Settings (**SG whitelist CRUD**) |
-| 10 | 1 day | **Observability sidecar** — DCGM exporter DaemonSet + Prometheus + Grafana in a new `k8s/observability/` namespace. Console reads GPU metrics from Prometheus. |
+| 10 | 1 day | **Observability sidecar** — DCGM exporter DaemonSet + Prometheus + Grafana in a new `k8s/vss/observability/` namespace. Console reads GPU metrics from Prometheus. |
 | 11 | 1.5 day | **VST ingest config + storage visibility** — `VstRecordingForm` on `/tuning` (guarded subset of `vst_config.json` — see round-4 decisions), `VstStoragePanel` on `/diagnostics` (S3 PUT rate, local cache fill, segment histogram, frame drops). `/api/tuning/vst` + `/api/storage/vst` routes. Playwright E2E: edit GoP in UI → ConfigMap mutates → sensor-ms rolls → new value visible on readback. |
 | Total | **~14 dev-days** | — |
 
@@ -618,5 +618,5 @@ alongside primary Cosmos 2 8B on GPU 0 without contention.
 - [`docs/demo-runbook.md`](demo-runbook.md) — operator procedures the console replaces
 - [`docs/troubleshooting.md`](troubleshooting.md) — failure modes the console should surface
 - [`docs/camera-sim-setup.md`](camera-sim-setup.md) — the camera-sim side the console writes to
-- [`k8s/alerts/13-configmap-worker-code.yaml`](../k8s/alerts/13-configmap-worker-code.yaml) — alert worker the console proxies
+- [`k8s/vss/alerts/13-configmap-worker-code.yaml`](../k8s/vss/alerts/13-configmap-worker-code.yaml) — alert worker the console proxies
 - [`CLAUDE.md`](../CLAUDE.md) — overall project rules

@@ -2,7 +2,7 @@ import "server-only";
 import { CLUSTER } from "../cluster-refs";
 
 // mediamtx REST API is on port 9997 of the camera-sim host
-// (k8s/pyramid-ingress/21-replay-server.yaml).  Override via MEDIAMTX_API_URL
+// (k8s/vss/pyramid-ingress/21-replay-server.yaml).  Override via MEDIAMTX_API_URL
 // or set CAMERA_SIM_HOST to the EC2 public IP/DNS.
 const MEDIAMTX_API = CLUSTER.mediamtx.apiUrl;
 
