@@ -44,6 +44,7 @@ if [[ -f "$VSS_STATE_FILE" ]]; then
   # shellcheck source=/dev/null
   source "$VSS_STATE_FILE"
 fi
+: "${SSH_USER:=artesca-os}"
 
 # ---------------------------------------------------------------------------
 # State file — read by deployer/lib/console-deploy.ts to surface stage outcome.
@@ -257,7 +258,7 @@ echo "==> creating host directory for console PV (/srv/scality/console-data)"
 # runs as root on the node.
 KEY_PATH_HOST="${KEY_PATH:-$HOME/.ssh/${KEY_NAME:-isv-nvidia-vss}.pem}"
 ssh -i "$KEY_PATH_HOST" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
-  -o ConnectTimeout=10 "artesca-os@$PUB_IP" \
+  -o ConnectTimeout=10 "${SSH_USER:-artesca-os}@$PUB_IP" \
   "sudo -n salt-call --local --out=quiet cmd.run '
      mkdir -p /srv/scality/console-data &&
      chmod 0777 /srv/scality/console-data
