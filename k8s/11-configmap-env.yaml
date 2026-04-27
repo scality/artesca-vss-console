@@ -7,12 +7,12 @@ data:
   # Comma-separated list of namespaces the console monitors and can write to.
   KUBE_NAMESPACES: "vst,rtvi,agent,alerts,demo-data,pyramid-ingress"
 
-  # Kafka — Redpanda StatefulSet "redpanda" in namespace "rtvi" (k8s/rtvi/20-redpanda.yaml).
+  # Kafka — Redpanda StatefulSet "redpanda" in namespace "rtvi" (k8s/vss/rtvi/20-redpanda.yaml).
   # All pods use hostNetwork; the console uses the headless service DNS name.
   # Override if the cluster routes Kafka differently.
   KAFKA_BROKERS: "redpanda.rtvi.svc.cluster.local:9092"
 
-  # Redis — Deployment "redis" in namespace "vst" (k8s/vst/21-redis.yaml).
+  # Redis — Deployment "redis" in namespace "vst" (k8s/vss/vst/21-redis.yaml).
   # Used by alert-worker, rtvi-vlm, and rtvi-embed for shared state.
   # The original default (alerts-redis.alerts) was wrong — Redis lives in vst.
   REDIS_URL: "redis://redis.vst.svc.cluster.local:6379"
@@ -37,12 +37,12 @@ data:
   # Defaults to http://<CAMERA_SIM_HOST>:9997 if not set.
   # MEDIAMTX_API_URL: "http://<camera-sim-public-ip>:9997"
 
-  # VST sensor-ms API base URL.  sensor-ms binds port 30000 (k8s/vst/30-sensor-ms.yaml).
+  # VST sensor-ms API base URL.  sensor-ms binds port 30000 (k8s/vss/vst/30-sensor-ms.yaml).
   # The original .env.example used port 5010, which is wrong.
   VST_SENSOR_URL: "http://sensor-ms.vst.svc.cluster.local:30000/api/v1/live/sensor"
 
-  # alert-worker HTTP API (k8s/alerts/20-alert-worker.yaml, hostPort 9101).
-  # Headless Service defined in k8s/alerts/21-alert-worker-service.yaml.
+  # alert-worker HTTP API (k8s/vss/alerts/20-alert-worker.yaml, hostPort 9101).
+  # Headless Service defined in k8s/vss/alerts/21-alert-worker-service.yaml.
   ALERT_WORKER_URL: "http://alert-worker.alerts.svc.cluster.local:9101"
 
   # Prometheus — ARTESCA kube-prometheus-stack in artesca-monitoring namespace.
@@ -57,7 +57,7 @@ data:
   # Preview NIM endpoint — NVILA-Lite-2B sharing GPU 0 with the primary NIM.
   # Used by /api/prompt/preview (dry-run prompt evaluation without touching
   # the live inference path). Leave as-is if using the default in-cluster URL.
-  # Flag: ASSUMED — no nim-preview Deployment found in k8s/rtvi/; confirm name at deploy.
+  # Flag: ASSUMED — no nim-preview Deployment found in k8s/vss/rtvi/; confirm name at deploy.
   NIM_PREVIEW_ENDPOINT: "http://nvila-lite-preview.rtvi.svc.cluster.local:8000"
 
   # Model catalog selection — drives which card in console/src/data/model-catalog.json

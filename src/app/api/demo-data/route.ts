@@ -30,7 +30,7 @@ export async function PATCH(req: NextRequest) {
   const apps = appsV1();
 
   // Scale the deployment if enabled flag is specified
-  // Real Deployment name is "demo-producer" (k8s/demo-data/20-producer.yaml).
+  // Real Deployment name is "demo-producer" (k8s/vss/demo-data/20-producer.yaml).
   if (enabled !== undefined) {
     try {
       await apps.patchNamespacedDeployment({
@@ -50,7 +50,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   // Patch env vars if tick rate or match probability are specified.
-  // Real env keys (k8s/demo-data/11-configmap-runtime-env.yaml):
+  // Real env keys (k8s/vss/demo-data/11-configmap-runtime-env.yaml):
   //   TICK_SECONDS  — integer seconds (not milliseconds)
   //   MATCH_PROBABILITY — float [0, 1]
   if (tickRate !== undefined || matchProbability !== undefined) {

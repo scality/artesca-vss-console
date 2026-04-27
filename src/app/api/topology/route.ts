@@ -35,7 +35,7 @@ interface TopologyEdge {
 //   camera-sim, mediamtx, sensor-ms, streamprocessing-ms, rtvi-vlm, rtvi-embed,
 //   nim-cosmos-reason2, kafka, alert-worker, agent, demo-data-producer,
 //   artesca-s3, vst-local-cache, vst-postgres, vst-redis.
-// Alerts reuses the VST Redis (see k8s/alerts/README.md § "Known gaps"),
+// Alerts reuses the VST Redis (see k8s/vss/alerts/README.md § "Known gaps"),
 // so there is no separate alerts-redis node — the alert-worker edge points
 // at vst-redis.
 const COMPONENTS: Array<{
@@ -205,7 +205,7 @@ const STATIC_EDGES: TopologyEdge[] = [
   { id: "edge:sensor-ms->vst-redis", source: "sensor-ms", target: "vst-redis", label: "vst.event", protocol: "redis" },
   // Alert Redis
   // alert-worker reuses the VST Redis for cooldown state (SETNX EX). See
-  // k8s/alerts/README.md § "Known gaps / follow-ups".
+  // k8s/vss/alerts/README.md § "Known gaps / follow-ups".
   { id: "edge:alert-worker->vst-redis", source: "alert-worker", target: "vst-redis", label: "Redis", protocol: "redis" },
   // Console clip playback (dormant)
   { id: "edge:console->artesca-s3", source: "console", target: "artesca-s3", label: "S3 GET", protocol: "s3", dormant: true },

@@ -17,7 +17,7 @@ const RtviTuningSchema = z.object({
   { message: "At least one tuning field is required" }
 );
 
-// Defaults align with k8s/rtvi/11-configmap-runtime-env.yaml + the
+// Defaults align with k8s/vss/rtvi/11-configmap-runtime-env.yaml + the
 // RtviTuningForm client contract (field names `maxNumSeqs`, `kvCachePct`,
 // `maxModelLen`). Note: client uses `kvCachePct` while PATCH accepts
 // `kvCachePercent` — GET mirrors the client schema.
@@ -82,7 +82,7 @@ export async function PATCH(req: NextRequest) {
     patches.push([CLUSTER.rtvi.nimMaxNumSeqsKey, String(tuning.maxNumSeqs)]);
   }
   if (tuning.kvCachePercent !== undefined) {
-    // ConfigMap key is VLM_NIM_KVCACHE_PERCENT (k8s/rtvi/30-nim-cosmos-reason2-8b.yaml),
+    // ConfigMap key is VLM_NIM_KVCACHE_PERCENT (k8s/vss/rtvi/30-nim-cosmos-reason2-8b.yaml),
     // not NIM_KVCACHE_PERCENT — the NIM container's env var is NIM_KVCACHE_PERCENT
     // but the ConfigMap key it reads from is VLM_NIM_KVCACHE_PERCENT.
     patches.push([CLUSTER.rtvi.nimKvCacheKey, String(tuning.kvCachePercent)]);
@@ -105,7 +105,7 @@ export async function PATCH(req: NextRequest) {
 
   // All three keys (NIM_MAX_NUM_SEQS, VLM_NIM_KVCACHE_PERCENT, NIM_MAX_MODEL_LEN)
   // are env vars on the cosmos-reason2-8b NIM StatefulSet — see
-  // k8s/rtvi/30-nim-cosmos-reason2-8b.yaml containers[0].env. rtvi-vlm does
+  // k8s/vss/rtvi/30-nim-cosmos-reason2-8b.yaml containers[0].env. rtvi-vlm does
   // not consume them, so restarting it would be a no-op.
   try {
     await rolloutRestart("StatefulSet", CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.nimStatefulSet);

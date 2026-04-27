@@ -584,7 +584,7 @@ function VstPostgresStatus({ runtimeState }: TabRendererProps) {
 
 // ─── Redis — Status tab ──────────────────────────────────────────────────────
 // Single Redis node: vst-redis. It backs both the VST internal
-// vst.event topic AND the alert-worker cooldown keys (k8s/alerts/README.md
+// vst.event topic AND the alert-worker cooldown keys (k8s/vss/alerts/README.md
 // § "Known gaps"). nodeId is left in the signature for symmetry with the
 // other tab renderers.
 
