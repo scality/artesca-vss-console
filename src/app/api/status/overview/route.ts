@@ -5,9 +5,9 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { coreV1, watchedNamespaces } from "@/lib/k8s";
 import {
-  execInContainer,
   inspectContainer,
   listComposeContainers,
+  runOneShotGpuContainer,
   type ComposeContainer,
 } from "@/lib/helpers/docker-sock";
 
@@ -106,29 +106,51 @@ async function collectDockerOverview(
   takenAt: string,
   warnings: string[],
 ): Promise<OverviewSnapshot> {
+  // Camera-sim probe is only meaningful when a host is configured. The
+  // brev workspace has no camera-sim deployed by default — running the
+  // probe just yields a noisy "fetch failed" warning. Skip when unset.
+  const cameraSimConfigured = Boolean(
+    process.env.CAMERA_SIM_HOST ?? process.env.MEDIAMTX_BASE_URL,
+  );
+  // S3 stats require resolvable AWS credentials (env, profile, or
+  // instance-role). On the brev path the operator hasn't set any creds
+  // yet — surfacing a CredentialsProviderError on every dashboard tick
+  // is noise. Probe only when there's at least an env-style key.
+  const s3Configured = Boolean(
+    s3Bucket() && (process.env.AWS_ACCESS_KEY_ID || process.env.OBJECTSTORE_ACCESS_KEY_ID),
+  );
+
   const [containers, nimInspect, gpuOut, mtxResult, s3] = await Promise.all([
     listComposeContainers(COMPOSE_PROJECT),
     inspectContainer("cosmos-reason2-8b"),
-    // rtvi-vlm has the nvidia runtime + nvidia-smi binary baked in. Querying
-    // it via Exec avoids the privilege escalation that hitting /proc/driver/
-    // nvidia from outside the container would need. Bounded 4 s timeout —
-    // we'd rather miss a frame of GPU data than block the dashboard tick.
-    execInContainer(
-      "rtvi-vlm",
-      [
-        "nvidia-smi",
-        "--query-gpu=index,name,memory.total,memory.used,utilization.gpu,temperature.gpu,power.draw",
-        "--format=csv,noheader,nounits",
-      ],
-      4_000,
-    ),
-    mediamtxListPaths().catch((err) => {
-      warnings.push(`mediamtx ping failed: ${String(err)}`);
-      return { paths: [], warning: undefined };
-    }),
+    // GPU enumeration: spawn a one-shot container with --gpus all, reusing
+    // an image known to be pulled (rtvi-vlm) so there's no registry round
+    // trip. Per-workload containers like rtvi-vlm itself are pinned to a
+    // single GPU via DeviceIDs=["0"], so docker-exec'ing nvidia-smi inside
+    // them only sees one of the two L40S cards. The one-shot wrapper sees
+    // every GPU on the host.
+    (async () => {
+      const rtviInspect = await inspectContainer("rtvi-vlm");
+      const image = rtviInspect?.Config.Image ?? "nvcr.io/nvidia/vss-core/vss-rt-vlm:3.1.0";
+      return runOneShotGpuContainer(
+        image,
+        [
+          "nvidia-smi",
+          "--query-gpu=index,name,memory.total,memory.used,utilization.gpu,temperature.gpu,power.draw",
+          "--format=csv,noheader,nounits",
+        ],
+        6_000,
+      );
+    })(),
+    cameraSimConfigured
+      ? mediamtxListPaths().catch((err) => {
+          warnings.push(`mediamtx ping failed: ${String(err)}`);
+          return { paths: [], warning: undefined };
+        })
+      : Promise.resolve({ paths: [], warning: undefined }),
     (async () => {
       const bucket = s3Bucket();
-      if (!bucket) return { bucket: "", objectCount: 0, bytesTotal: 0, growth24h: 0 };
+      if (!s3Configured) return { bucket: bucket || "", objectCount: 0, bytesTotal: 0, growth24h: 0 };
       try {
         const stats = await s3Stats(bucket);
         return { ...stats, growth24h: 0 };
@@ -153,12 +175,12 @@ async function collectDockerOverview(
   };
 
   const gpus = gpuOut ? parseNvidiaSmiCsv(gpuOut) : [];
-  if (!gpuOut) warnings.push("nvidia-smi unavailable (rtvi-vlm exec failed)");
+  if (!gpuOut) warnings.push("nvidia-smi unavailable (one-shot GPU container failed to start)");
 
   if (mtxResult.warning) warnings.push(mtxResult.warning);
   const pathsReady = mtxResult.paths.filter((p) => p.ready).length;
   const cameraSim: OverviewSnapshot["cameraSim"] = {
-    instanceState: mtxResult.paths.length > 0 ? "running" : "unreachable",
+    instanceState: cameraSimConfigured && mtxResult.paths.length > 0 ? "running" : cameraSimConfigured ? "unreachable" : "stopped",
     pathsReady,
     pathsTotal: mtxResult.paths.length,
   };
