@@ -79,6 +79,47 @@ export async function vstListSensors(): Promise<{
   }
 }
 
+/** Add (register) a sensor in VST.  Returns ok=true on 2xx and on 409
+ *  (already registered — idempotent).  Returns ok=false with a warning
+ *  string on any other failure; does not throw. */
+export async function vstAddSensor(input: {
+  sensorId: string;
+  rtspUrl: string;
+  description?: string;
+}): Promise<{ ok: boolean; warning?: string }> {
+  const body = {
+    sensor_id: input.sensorId,
+    sensor_url: input.rtspUrl,
+    sensor_description: input.description ?? input.sensorId,
+    sensor_type: "rtsp",
+  };
+
+  try {
+    const resp = await fetch(`${VST_BASE}/add`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      next: { revalidate: 0 },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    // 409 = already registered — treat as success (idempotent).
+    if (resp.status === 409) return { ok: true };
+
+    if (!resp.ok) {
+      return {
+        ok: false,
+        warning: `VST add returned HTTP ${resp.status} for sensor ${input.sensorId}`,
+      };
+    }
+
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, warning: `VST add failed for ${input.sensorId}: ${msg}` };
+  }
+}
+
 /** Delete a sensor from VST. */
 export async function vstDeleteSensor(
   sensorId: string

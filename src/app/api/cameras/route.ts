@@ -12,6 +12,14 @@ import {
   controlPlaneHost,
   CamsimControlError,
 } from "@/lib/helpers/camsim-control";
+import {
+  gcsCamerasGet,
+  gcsCamerasPut,
+  gcsHealthCheck,
+  type CameraEntry,
+  type CameraList,
+} from "@/lib/helpers/gcs-config";
+import { triggerCameraBootstrap, awaitBootstrap } from "@/lib/cameras-bootstrap";
 
 // The camera-sim's control-plane API (http://<camera-sim>:8080) is the
 // authoritative source for cameras.yaml — it owns the YAML, triggers the
@@ -19,15 +27,22 @@ import {
 // and mediamtx "is the stream actually flowing" status are best-effort
 // enrichment layered on top.
 //
-// Old orchestration (SCP + patch ConfigMap "cameras" in pyramid-ingress +
-// ssh systemctl restart + create register-cameras Job) is gone. The k8s
-// ConfigMap approach couldn't tell whether the camera-sim had actually
-// picked up the change — now we know because the control-plane returns
-// the restart exit code inline.
+// GCS provides cross-restart persistence: cameras/<instance>.json is the
+// authoritative definition list; VST is the runtime registration view.
 
 export const dynamic = "force-dynamic";
 
 const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
+const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
+
+// Simple mutex for GCS writes — prevents concurrent PUT races from simultaneous
+// requests (add + another add racing, etc.).
+let _gcsWriteChain: Promise<void> = Promise.resolve();
+
+function chainGcsWrite(fn: () => Promise<void>): Promise<void> {
+  _gcsWriteChain = _gcsWriteChain.then(fn).catch(() => void 0);
+  return _gcsWriteChain;
+}
 
 // ─── GET — unified camera list ─────────────────────────────────────────────────
 
@@ -36,12 +51,19 @@ export async function GET() {
   if (!session)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  // Kick off the one-shot GCS → VST bootstrap (no-op after first call).
+  if (DOCKER_MODE && VSS_INSTANCE_NAME) {
+    triggerCameraBootstrap();
+    await awaitBootstrap();
+  }
+
   const warnings: string[] = [];
 
-  // Try to get the camera-sim host. On docker compose deploys without a
-  // camera-sim, this fails — but VST is still the source of truth for
-  // registered cameras, so we fall through to the VST-only path instead
-  // of returning an empty list.
+  // GCS fetch runs in parallel with the rest of the data fetching.
+  const gcsPromise = VSS_INSTANCE_NAME
+    ? gcsCamerasGet(VSS_INSTANCE_NAME)
+    : Promise.resolve(null);
+
   let eip = "";
   try {
     eip = controlPlaneHost();
@@ -51,6 +73,7 @@ export async function GET() {
         {
           cameras: [],
           eip: "",
+          gcs: { available: false },
           warnings: [
             err instanceof Error ? err.message : String(err),
             "Set CAMERA_SIM_HOST in the console-env ConfigMap and rollout restart deploy/console.",
@@ -73,26 +96,78 @@ export async function GET() {
     }
   }
 
-  const [vstResult, mtxResult] = await Promise.all([
+  const [vstResult, mtxResult, gcsList] = await Promise.all([
     vstListSensors(),
     eip ? mediamtxListPaths() : Promise.resolve({ paths: [], warning: undefined }),
+    gcsPromise,
   ]);
   if (vstResult.warning) warnings.push(vstResult.warning);
   if (mtxResult.warning) warnings.push(mtxResult.warning);
   const vstSensors = vstResult.sensors;
-  const vstRegistered = new Set(vstSensors.map((s) => s.sensor_id));
+  const vstRegisteredIds = new Set(vstSensors.map((s) => s.sensor_id));
   const mtxReady = new Map(mtxResult.paths.map((p) => [p.name, p.ready]));
 
-  let cameras: Camera[];
-  if (entries.length > 0) {
-    // Camera-sim is the authoritative list when present.
+  // Build GCS status block for the response.
+  const gcsStatus = {
+    available: gcsList !== null,
+    lastUpdated: gcsList?.updatedAt,
+    lastUpdatedBy: gcsList?.updatedBy,
+    totalCameras: gcsList?.cameras.length,
+  };
+
+  let cameras: (Camera & { gcsPersisted?: boolean })[];
+
+  if (gcsList && gcsList.cameras.length > 0) {
+    // GCS is authoritative: merge GCS definition list with VST runtime status.
+    // 1. Start with GCS cameras (persisted definition).
+    const gcsCameraIds = new Set(gcsList.cameras.map((c) => c.id));
+    cameras = gcsList.cameras.map((gCam) => {
+      const vstRegistered = vstRegisteredIds.has(gCam.id);
+      const feed: Feed = {
+        id: "default",
+        sensorId: gCam.id,
+        source: "rtsp",
+        rtspUrl: gCam.rtspUrl,
+        vstRegistered,
+        replayReady: mtxReady.get(gCam.id) ?? false,
+      };
+      return {
+        id: gCam.id,
+        role: (gCam.role as Camera["role"]) ?? "other",
+        description: gCam.description,
+        feeds: [feed],
+        gcsPersisted: true,
+      };
+    });
+
+    // 2. Add VST-only cameras (runtime but not in GCS) flagged as unpersisted.
+    for (const s of vstSensors) {
+      if (gcsCameraIds.has(s.sensor_id)) continue;
+      const feed: Feed = {
+        id: "default",
+        sensorId: s.sensor_id,
+        source: "rtsp",
+        rtspUrl: typeof s.rtsp_url === "string" ? s.rtsp_url : "",
+        vstRegistered: true,
+        replayReady: mtxReady.get(s.sensor_id) ?? false,
+      };
+      cameras.push({
+        id: s.sensor_id,
+        role: "other",
+        description: s.name,
+        feeds: [feed],
+        gcsPersisted: false,
+      });
+    }
+  } else if (entries.length > 0) {
+    // Camera-sim is the authoritative list when GCS unavailable + camsim present.
     cameras = entries.map((e) => {
       const feed: Feed = {
         id: "default",
         sensorId: e.name,
         source: e.source,
         rtspUrl: `rtsp://${eip}:8554/${e.name}`,
-        vstRegistered: vstRegistered.has(e.name),
+        vstRegistered: vstRegisteredIds.has(e.name),
         replayReady: mtxReady.get(e.name) ?? false,
       };
       return {
@@ -100,12 +175,11 @@ export async function GET() {
         role: "other",
         description: e.description,
         feeds: [feed],
+        gcsPersisted: false,
       };
     });
   } else {
-    // Fall back to VST as the primary source (docker compose deploys
-    // without a camera-sim, or k8s deploys where camera-sim is offline
-    // but VST has already registered cameras via another path).
+    // Fall back to VST as the primary source.
     cameras = vstSensors.map((s) => {
       const feed: Feed = {
         id: "default",
@@ -120,25 +194,15 @@ export async function GET() {
         role: "other",
         description: s.name,
         feeds: [feed],
+        gcsPersisted: false,
       };
     });
   }
 
-  return NextResponse.json({ cameras, eip, warnings });
+  return NextResponse.json({ cameras, eip, gcs: gcsStatus, warnings });
 }
 
 // ─── POST — add a new camera ───────────────────────────────────────────────────
-//
-// Expected body (from AddCameraDialog):
-//   {
-//     cameraId: "checkout-1",
-//     role: "checkout",
-//     description: "...",
-//     feeds: [{ feedId: "default", fileName: "clip.ts", fileBase64: "..." }]
-//   }
-//
-// Real cluster schema allows exactly one source file per camera; if the
-// dialog submits multiple feeds we use feeds[0] and warn about the rest.
 
 const AddFeedSchema = z.object({
   feedId: z.string().optional(),
@@ -150,6 +214,7 @@ const AddCameraSchema = z.object({
   cameraId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,31}$/),
   role: z.string().optional(),
   description: z.string().optional(),
+  rtspUrl: z.string().optional(), // explicit RTSP URL (used for docker/GCS path)
   feeds: z.array(AddFeedSchema).min(1),
 });
 
@@ -167,7 +232,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { cameraId, description, feeds } = parsed.data;
+  const { cameraId, role, description, feeds } = parsed.data;
   const warnings: string[] = [];
 
   const primary = feeds[0];
@@ -180,8 +245,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 1. Upload the source file to /opt/camera-sim/data/ via the control-plane
-  //    (no SSH — console pod has no SSH key mounted anymore).
+  // 1. Upload the source file to /opt/camera-sim/data/ via the control-plane.
   try {
     const buf = Buffer.from(primary.fileBase64, "base64");
     await camsimUploadFile(primary.fileName, buf);
@@ -203,14 +267,28 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const status =
-      err instanceof CamsimControlError ? err.status : 502;
+    const status = err instanceof CamsimControlError ? err.status : 502;
     return NextResponse.json(
-      {
-        error: `Control-plane add failed: ${msg}`,
-      },
+      { error: `Control-plane add failed: ${msg}` },
       { status },
     );
+  }
+
+  // 3. Persist to GCS (best-effort — VST add is already done).
+  if (VSS_INSTANCE_NAME) {
+    const email = session.user?.email ?? "console";
+    const gcsWarning = await writeToGcs(
+      cameraId,
+      {
+        id: cameraId,
+        rtspUrl: parsed.data.rtspUrl ?? "",
+        description,
+        role,
+      },
+      email,
+      "add",
+    );
+    if (gcsWarning) warnings.push(gcsWarning);
   }
 
   await auditLog("camera-add", `camera/${cameraId}`, {
@@ -218,9 +296,65 @@ export async function POST(req: NextRequest) {
     source: primary.fileName,
   });
 
-  return NextResponse.json({
-    ok: true,
-    cameraId,
-    warnings,
-  });
+  return NextResponse.json({ ok: true, cameraId, warnings });
 }
+
+// ─── GCS write helper (shared by POST and [id]/route DELETE) ──────────────────
+
+/**
+ * Read the current GCS list, apply a mutation, and write back.
+ * Uses the in-process chain mutex to avoid concurrent write races.
+ * Returns an error warning string, or undefined on success.
+ */
+async function writeToGcs(
+  cameraId: string,
+  entry: CameraEntry | null, // null = delete
+  updatedBy: string,
+  op: "add" | "remove",
+): Promise<string | undefined> {
+  let warning: string | undefined;
+  await chainGcsWrite(async () => {
+    try {
+      const current = await gcsCamerasGet(VSS_INSTANCE_NAME);
+      const existingCameras: CameraEntry[] = current?.cameras ?? [];
+
+      let nextCameras: CameraEntry[];
+      if (op === "add" && entry !== null) {
+        // Replace if already present (idempotent), otherwise append.
+        const existing = existingCameras.findIndex((c) => c.id === cameraId);
+        if (existing >= 0) {
+          nextCameras = [
+            ...existingCameras.slice(0, existing),
+            entry,
+            ...existingCameras.slice(existing + 1),
+          ];
+        } else {
+          nextCameras = [...existingCameras, entry];
+        }
+      } else {
+        nextCameras = existingCameras.filter((c) => c.id !== cameraId);
+      }
+
+      const list: CameraList = {
+        schema: "isv-labs.cameras.v1",
+        instance: VSS_INSTANCE_NAME,
+        updatedAt: new Date().toISOString(),
+        updatedBy,
+        cameras: nextCameras,
+      };
+
+      process.env.UPDATED_BY = updatedBy;
+      await gcsCamerasPut(list);
+    } catch (err) {
+      warning = `GCS ${op} failed (VST change already applied): ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      console.warn(`[cameras/route] ${warning}`);
+    }
+  });
+  return warning;
+}
+
+// ─── Export for use by [id]/route.ts ──────────────────────────────────────────
+export { writeToGcs };
+export type { CameraEntry };

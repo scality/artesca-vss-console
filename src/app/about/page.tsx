@@ -1,5 +1,6 @@
 import { Shell } from "@/components/Shell";
 import { ExternalLink } from "lucide-react";
+import { gcsHealthCheck } from "@/lib/helpers/gcs-config";
 
 interface ServiceUrlRow {
   label: string;
@@ -76,6 +77,23 @@ function buildServiceUrls(): ServiceUrlRow[] {
       envVar: "ALERT_WORKER_URL",
       value: process.env.ALERT_WORKER_URL ?? "(not configured)",
     },
+    {
+      label: "GCS Config Bucket",
+      envVar: "GCS_CONFIG_BUCKET",
+      value: process.env.GCS_CONFIG_BUCKET ?? "scality-isv-labs-config (default)",
+    },
+    {
+      label: "GCS Credentials",
+      envVar: "GOOGLE_APPLICATION_CREDENTIALS",
+      value: process.env.GOOGLE_APPLICATION_CREDENTIALS
+        ? "[configured — masked]"
+        : "(not configured)",
+    },
+    {
+      label: "VSS Instance Name",
+      envVar: "VSS_INSTANCE_NAME",
+      value: process.env.VSS_INSTANCE_NAME ?? "(not configured)",
+    },
   ];
 }
 
@@ -107,7 +125,7 @@ const DOCS = [
   },
 ];
 
-export default function AboutPage() {
+export default async function AboutPage() {
   const gitSha =
     process.env.NEXT_PUBLIC_GIT_SHA ??
     process.env.VERCEL_GIT_COMMIT_SHA ??
@@ -116,6 +134,12 @@ export default function AboutPage() {
   const buildDate = new Date().toISOString().split("T")[0];
   const nodeVersion = process.version;
   const serviceUrls = buildServiceUrls();
+
+  // GCS health — run at render time (server component).
+  const gcsHealth = await gcsHealthCheck().catch(() => ({
+    status: "error" as const,
+    detail: "health check threw unexpectedly",
+  }));
 
   return (
     <Shell>
@@ -207,6 +231,45 @@ export default function AboutPage() {
               </a>
             ))}
           </div>
+        </section>
+
+        {/* GCS persistence health */}
+        <section className="rounded-lg border border-border bg-card p-5 space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            GCS Camera Persistence
+          </h2>
+          <div className="flex items-center gap-3">
+            <span
+              className={
+                gcsHealth.status === "ok"
+                  ? "text-emerald-400 font-semibold text-sm"
+                  : gcsHealth.status === "no-credentials"
+                    ? "text-amber-400 font-semibold text-sm"
+                    : "text-slate-400 font-semibold text-sm"
+              }
+            >
+              {gcsHealth.status === "ok"
+                ? "available"
+                : gcsHealth.status === "no-credentials"
+                  ? "no credentials"
+                  : gcsHealth.status === "no-gsutil"
+                    ? "no gsutil"
+                    : "error"}
+            </span>
+            {gcsHealth.detail && (
+              <span className="text-xs text-muted-foreground">{gcsHealth.detail}</span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Cameras persist at{" "}
+            <code className="font-mono">
+              gs://{process.env.GCS_CONFIG_BUCKET ?? "scality-isv-labs-config"}/cameras/
+              {process.env.VSS_INSTANCE_NAME ?? "<instance>"}.json
+            </code>
+            . Mount the service account key at{" "}
+            <code className="font-mono">/etc/gcs-config-rw.json</code> and set{" "}
+            <code className="font-mono">GOOGLE_APPLICATION_CREDENTIALS</code>.
+          </p>
         </section>
 
         {/* License */}

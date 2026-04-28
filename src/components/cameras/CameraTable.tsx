@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Camera } from "@/lib/types";
 import { CameraSchema } from "@/lib/schemas";
 import { z } from "zod";
@@ -14,18 +14,34 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Loader2, PlusCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { Loader2, PlusCircle, CloudUpload } from "lucide-react";
 import { CameraRow } from "./CameraRow";
 import { AddCameraDialog } from "./AddCameraDialog";
 
+const GcsStatusSchema = z.object({
+  available: z.boolean(),
+  lastUpdated: z.string().optional(),
+  lastUpdatedBy: z.string().optional(),
+  totalCameras: z.number().optional(),
+});
+
+const CameraWithGcsSchema = CameraSchema.extend({
+  gcsPersisted: z.boolean().optional(),
+});
+
 const CamerasResponseSchema = z.object({
-  cameras: z.array(CameraSchema),
+  cameras: z.array(CameraWithGcsSchema),
   eip: z.string(),
+  gcs: GcsStatusSchema.optional(),
   warnings: z.array(z.string()).optional(),
 });
 
 export function CameraTable() {
   const [addOpen, setAddOpen] = React.useState(false);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["cameras"],
@@ -39,6 +55,33 @@ export function CameraTable() {
     refetchInterval: 60_000,
   });
 
+  const syncToGcs = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/cameras/sync-gcs", { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(body.error ?? "Sync failed");
+      }
+      return res.json();
+    },
+    onSuccess: (result: { synced?: number; warnings?: string[] }) => {
+      queryClient.invalidateQueries({ queryKey: ["cameras"] });
+      toast({
+        title: `Saved ${result.synced ?? 0} cameras to GCS`,
+        description: result.warnings?.length
+          ? result.warnings.join("; ")
+          : undefined,
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Save to GCS failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -47,11 +90,42 @@ export function CameraTable() {
           <p className="text-sm text-muted-foreground">
             Manage camera feeds and sensor registration.
           </p>
+          {data?.gcs && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              GCS:{" "}
+              {data.gcs.available ? (
+                <span className="text-emerald-400">
+                  {data.gcs.totalCameras ?? 0} cameras persisted
+                  {data.gcs.lastUpdatedBy ? ` · last by ${data.gcs.lastUpdatedBy}` : ""}
+                </span>
+              ) : (
+                <span className="text-slate-500">unavailable (no credentials)</span>
+              )}
+            </p>
+          )}
         </div>
-        <Button onClick={() => setAddOpen(true)}>
-          <PlusCircle className="h-4 w-4 mr-2" />
-          Add Camera
-        </Button>
+        <div className="flex items-center gap-2">
+          {data?.gcs?.available !== false && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => syncToGcs.mutate()}
+              disabled={syncToGcs.isPending}
+              title="Save current VST camera list to GCS for persistence across restarts"
+            >
+              {syncToGcs.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <CloudUpload className="h-4 w-4 mr-2" />
+              )}
+              Save all to GCS
+            </Button>
+          )}
+          <Button onClick={() => setAddOpen(true)}>
+            <PlusCircle className="h-4 w-4 mr-2" />
+            Add Camera
+          </Button>
+        </div>
       </div>
 
       {isLoading && (
