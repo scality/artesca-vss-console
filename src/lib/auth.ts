@@ -16,22 +16,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!password) return null;
 
         const envHash = process.env.CONSOLE_PASSWORD_HASH;
-        const envPlain = process.env.CONSOLE_PASSWORD;
-
-        // Permissive dev-mode: no password configured → accept any login.
-        if (!envHash && !envPlain) {
-          console.warn(
-            "[console-auth] CONSOLE_PASSWORD not set — running in permissive dev-mode"
-          );
-          return DEV_USER;
-        }
+        const envPlain = process.env.CONSOLE_PASSWORD ?? "scality";
 
         if (envHash) {
           const ok = await bcrypt.compare(password, envHash);
           return ok ? DEV_USER : null;
         }
 
-        // Plain-text compare (dev only — use hash in production)
         return password === envPlain ? DEV_USER : null;
       },
     }),

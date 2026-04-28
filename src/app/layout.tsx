@@ -7,7 +7,7 @@ import { KioskProvider } from "@/components/KioskProvider";
 import { isKioskFromHeaders } from "@/lib/kiosk";
 
 export const metadata: Metadata = {
-  title: "Demo Console — ARTESCA VSS",
+  title: "Scality VSS Console",
   description: "Operator console for the ARTESCA × Pyramid × NVIDIA VSS stack",
 };
 

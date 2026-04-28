@@ -18,7 +18,7 @@ export function Shell({ children, className }: ShellProps) {
         <aside className="flex w-60 shrink-0 flex-col border-r border-border">
           <div className="flex h-14 items-center border-b border-border px-4">
             <span className="text-sm font-semibold tracking-wide text-foreground">
-              VSS Console
+              Scality VSS Console
             </span>
             <span className="ml-2 rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
               :8800
