@@ -12,6 +12,7 @@ import { FeedList } from "./FeedList";
 
 interface CameraRowProps {
   camera: Camera;
+  eip: string;
 }
 
 const roleBadgeClass: Record<Camera["role"], string> = {
@@ -22,7 +23,7 @@ const roleBadgeClass: Record<Camera["role"], string> = {
   other: "border-muted-foreground text-muted-foreground",
 };
 
-export function CameraRow({ camera }: CameraRowProps) {
+export function CameraRow({ camera, eip }: CameraRowProps) {
   const [expanded, setExpanded] = React.useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -126,7 +127,7 @@ export function CameraRow({ camera }: CameraRowProps) {
       {expanded && (
         <TableRow>
           <TableCell colSpan={6} className="py-2 bg-muted/10">
-            <FeedList cameraId={camera.id} feeds={camera.feeds} />
+            <FeedList cameraId={camera.id} feeds={camera.feeds} eip={eip} />
           </TableCell>
         </TableRow>
       )}
