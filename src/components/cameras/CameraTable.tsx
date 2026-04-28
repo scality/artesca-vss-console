@@ -94,7 +94,7 @@ export function CameraTable() {
                   </TableRow>
                 ) : (
                   data.cameras.map((camera) => (
-                    <CameraRow key={camera.id} camera={camera} />
+                    <CameraRow key={camera.id} camera={camera} eip={data.eip} />
                   ))
                 )}
               </TableBody>

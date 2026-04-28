@@ -7,13 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { RefreshCw, Ban, Upload } from "lucide-react";
+import { LiveFeedPlayer } from "./LiveFeedPlayer";
 
 interface FeedListProps {
   cameraId: string;
   feeds: Feed[];
+  eip: string;
 }
 
-export function FeedList({ cameraId, feeds }: FeedListProps) {
+export function FeedList({ cameraId, feeds, eip }: FeedListProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -60,12 +62,13 @@ export function FeedList({ cameraId, feeds }: FeedListProps) {
       {feeds.map((feed) => (
         <div
           key={feed.id}
-          className="flex flex-wrap items-center gap-2 rounded bg-muted/30 px-3 py-2"
+          className="flex flex-wrap items-start gap-3 rounded bg-muted/30 px-3 py-2"
         >
-          <span className="text-xs font-mono text-muted-foreground w-20 shrink-0">
+          <LiveFeedPlayer eip={eip} sensorId={feed.sensorId} />
+          <span className="text-xs font-mono text-muted-foreground w-20 shrink-0 mt-1">
             {feed.id}
           </span>
-          <span className="text-xs font-mono text-foreground truncate max-w-[200px]">
+          <span className="text-xs font-mono text-foreground truncate max-w-[200px] mt-1">
             {feed.rtspUrl}
           </span>
           <div className="flex gap-1 flex-wrap">
