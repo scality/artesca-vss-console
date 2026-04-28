@@ -26,6 +26,7 @@ const PromptResponseSchema = z.object({
   model: z.string(),
   previewModel: z.string().optional(),
   runtime: z.string().optional(),
+  defaultPrompt: z.string().optional(),
 });
 
 export default function PromptPage() {
@@ -124,6 +125,26 @@ export default function PromptPage() {
           </div>
         )}
 
+        {data?.defaultPrompt && data.prompt === "" && draft !== null && draft !== data.defaultPrompt && (
+          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300 flex items-start gap-3">
+            <div className="flex-1">
+              <div className="font-medium">No prompt configured.</div>
+              <div className="mt-1 text-emerald-300/80">
+                Apply the bundled Pyramid retail-scenario default? Same prompt is wired into
+                future deploys via <code>scripts/stacks/vss/bootstrap-compose.sh</code>.
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setDraft(data.defaultPrompt!)}
+              className="shrink-0"
+            >
+              Load default
+            </Button>
+          </div>
+        )}
+
         {isLoading && (
           <div className="flex items-center gap-2 text-muted-foreground justify-center py-8">
             <Loader2 className="h-5 w-5 animate-spin" />
@@ -165,8 +186,18 @@ export default function PromptPage() {
             <DialogHeader>
               <DialogTitle>Save + Restart rtvi-vlm?</DialogTitle>
               <DialogDescription>
-                This will patch the prompt ConfigMap and restart the rtvi-vlm
-                deployment.
+                {data?.runtime === "docker" ? (
+                  <>
+                    The <code>rtvi-vlm</code> container will be recreated with
+                    the new <code>VLM_SYSTEM_PROMPT</code>. Image, mounts, GPU
+                    binding, network, and restart policy are preserved.
+                  </>
+                ) : (
+                  <>
+                    This will patch the prompt ConfigMap and restart the{" "}
+                    <code>rtvi-vlm</code> deployment.
+                  </>
+                )}
               </DialogDescription>
             </DialogHeader>
             <div className="flex items-start gap-2 rounded-md border border-yellow-600/40 bg-yellow-600/10 p-3">
@@ -174,6 +205,10 @@ export default function PromptPage() {
               <p className="text-sm text-yellow-300">
                 Expect ~30 s downtime while rtvi-vlm restarts. Live inference
                 will be paused during this time.
+                {data?.runtime === "docker" && (
+                  <> If the new container fails to start, the old one is
+                  auto-restored from the backup snapshot.</>
+                )}
               </p>
             </div>
             <DialogFooter>

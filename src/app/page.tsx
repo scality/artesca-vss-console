@@ -90,7 +90,7 @@ export default async function OverviewPage() {
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">
-              VSS Demo Console
+              Scality VSS Console
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               ARTESCA × Pyramid × NVIDIA VSS operator view
@@ -156,13 +156,15 @@ export default async function OverviewPage() {
           </section>
         )}
 
-        {/* Row 2 — Per-namespace pod summary */}
-        <section>
-          <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Namespaces
-          </h2>
-          <PodSummaryList groups={nsGroups} />
-        </section>
+        {/* Row 2 — Per-namespace pod summary (k8s mode only) */}
+        {!dockerMode && (
+          <section>
+            <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Namespaces
+            </h2>
+            <PodSummaryList groups={nsGroups} />
+          </section>
+        )}
 
         {/* Row 3 — GPU card grid */}
         {overview && overview.gpus.length > 0 && (
@@ -190,8 +192,8 @@ export default async function OverviewPage() {
           </section>
         )}
 
-        {/* Row 5 — S3 bucket stats */}
-        {overview && (
+        {/* Row 5 — S3 bucket stats (k8s mode only — compose mode S3 is upstream blueprint local volumes) */}
+        {overview && !dockerMode && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               S3 Bucket
@@ -232,8 +234,8 @@ export default async function OverviewPage() {
           </section>
         )}
 
-        {/* Row 6 — Camera-sim card */}
-        {overview && (
+        {/* Row 6 — Camera-sim card (k8s mode only — compose path doesn't yet wire camera-sim probes) */}
+        {overview && !dockerMode && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Camera Simulator

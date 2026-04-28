@@ -113,12 +113,12 @@ test.describe("overview page — Phase 1", () => {
     await expect(page.locator("body")).toBeVisible();
   });
 
-  test("overview page includes page title VSS Demo Console", async ({ page }) => {
+  test("overview page includes page title Scality VSS Console", async ({ page }) => {
     await stubOverviewApis(page);
     await page.goto("/");
     await page.waitForLoadState("networkidle");
 
-    // The h1 contains "VSS Demo Console" per the page.tsx
+    // The h1 contains "Scality VSS Console" per the page.tsx
     const heading = page.locator("h1");
     await expect(heading).toBeVisible({ timeout: 8_000 });
     const text = await heading.textContent();

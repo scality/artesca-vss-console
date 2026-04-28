@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
@@ -12,6 +14,23 @@ const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
 const RTVI_VLM_CONTAINER = "rtvi-vlm";
 const DOCKER_PROMPT_ENV = "VLM_SYSTEM_PROMPT";
 const DOCKER_MODEL_ENV = "VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME";
+
+/** Read the bundled default VLM system prompt (Pyramid retail loss-prevention
+ *  scenario). Returns empty string if the file is missing — callers fall
+ *  back to leaving the editor blank. The same text is applied at deploy
+ *  time by scripts/stacks/vss/bootstrap-compose.sh. */
+function readDefaultPrompt(): string {
+  try {
+    return readFileSync(
+      join(process.cwd(), "public/default-vlm-prompt.txt"),
+      "utf8",
+    )
+      .replace(/\r/g, "")
+      .trim();
+  } catch {
+    return "";
+  }
+}
 
 /** Generic docker.sock request helper. Returns parsed JSON (or empty object
  *  for 204/empty bodies). Throws on >=400 with the response body in the
@@ -191,6 +210,7 @@ export async function GET() {
   const warnings: string[] = [];
 
   if (DOCKER_MODE) {
+    const defaultPrompt = readDefaultPrompt();
     try {
       const env = await dockerInspectEnv(RTVI_VLM_CONTAINER);
       return NextResponse.json({
@@ -198,12 +218,13 @@ export async function GET() {
         model: env[DOCKER_MODEL_ENV] ?? "",
         resourceVersion: undefined,
         runtime: "docker",
+        defaultPrompt,
         warnings,
       });
     } catch (err) {
       warnings.push(`rtvi-vlm inspect failed: ${String(err)}`);
       return NextResponse.json(
-        { prompt: "", model: "", runtime: "docker", warnings },
+        { prompt: "", model: "", runtime: "docker", defaultPrompt, warnings },
         { status: 502 }
       );
     }
