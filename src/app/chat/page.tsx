@@ -21,6 +21,22 @@ function stripReasoning(content: string): string {
     .trim();
 }
 
+/** Returns true when the upstream NVIDIA vss-agent returned its canned
+ *  "something went wrong internally" fallback. The agent emits this when
+ *  the underlying workflow (LLM call, tool use, knowledge graph lookup)
+ *  raises an unhandled exception — the bare text gives no hint as to
+ *  which subsystem failed, so the chat UI surfaces a debugging card. */
+const CANNED_FAILURE_PATTERN =
+  /sorry,?\s*I (wasn'?t able|was unable) to complete your request/i;
+
+function isCannedFailure(content: string): boolean {
+  return CANNED_FAILURE_PATTERN.test(stripReasoning(content));
+}
+
+function hasReasoning(content: string): boolean {
+  return content.length !== stripReasoning(content).length;
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -160,6 +176,8 @@ export default function ChatPage() {
           )}
           {messages.map((m, i) => {
             const display = showReasoning ? m.content : stripReasoning(m.content);
+            const cannedFailure = m.role === "assistant" && isCannedFailure(m.content);
+            const hasReasoningBlocks = m.role === "assistant" && hasReasoning(m.content);
             return (
               <div key={i} className="mb-4 flex gap-3">
                 <div className="shrink-0">
@@ -178,6 +196,20 @@ export default function ChatPage() {
                       <span className="italic text-slate-500">(empty after stripping reasoning)</span>
                     )}
                   </div>
+                  {cannedFailure && (
+                    <div className="mt-2 rounded border border-amber-800 bg-amber-950/40 p-2 text-[11px] text-amber-300">
+                      <div className="font-semibold">Upstream agent fallback — workflow failed internally.</div>
+                      <div className="mt-1 text-amber-300/80">
+                        Common causes: cosmos-reason NIM not warmed up · no cameras registered with VST ·
+                        knowledge-graph empty · LLM tool call timed out. Check{" "}
+                        <code className="rounded bg-slate-800 px-1 text-amber-200">docker compose logs vss-agent</code>{" "}
+                        on the workspace.
+                        {hasReasoningBlocks && !showReasoning && (
+                          <> Toggle <span className="font-mono text-amber-200">show reasoning</span> above to see the agent&apos;s internal trace.</>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );
