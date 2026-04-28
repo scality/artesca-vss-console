@@ -4,6 +4,12 @@ import { join } from "node:path";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { coreV1, watchedNamespaces } from "@/lib/k8s";
+import {
+  execInContainer,
+  inspectContainer,
+  listComposeContainers,
+  type ComposeContainer,
+} from "@/lib/helpers/docker-sock";
 
 /** Returns true iff a kubeconfig is reachable — either an in-cluster
  *  service-account token or a local ~/.kube/config file. When neither
@@ -32,6 +38,142 @@ import type { OverviewSnapshot, GpuState } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+const COMPOSE_PROJECT = process.env.COMPOSE_PROJECT_NAME ?? "mdx";
+
+/** Bucket compose containers by service name and aggregate health.
+ *  Maps the compose service taxonomy onto the snapshot's `namespaces`
+ *  field so the existing KpiGrid / PodSummaryList renders unchanged
+ *  ("services" instead of "namespaces" is just a label difference). */
+function summariseComposeServices(
+  containers: ComposeContainer[],
+): OverviewSnapshot["namespaces"] {
+  // Group containers by their compose-service. Each service gets a
+  // {total, ready, failed} bucket — total = number of replicas of that
+  // service, ready = those with healthcheck=healthy or running-no-healthcheck,
+  // failed = exited or unhealthy.
+  const byService: OverviewSnapshot["namespaces"] = {};
+  for (const c of containers) {
+    const svc = c.Labels["com.docker.compose.service"] ?? c.Names[0]?.replace(/^\//, "") ?? "unknown";
+    if (!byService[svc]) byService[svc] = { total: 0, ready: 0, failed: 0 };
+    byService[svc].total += 1;
+    const status = (c.Status ?? "").toLowerCase();
+    if (c.State === "running") {
+      if (status.includes("(healthy)") || !status.includes("(")) {
+        byService[svc].ready += 1;
+      } else if (status.includes("(unhealthy)") || status.includes("(starting)")) {
+        // count as not-ready but not failed yet
+      }
+    } else {
+      byService[svc].failed += 1;
+    }
+  }
+  return byService;
+}
+
+/** Parse `nvidia-smi --query-gpu=...` CSV output into GpuState[].
+ *  Header: index, name, memory.total, memory.used, utilization.gpu,
+ *          temperature.gpu, power.draw  (units: MiB, MiB, %, C, W). */
+function parseNvidiaSmiCsv(out: string): GpuState[] {
+  const gpus: GpuState[] = [];
+  for (const line of out.split("\n")) {
+    const cols = line.split(",").map((s) => s.trim());
+    if (cols.length < 7 || !cols[0] || isNaN(parseInt(cols[0], 10))) continue;
+    const index = parseInt(cols[0], 10);
+    const memTotal = parseFloat(cols[2]) || 0;
+    const memUsed = parseFloat(cols[3]) || 0;
+    gpus.push({
+      index,
+      name: cols[1] || `GPU ${index}`,
+      memoryUsedMiB: memUsed,
+      memoryTotalMiB: memTotal || 1,
+      utilGpu: parseFloat(cols[4]) || 0,
+      utilMem: memTotal > 0 ? (memUsed / memTotal) * 100 : 0,
+      tempC: parseFloat(cols[5]) || 0,
+      powerW: parseFloat(cols[6]) || 0,
+      processes: [],
+    });
+  }
+  return gpus;
+}
+
+/** Build an OverviewSnapshot from docker-side data sources: docker.sock for
+ *  container state + healthchecks, `nvidia-smi` via Exec API on a GPU-enabled
+ *  container for live GPU metrics, mediamtx for camera-sim state, and S3
+ *  stats when OBJECTSTORE_* creds are configured. The k8s probes (Prometheus,
+ *  ConfigMap, Kafka admin) are skipped — kafka lag is left at zero on this
+ *  path until a docker-side equivalent is wired. */
+async function collectDockerOverview(
+  takenAt: string,
+  warnings: string[],
+): Promise<OverviewSnapshot> {
+  const [containers, nimInspect, gpuOut, mtxResult, s3] = await Promise.all([
+    listComposeContainers(COMPOSE_PROJECT),
+    inspectContainer("cosmos-reason2-8b"),
+    // rtvi-vlm has the nvidia runtime + nvidia-smi binary baked in. Querying
+    // it via Exec avoids the privilege escalation that hitting /proc/driver/
+    // nvidia from outside the container would need. Bounded 4 s timeout —
+    // we'd rather miss a frame of GPU data than block the dashboard tick.
+    execInContainer(
+      "rtvi-vlm",
+      [
+        "nvidia-smi",
+        "--query-gpu=index,name,memory.total,memory.used,utilization.gpu,temperature.gpu,power.draw",
+        "--format=csv,noheader,nounits",
+      ],
+      4_000,
+    ),
+    mediamtxListPaths().catch((err) => {
+      warnings.push(`mediamtx ping failed: ${String(err)}`);
+      return { paths: [], warning: undefined };
+    }),
+    (async () => {
+      const bucket = s3Bucket();
+      if (!bucket) return { bucket: "", objectCount: 0, bytesTotal: 0, growth24h: 0 };
+      try {
+        const stats = await s3Stats(bucket);
+        return { ...stats, growth24h: 0 };
+      } catch (err) {
+        warnings.push(`S3 stats failed: ${String(err)}`);
+        return { bucket, objectCount: 0, bytesTotal: 0, growth24h: 0 };
+      }
+    })(),
+  ]);
+
+  const namespaces = summariseComposeServices(containers);
+  if (containers.length === 0) {
+    warnings.push(`No containers found for compose project "${COMPOSE_PROJECT}"`);
+  }
+
+  const nimReady = nimInspect?.State?.Health?.Status === "healthy" ||
+    (nimInspect?.State?.Running === true && !nimInspect?.State?.Health);
+  const nim: OverviewSnapshot["nim"] = {
+    ready: nimReady,
+    warmupPct: nimReady ? 100 : nimInspect?.State?.Running ? 50 : 0,
+    queueDepth: 0,
+  };
+
+  const gpus = gpuOut ? parseNvidiaSmiCsv(gpuOut) : [];
+  if (!gpuOut) warnings.push("nvidia-smi unavailable (rtvi-vlm exec failed)");
+
+  if (mtxResult.warning) warnings.push(mtxResult.warning);
+  const pathsReady = mtxResult.paths.filter((p) => p.ready).length;
+  const cameraSim: OverviewSnapshot["cameraSim"] = {
+    instanceState: mtxResult.paths.length > 0 ? "running" : "unreachable",
+    pathsReady,
+    pathsTotal: mtxResult.paths.length,
+  };
+
+  return {
+    takenAt,
+    namespaces,
+    nim,
+    gpus,
+    kafka: {},
+    s3,
+    cameraSim,
+  };
+}
+
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -54,16 +196,8 @@ export async function GET() {
     process.env.CONSOLE_RUNTIME === "docker" ||
     !hasKubeconfig()
   ) {
-    const snap: OverviewSnapshot = {
-      takenAt,
-      namespaces: {},
-      nim: { ready: false, warmupPct: 0, queueDepth: 0 },
-      gpus: [],
-      kafka: {},
-      s3: { bucket: "", objectCount: 0, bytesTotal: 0, growth24h: 0 },
-      cameraSim: { instanceState: "unreachable", pathsReady: 0, pathsTotal: 0 },
-    };
-    return NextResponse.json({ ...snap, mode: "docker" });
+    const snap = await collectDockerOverview(takenAt, warnings);
+    return NextResponse.json({ ...snap, mode: "docker", warnings });
   }
 
   // ── Pod counts per namespace ────────────────────────────────────────────────

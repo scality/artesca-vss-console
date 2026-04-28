@@ -132,37 +132,45 @@ export default async function OverviewPage() {
             </p>
           </div>
         )}
-        {dockerMode && (
+        {dockerMode && Object.keys(overview?.namespaces ?? {}).length === 0 && (
           <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-300">
-            <p className="font-medium">Compose-mode runtime — k8s probes inactive.</p>
+            <p className="font-medium">Compose-mode runtime — no compose containers detected.</p>
             <p className="mt-1 text-sky-300/80">
-              The Overview KPIs (namespace pod counts, NIM warmup, GPU metrics from Prometheus, Kafka lag) are k8s-specific.
-              On the docker compose path, navigate to{" "}
-              <a href="/topology" className="underline hover:text-sky-200">/topology</a>,{" "}
-              <a href="/cameras" className="underline hover:text-sky-200">/cameras</a>, or{" "}
-              <a href="/chat" className="underline hover:text-sky-200">VSS Chat</a>{" "}
-              for compose-mode operations.
+              Run <code>scripts/stacks/vss/bootstrap-compose.sh</code> on the workspace to bring up the stack.
+              KPIs and topology populate automatically once containers are running.
             </p>
           </div>
         )}
 
-        {/* Row 1 — KPI cards (k8s mode only — KPIs are zero/empty on docker) */}
-        {overview && !dockerMode && (
+        {/* Row 1 — KPI cards. Docker path populates the same OverviewSnapshot
+            shape from docker.sock + nvidia-smi exec, so the grid renders unchanged. */}
+        {overview && (overview.gpus.length > 0 || Object.keys(overview.namespaces).length > 0) && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              System Overview
+              {dockerMode ? "Compose Stack Overview" : "System Overview"}
             </h2>
             <KpiGrid data={overview} />
           </section>
         )}
 
-        {/* Row 2 — Per-namespace pod summary (k8s mode only) */}
-        {!dockerMode && (
+        {/* Row 2 — Per-namespace summary (compose services on docker mode). */}
+        {(nsGroups.length > 0 || (overview && Object.keys(overview.namespaces).length > 0)) && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Namespaces
+              {dockerMode ? "Compose Services" : "Namespaces"}
             </h2>
-            <PodSummaryList groups={nsGroups} />
+            {dockerMode && overview ? (
+              <PodSummaryList
+                groups={Object.entries(overview.namespaces).map(([namespace, n]) => ({
+                  namespace,
+                  pods: [],
+                  total: n.total,
+                  ready: n.ready,
+                }))}
+              />
+            ) : (
+              <PodSummaryList groups={nsGroups} />
+            )}
           </section>
         )}
 
@@ -192,8 +200,8 @@ export default async function OverviewPage() {
           </section>
         )}
 
-        {/* Row 5 — S3 bucket stats (k8s mode only — compose mode S3 is upstream blueprint local volumes) */}
-        {overview && !dockerMode && (
+        {/* Row 5 — S3 bucket stats. Shown when bucket is configured in either mode. */}
+        {overview && overview.s3.bucket && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               S3 Bucket
