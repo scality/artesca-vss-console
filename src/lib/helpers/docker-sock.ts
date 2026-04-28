@@ -107,6 +107,101 @@ export async function inspectContainer(
   }
 }
 
+/** Spawn a one-shot container from `image` with `--gpus all`, run the given
+ *  binary + args, capture stdout, then auto-remove. The container inherits
+ *  the nvidia runtime + DeviceRequests asking for ALL GPUs (Count: -1) so
+ *  it sees every GPU on the host — sidestepping the per-container
+ *  DeviceIDs="0" pinning that hides GPUs 1..n from individual workload
+ *  containers (e.g. rtvi-vlm only sees GPU 0).
+ *
+ *  Image must already be pulled on the host — callers should pick an
+ *  image known to be local (one of the compose-stack images). Entrypoint
+ *  is overridden to argv[0]; the remaining argv[1..] becomes Cmd. Without
+ *  this, images like rtvi-vlm would run their service entrypoint and
+ *  ignore our query.
+ *
+ *  Returns null on any failure. */
+export async function runOneShotGpuContainer(
+  image: string,
+  argv: string[],
+  timeoutMs = 8_000,
+): Promise<string | null> {
+  if (argv.length === 0) return null;
+  let containerId: string | undefined;
+  try {
+    const created = (await dockerSock(
+      "POST",
+      "/containers/create",
+      {
+        Image: image,
+        Entrypoint: [argv[0]],
+        Cmd: argv.slice(1),
+        Tty: false,
+        AttachStdout: true,
+        AttachStderr: true,
+        HostConfig: {
+          Runtime: "nvidia",
+          AutoRemove: true,
+          DeviceRequests: [
+            {
+              Driver: "nvidia",
+              Count: -1,
+              Capabilities: [["gpu"]],
+            },
+          ],
+        },
+      },
+      timeoutMs,
+    )) as { Id: string };
+    containerId = created.Id;
+
+    // Attach stream BEFORE start so we don't miss output (auto-remove racing
+    // with /containers/<id>/logs has been observed to drop output).
+    const attachPromise = new Promise<string>((resolve, reject) => {
+      const req = http.request(
+        {
+          socketPath: "/var/run/docker.sock",
+          path: `/containers/${created.Id}/attach?stream=1&stdout=1&stderr=1`,
+          method: "POST",
+          timeout: timeoutMs,
+          headers: { "content-type": "application/vnd.docker.raw-stream" },
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => {
+            const buf = Buffer.concat(chunks);
+            let out = "";
+            let i = 0;
+            while (i + 8 <= buf.length) {
+              const stream = buf[i];
+              const len = buf.readUInt32BE(i + 4);
+              i += 8;
+              if (i + len > buf.length) break;
+              if (stream === 1) out += buf.subarray(i, i + len).toString("utf8");
+              i += len;
+            }
+            resolve(out);
+          });
+        },
+      );
+      req.on("error", reject);
+      req.on("timeout", () => req.destroy(new Error("attach timeout")));
+      req.end();
+    });
+
+    await dockerSock("POST", `/containers/${created.Id}/start`, undefined, timeoutMs);
+    const stdout = await attachPromise;
+    return stdout;
+  } catch {
+    if (containerId) {
+      // best-effort cleanup if AutoRemove didn't fire (start failed)
+      await dockerSock("DELETE", `/containers/${containerId}?force=1`).catch(() => undefined);
+    }
+    return null;
+  }
+}
+
 /** Run a command in a running container via the Exec API. Returns stdout
  *  on success (stderr is silently dropped — caller should design commands
  *  that emit the answer to stdout). Returns null on any failure. */
