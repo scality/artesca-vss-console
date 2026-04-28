@@ -27,6 +27,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
+
 // ─── GET — unified camera list ─────────────────────────────────────────────────
 
 export async function GET() {
@@ -36,57 +38,91 @@ export async function GET() {
 
   const warnings: string[] = [];
 
+  // Try to get the camera-sim host. On docker compose deploys without a
+  // camera-sim, this fails — but VST is still the source of truth for
+  // registered cameras, so we fall through to the VST-only path instead
+  // of returning an empty list.
   let eip = "";
   try {
     eip = controlPlaneHost();
   } catch (err) {
-    return NextResponse.json(
-      {
-        cameras: [],
-        eip: "",
-        warnings: [
-          err instanceof Error ? err.message : String(err),
-          "Set CAMERA_SIM_HOST in the console-env ConfigMap and rollout restart deploy/console.",
-        ],
-      },
-      { status: 200 },
-    );
+    if (!DOCKER_MODE) {
+      return NextResponse.json(
+        {
+          cameras: [],
+          eip: "",
+          warnings: [
+            err instanceof Error ? err.message : String(err),
+            "Set CAMERA_SIM_HOST in the console-env ConfigMap and rollout restart deploy/console.",
+          ],
+        },
+        { status: 200 },
+      );
+    }
+    // Docker mode: continue with VST as the primary source.
   }
 
   let entries: Awaited<ReturnType<typeof camsimListCameras>> = [];
-  try {
-    entries = await camsimListCameras();
-  } catch (err) {
-    const msg =
-      err instanceof CamsimControlError ? err.message : String(err);
-    warnings.push(msg);
+  if (eip) {
+    try {
+      entries = await camsimListCameras();
+    } catch (err) {
+      const msg =
+        err instanceof CamsimControlError ? err.message : String(err);
+      warnings.push(msg);
+    }
   }
 
   const [vstResult, mtxResult] = await Promise.all([
     vstListSensors(),
-    mediamtxListPaths(),
+    eip ? mediamtxListPaths() : Promise.resolve({ paths: [], warning: undefined }),
   ]);
   if (vstResult.warning) warnings.push(vstResult.warning);
   if (mtxResult.warning) warnings.push(mtxResult.warning);
-  const vstRegistered = new Set(vstResult.sensors.map((s) => s.sensor_id));
+  const vstSensors = vstResult.sensors;
+  const vstRegistered = new Set(vstSensors.map((s) => s.sensor_id));
   const mtxReady = new Map(mtxResult.paths.map((p) => [p.name, p.ready]));
 
-  const cameras: Camera[] = entries.map((e) => {
-    const feed: Feed = {
-      id: "default",
-      sensorId: e.name,
-      source: e.source,
-      rtspUrl: `rtsp://${eip}:8554/${e.name}`,
-      vstRegistered: vstRegistered.has(e.name),
-      replayReady: mtxReady.get(e.name) ?? false,
-    };
-    return {
-      id: e.name,
-      role: "other",
-      description: e.description,
-      feeds: [feed],
-    };
-  });
+  let cameras: Camera[];
+  if (entries.length > 0) {
+    // Camera-sim is the authoritative list when present.
+    cameras = entries.map((e) => {
+      const feed: Feed = {
+        id: "default",
+        sensorId: e.name,
+        source: e.source,
+        rtspUrl: `rtsp://${eip}:8554/${e.name}`,
+        vstRegistered: vstRegistered.has(e.name),
+        replayReady: mtxReady.get(e.name) ?? false,
+      };
+      return {
+        id: e.name,
+        role: "other",
+        description: e.description,
+        feeds: [feed],
+      };
+    });
+  } else {
+    // Fall back to VST as the primary source (docker compose deploys
+    // without a camera-sim, or k8s deploys where camera-sim is offline
+    // but VST has already registered cameras via another path).
+    cameras = vstSensors.map((s) => {
+      const feed: Feed = {
+        id: "default",
+        sensorId: s.sensor_id,
+        source: "rtsp",
+        rtspUrl: typeof s.rtsp_url === "string" ? s.rtsp_url : "",
+        vstRegistered: true,
+        replayReady: mtxReady.get(s.sensor_id) ?? false,
+      };
+      return {
+        id: s.sensor_id,
+        role: "other",
+        description: s.name,
+        feeds: [feed],
+      };
+    });
+  }
 
   return NextResponse.json({ cameras, eip, warnings });
 }
