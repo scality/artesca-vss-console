@@ -11,8 +11,55 @@ import { ChevronDown, ChevronRight, Trash2, RefreshCw } from "lucide-react";
 import { FeedList } from "./FeedList";
 
 interface CameraRowProps {
-  camera: Camera;
+  camera: Camera & { gcsPersisted?: boolean };
   eip: string;
+}
+
+/** Badge indicating where the camera definition lives. */
+function GcsBadge({
+  gcsPersisted,
+  vstRegistered,
+}: {
+  gcsPersisted: boolean | undefined;
+  vstRegistered: boolean;
+}) {
+  if (gcsPersisted === undefined) return null;
+
+  if (gcsPersisted && vstRegistered) {
+    return (
+      <Badge
+        variant="outline"
+        className="text-[10px] px-1.5 py-0 border-emerald-600 text-emerald-400"
+        title="Camera is persisted in GCS and registered in VST"
+      >
+        PERSISTED
+      </Badge>
+    );
+  }
+
+  if (!gcsPersisted && vstRegistered) {
+    return (
+      <Badge
+        variant="outline"
+        className="text-[10px] px-1.5 py-0 border-amber-500 text-amber-400"
+        title="Camera is running in VST but not saved to GCS — use Save all to GCS to persist"
+      >
+        RUNTIME-ONLY
+      </Badge>
+    );
+  }
+
+  // gcsPersisted && !vstRegistered — in GCS but startup bootstrap has not yet
+  // registered it (or VST is unreachable).
+  return (
+    <Badge
+      variant="outline"
+      className="text-[10px] px-1.5 py-0 border-slate-500 text-slate-400"
+      title="Camera is saved in GCS but not yet registered in VST (will restore on next console restart)"
+    >
+      PENDING-RESTORE
+    </Badge>
+  );
 }
 
 const roleBadgeClass: Record<Camera["role"], string> = {
@@ -77,7 +124,13 @@ export function CameraRow({ camera, eip }: CameraRowProps) {
           </Button>
         </TableCell>
         <TableCell className="font-mono text-sm font-medium">
-          {camera.id}
+          <div className="flex items-center gap-2">
+            {camera.id}
+            <GcsBadge
+              gcsPersisted={(camera as Camera & { gcsPersisted?: boolean }).gcsPersisted}
+              vstRegistered={camera.feeds[0]?.vstRegistered ?? false}
+            />
+          </div>
         </TableCell>
         <TableCell>
           <Badge

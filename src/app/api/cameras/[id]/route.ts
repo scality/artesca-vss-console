@@ -11,6 +11,7 @@ import {
   camsimDeleteFile,
   CamsimControlError,
 } from "@/lib/helpers/camsim-control";
+import { writeToGcs } from "../route";
 
 export const dynamic = "force-dynamic";
 
@@ -166,6 +167,14 @@ export async function DELETE(
         );
       }
     }
+  }
+
+  // 4. Remove from GCS persistence (best-effort).
+  const instanceName = process.env.VSS_INSTANCE_NAME ?? "";
+  if (instanceName) {
+    const email = session?.user?.email ?? "console";
+    const gcsWarning = await writeToGcs(id, null, email, "remove");
+    if (gcsWarning) warnings.push(gcsWarning);
   }
 
   await auditLog("camera-delete", `camera/${id}`, {
