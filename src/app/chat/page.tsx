@@ -1,13 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Bot, Loader2, Send, User } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Bot, Loader2, Send, User, Video } from "lucide-react";
 import { Shell } from "@/components/Shell";
 
 type Role = "user" | "assistant" | "system";
 type Message = { role: Role; content: string; ts: string };
 
+type CameraFeed = { vstRegistered?: boolean; rtspUrl?: string };
+type Camera = { id: string; description?: string; feeds?: CameraFeed[] };
+
 const STORAGE_KEY = "vss-chat-history";
+const SCOPE_KEY = "vss-chat-scope";
+const SCOPE_ALL = "__all__";
 
 /**
  * Strip the upstream agent's <agent-think> reasoning blocks from rendered
@@ -43,17 +48,61 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showReasoning, setShowReasoning] = useState(false);
+  const [cameras, setCameras] = useState<Camera[] | null>(null);
+  const [scope, setScope] = useState<string>(SCOPE_ALL);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Restore history on mount.
+  // Restore history + scope on mount.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) setMessages(JSON.parse(raw) as Message[]);
+      const savedScope = localStorage.getItem(SCOPE_KEY);
+      if (savedScope) setScope(savedScope);
     } catch {
       /* ignore */
     }
   }, []);
+
+  // Load cameras list — refresh every 30s so newly-registered streams show up.
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/cameras", { cache: "no-store" });
+        if (!r.ok) return;
+        const j = (await r.json()) as { cameras?: Camera[] };
+        if (alive) setCameras(j.cameras ?? []);
+      } catch {
+        /* ignore — selector will show "no cameras" */
+      }
+    };
+    void load();
+    const h = setInterval(load, 30_000);
+    return () => {
+      alive = false;
+      clearInterval(h);
+    };
+  }, []);
+
+  // Persist scope.
+  useEffect(() => {
+    try {
+      localStorage.setItem(SCOPE_KEY, scope);
+    } catch {
+      /* quota */
+    }
+  }, [scope]);
+
+  // Resolve scope → camera record for hint rendering + system-message context.
+  const scopedCamera = useMemo(
+    () => (scope === SCOPE_ALL ? null : cameras?.find((c) => c.id === scope) ?? null),
+    [scope, cameras],
+  );
+  const liveCount = useMemo(
+    () => cameras?.filter((c) => c.feeds?.some((f) => f.vstRegistered)).length ?? 0,
+    [cameras],
+  );
 
   // Persist history.
   useEffect(() => {
@@ -79,13 +128,27 @@ export default function ChatPage() {
     setLoading(true);
     setError(null);
     try {
+      // Build the request payload. When the operator scopes the chat to a
+      // specific camera, prepend a system message so the agent's RAG /
+      // tool-calling layer focuses on that sensor's events + recordings
+      // without leaking the scoping into the visible transcript.
+      const wirePayload =
+        scopedCamera != null
+          ? [
+              {
+                role: "system" as const,
+                content:
+                  `Focus subsequent answers on the camera "${scopedCamera.id}"` +
+                  (scopedCamera.description ? ` (${scopedCamera.description})` : "") +
+                  ". Prefer events and recordings from that sensor; fall back to the full fleet only when explicitly asked.",
+              },
+              ...next.map(({ role, content }) => ({ role, content })),
+            ]
+          : next.map(({ role, content }) => ({ role, content }));
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          // vss-agent is OpenAI-compatible — send role+content only.
-          messages: next.map(({ role, content }) => ({ role, content })),
-        }),
+        body: JSON.stringify({ messages: wirePayload }),
       });
       const j = await res.json();
       if (!res.ok || j.error) {
@@ -227,6 +290,48 @@ export default function ChatPage() {
             {error}
           </div>
         )}
+
+        <div className="flex items-center gap-3 text-[11px] text-slate-400">
+          <label className="flex items-center gap-1.5">
+            <Video className="h-3.5 w-3.5 text-slate-500" />
+            <span className="uppercase tracking-wide text-[10px]">Scope</span>
+            <select
+              value={scope}
+              onChange={(e) => setScope(e.target.value)}
+              className="rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-[11px] text-slate-200 hover:border-slate-500 focus:border-emerald-700 focus:outline-none"
+              disabled={loading}
+              title="Restrict the agent to a specific camera. Pick 'All cameras' to query the whole fleet."
+            >
+              <option value={SCOPE_ALL}>
+                All cameras{cameras ? ` (${cameras.length} registered, ${liveCount} live)` : ""}
+              </option>
+              {(cameras ?? []).map((c) => {
+                const live = c.feeds?.some((f) => f.vstRegistered) ? "● " : "○ ";
+                return (
+                  <option key={c.id} value={c.id}>
+                    {live}
+                    {c.id}
+                    {c.description ? ` — ${c.description}` : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+          {cameras !== null && cameras.length === 0 && (
+            <span className="italic text-slate-600">
+              No cameras registered — use{" "}
+              <a href="/cameras" className="underline hover:text-slate-300">
+                /cameras
+              </a>{" "}
+              to add one.
+            </span>
+          )}
+          {scopedCamera && (
+            <span className="text-emerald-400">
+              Asking about <span className="font-mono">{scopedCamera.id}</span>
+            </span>
+          )}
+        </div>
 
         <form
           onSubmit={(e) => {
