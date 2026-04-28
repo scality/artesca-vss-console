@@ -268,9 +268,197 @@ async function fetchFeedNodes(
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* Docker-runtime topology (CONSOLE_RUNTIME=docker)                           */
+/*                                                                            */
+/* The default k8s-shaped graph is the wrong abstraction for the upstream     */
+/* blueprint compose stack: pod namespaces don't exist, alert-worker/demo-    */
+/* data are k8s-only, and most nodes report unknown health because there's    */
+/* no kube-apiserver to query. This branch emits a clean stack-specific      */
+/* graph derived from `docker ps` (via the daemon socket mounted read-only    */
+/* at /var/run/docker.sock).                                                  */
+/* -------------------------------------------------------------------------- */
+
+interface DockerContainer {
+  Id: string;
+  Names: string[];
+  Image: string;
+  State: string;
+  Status: string;
+}
+
+async function dockerListContainers(): Promise<DockerContainer[]> {
+  // Talk to the daemon over its UNIX socket. Node's http supports
+  // socketPath natively, no npm dep needed.
+  const http = await import("node:http");
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        socketPath: "/var/run/docker.sock",
+        path: "/containers/json?all=true",
+        method: "GET",
+        timeout: 4_000,
+      },
+      (res) => {
+        let body = "";
+        res.on("data", (c) => (body += c));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(body) as DockerContainer[]);
+          } catch (e) {
+            reject(e);
+          }
+        });
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => req.destroy(new Error("docker.sock timeout")));
+    req.end();
+  });
+}
+
+function dockerHealth(c: DockerContainer | undefined): Health {
+  if (!c) return "fail";
+  if (c.State !== "running") return "fail";
+  // Status string carries health: "Up 12 minutes (healthy)" etc.
+  if (/\(healthy\)/i.test(c.Status)) return "ok";
+  if (/\(unhealthy\)/i.test(c.Status)) return "fail";
+  return "ok"; // running, no healthcheck → assume ok
+}
+
+/**
+ * Build a docker-stack topology. Layout is layered left-to-right by data
+ * flow: ingest → processing → inference → agent / UI on top, storage +
+ * messaging on bottom, observability on the right.
+ */
+async function buildDockerTopology() {
+  const warnings: string[] = [];
+  let containers: DockerContainer[] = [];
+  try {
+    containers = await dockerListContainers();
+  } catch (e) {
+    warnings.push(`docker socket unreachable: ${(e as Error).message}`);
+  }
+
+  // Lookup by container name (Docker prefixes a leading slash).
+  const byName = new Map<string, DockerContainer>();
+  for (const c of containers) {
+    for (const n of c.Names) {
+      byName.set(n.replace(/^\//, ""), c);
+    }
+  }
+
+  // Node spec: id (also container name), label, type, position. Layout:
+  //
+  //   ┌─ INGEST ─┐ ┌─ PROCESSING ─┐ ┌─ INFERENCE ─┐ ┌─ AGENT/UI ─┐
+  //   nvstreamer  sensor-ms       rtvi-vlm        vss-agent       phoenix
+  //               streamprocess.  cosmos VLM      vss-va-mcp      kibana
+  //               sdr-processing  (LLM=remote)    metropolis-ui
+  //               envoy-process.                  vss-console
+  //   ┌── STORAGE / MESSAGING (bottom) ──┐
+  //   centralizedb   redis   kafka   ES   logstash   vss-video-analytics-api
+  type NodeSpec = {
+    id: string;
+    label: string;
+    type: NodeType;
+    position: { x: number; y: number };
+    details?: Record<string, unknown>;
+  };
+  const COL = (n: number) => 80 + n * 200;
+  const ROW = (n: number) => 80 + n * 110;
+
+  const specs: NodeSpec[] = [
+    // INGEST col 0
+    { id: "mdx-nvstreamer-alerts", label: "nvstreamer (alerts)", type: "external", position: { x: COL(0), y: ROW(0) } },
+
+    // VST col 1 — three rows for sensor-ms, streamprocessing, sdr+envoy pair
+    { id: "sensor-ms-dev", label: "sensor-ms", type: "service", position: { x: COL(1), y: ROW(0) } },
+    { id: "streamprocessing-ms-dev", label: "streamprocessing-ms", type: "service", position: { x: COL(1), y: ROW(1) } },
+    { id: "sdr-streamprocessing", label: "sdr (router)", type: "service", position: { x: COL(1), y: ROW(2) } },
+    { id: "envoy-streamprocessing", label: "envoy ingress", type: "service", position: { x: COL(1), y: ROW(3) } },
+    { id: "vst-mcp-dev", label: "vst-mcp", type: "service", position: { x: COL(1), y: ROW(4) } },
+    { id: "vst-ingress-dev", label: "vst-ingress", type: "service", position: { x: COL(1), y: ROW(5) } },
+
+    // VLM col 2
+    { id: "rtvi-vlm", label: "rtvi-vlm", type: "service", position: { x: COL(2), y: ROW(0) } },
+    { id: "cosmos-reason2-8b", label: "cosmos VLM (NIM)", type: "service", position: { x: COL(2), y: ROW(1) } },
+
+    // AGENT / UI col 3
+    { id: "vss-agent", label: "vss-agent", type: "service", position: { x: COL(3), y: ROW(0) } },
+    { id: "vss-va-mcp", label: "vss-va-mcp", type: "service", position: { x: COL(3), y: ROW(1) } },
+    { id: "metropolis-vss-ui", label: "metropolis UI", type: "service", position: { x: COL(3), y: ROW(2) } },
+    { id: "vss-console", label: "vss-console (Scality)", type: "service", position: { x: COL(3), y: ROW(3) } },
+
+    // STORAGE / MESSAGING (lower band)
+    { id: "centralizedb-dev", label: "centralizedb (postgres)", type: "database", position: { x: COL(1), y: ROW(6) } },
+    { id: "mdx-redis", label: "redis", type: "redis", position: { x: COL(2), y: ROW(6) } },
+    { id: "mdx-kafka", label: "kafka", type: "service", position: { x: COL(3), y: ROW(6) } },
+    { id: "mdx-elastic", label: "elasticsearch", type: "service", position: { x: COL(4), y: ROW(5) } },
+    { id: "mdx-logstash", label: "logstash", type: "service", position: { x: COL(4), y: ROW(6) } },
+    { id: "vss-video-analytics-api-alerts", label: "video-analytics-api", type: "service", position: { x: COL(4), y: ROW(2) } },
+
+    // OBSERVABILITY col 4
+    { id: "phoenix", label: "phoenix (traces)", type: "service", position: { x: COL(4), y: ROW(0) } },
+    { id: "mdx-kibana", label: "kibana", type: "service", position: { x: COL(4), y: ROW(1) } },
+  ];
+
+  const nodes: TopologyNode[] = specs.map((s) => {
+    const c = byName.get(s.id);
+    return {
+      id: s.id,
+      type: s.type,
+      label: s.label,
+      health: dockerHealth(c),
+      podPhase: c?.State,
+      details: { image: c?.Image, status: c?.Status },
+      position: s.position,
+    };
+  });
+
+  // Object-store sink as a virtual node (recordings target — not a
+  // container, but operationally part of the graph).
+  nodes.push({
+    id: "objectstore",
+    type: "storage",
+    label: "Object store (S3 / ARTESCA)",
+    health: "unknown",
+    position: { x: COL(5), y: ROW(3) },
+  });
+
+  const edges: TopologyEdge[] = [
+    { id: "stream-in", source: "mdx-nvstreamer-alerts", target: "sensor-ms-dev", protocol: "RTSP" },
+    { id: "sensor-stream", source: "sensor-ms-dev", target: "streamprocessing-ms-dev", protocol: "frames" },
+    { id: "stream-route", source: "streamprocessing-ms-dev", target: "sdr-streamprocessing", protocol: "events" },
+    { id: "stream-ingress", source: "sdr-streamprocessing", target: "envoy-streamprocessing" },
+    { id: "stream-vlm", source: "envoy-streamprocessing", target: "rtvi-vlm", protocol: "HTTP" },
+    { id: "vlm-nim", source: "rtvi-vlm", target: "cosmos-reason2-8b", protocol: "OpenAI/HTTP" },
+    { id: "vlm-kafka", source: "rtvi-vlm", target: "mdx-kafka", protocol: "mdx-vlm" },
+    { id: "agent-vlm", source: "vss-agent", target: "rtvi-vlm", protocol: "HTTP" },
+    { id: "agent-mcp", source: "vss-agent", target: "vss-va-mcp", protocol: "MCP" },
+    { id: "agent-db", source: "vss-agent", target: "centralizedb-dev", protocol: "SQL" },
+    { id: "ui-agent", source: "metropolis-vss-ui", target: "vss-agent", protocol: "HTTP" },
+    { id: "console-agent", source: "vss-console", target: "vss-agent", protocol: "HTTP" },
+    { id: "console-jsonl", source: "rtvi-vlm", target: "vss-console", protocol: "SSE→JSONL", dormant: true },
+    { id: "sensor-db", source: "sensor-ms-dev", target: "centralizedb-dev", protocol: "SQL" },
+    { id: "sensor-redis", source: "sensor-ms-dev", target: "mdx-redis", protocol: "events" },
+    { id: "kafka-api", source: "mdx-kafka", target: "vss-video-analytics-api-alerts", protocol: "consume" },
+    { id: "es-logs", source: "mdx-logstash", target: "mdx-elastic", protocol: "Beats" },
+    { id: "es-api", source: "vss-video-analytics-api-alerts", target: "mdx-elastic", protocol: "index" },
+    { id: "kibana-es", source: "mdx-kibana", target: "mdx-elastic", protocol: "query" },
+    { id: "stream-storage", source: "streamprocessing-ms-dev", target: "objectstore", protocol: "S3 PUT" },
+  ];
+
+  return { nodes, edges, warnings };
+}
+
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  if (process.env.CONSOLE_RUNTIME === "docker") {
+    const { nodes, edges, warnings } = await buildDockerTopology();
+    return NextResponse.json({ nodes, edges, warnings });
+  }
 
   const warnings: string[] = [];
 
