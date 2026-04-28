@@ -8,6 +8,12 @@ import type { NodeRuntimeState, PipelineHealth } from "@/lib/types/pipeline";
 
 export interface StorageNodeData {
   label: string;
+  /** Merged health from topology API + pipeline snapshot (set by
+   *  mergeTopologyData on the page). Used as fallback when `runtime`
+   *  is undefined — the snapshot keys don't always match the topology
+   *  node IDs (e.g. docker mode emits `centralizedb-dev` while the
+   *  snapshot probe emits `vst-postgres`). */
+  health?: PipelineHealth;
   runtime?: NodeRuntimeState;
   subtype: "s3" | "cache" | "postgres" | "redis";
   namespace?: string;
@@ -106,8 +112,9 @@ function InlineFillBar({ pct }: { pct: number }) {
 // ── Main node ─────────────────────────────────────────────────────────────
 
 export const StorageNode = memo(function StorageNode({ data, selected }: NodeProps) {
-  const { label, runtime, subtype, namespace } = data as StorageNodeData;
-  const health: PipelineHealth = runtime?.health ?? "unknown";
+  const { label, runtime, subtype, namespace, health: dataHealth } =
+    data as StorageNodeData;
+  const health: PipelineHealth = runtime?.health ?? dataHealth ?? "unknown";
   const sub = subLabel(subtype as StorageNodeData["subtype"], runtime);
   const cacheData = (subtype === "cache" && runtime?.cache?.fillPct != null)
     ? runtime.cache
