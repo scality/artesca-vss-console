@@ -25,6 +25,7 @@ const PromptResponseSchema = z.object({
   prompt: z.string(),
   model: z.string(),
   previewModel: z.string().optional(),
+  runtime: z.string().optional(),
 });
 
 export default function PromptPage() {
@@ -114,6 +115,14 @@ export default function PromptPage() {
             Save + Restart
           </Button>
         </div>
+
+        {data?.runtime === "docker" && (
+          <div className="rounded-md border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-300">
+            Compose-mode runtime — prompt is the <code>VLM_SYSTEM_PROMPT</code> env on the
+            <code> rtvi-vlm</code> container. Saving recreates the container with the new value
+            (~30 s of downtime; old container is auto-restored on failure).
+          </div>
+        )}
 
         {isLoading && (
           <div className="flex items-center gap-2 text-muted-foreground justify-center py-8">
