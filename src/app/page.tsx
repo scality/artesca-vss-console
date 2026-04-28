@@ -10,7 +10,12 @@ import { isKioskFromHeaders } from "@/lib/kiosk";
 import { OverviewSnapshotSchema } from "@/lib/schemas";
 import type { OverviewSnapshot, PodSummary } from "@/lib/types";
 
-async function fetchOverview(): Promise<OverviewSnapshot | null> {
+type OverviewFetchResult =
+  | { kind: "ok"; snapshot: OverviewSnapshot; mode?: string }
+  | { kind: "unauthorized" }
+  | { kind: "unreachable"; status?: number };
+
+async function fetchOverview(): Promise<OverviewFetchResult> {
   const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:8800";
   try {
     const hdrs = await headers();
@@ -19,11 +24,13 @@ async function fetchOverview(): Promise<OverviewSnapshot | null> {
       cache: "no-store",
       headers: cookie ? { cookie } : {},
     });
-    if (!res.ok) return null;
-    const raw = await res.json();
-    return OverviewSnapshotSchema.parse(raw);
+    if (res.status === 401) return { kind: "unauthorized" };
+    if (!res.ok) return { kind: "unreachable", status: res.status };
+    const raw = (await res.json()) as { mode?: string } & Record<string, unknown>;
+    const snapshot = OverviewSnapshotSchema.parse(raw);
+    return { kind: "ok", snapshot, mode: typeof raw.mode === "string" ? raw.mode : undefined };
   } catch {
-    return null;
+    return { kind: "unreachable" };
   }
 }
 
@@ -55,7 +62,9 @@ export default async function OverviewPage() {
   const hdrs = await headers();
   const kiosk = isKioskFromHeaders(hdrs);
 
-  const [overview, pods] = await Promise.all([fetchOverview(), fetchPods()]);
+  const [overviewResult, pods] = await Promise.all([fetchOverview(), fetchPods()]);
+  const overview = overviewResult.kind === "ok" ? overviewResult.snapshot : null;
+  const dockerMode = overviewResult.kind === "ok" && overviewResult.mode === "docker";
 
   // Group pods by namespace
   const nsByName = new Map<string, PodSummary[]>();
@@ -93,6 +102,11 @@ export default async function OverviewPage() {
                 KIOSK
               </span>
             )}
+            {dockerMode && (
+              <span className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-xs font-medium text-sky-400">
+                COMPOSE
+              </span>
+            )}
             {overview && (
               <p className="text-xs text-muted-foreground tabular-nums">
                 {new Date(overview.takenAt).toLocaleTimeString()}
@@ -101,18 +115,39 @@ export default async function OverviewPage() {
           </div>
         </div>
 
-        {/* No data fallback */}
-        {!overview && (
+        {/* No data / mode fallbacks */}
+        {overviewResult.kind === "unauthorized" && (
+          <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4">
+            <p className="text-sm text-rose-300">
+              Not signed in. <a href="/api/auth/signin" className="underline hover:text-rose-200">Sign in</a> to load operator views.
+            </p>
+          </div>
+        )}
+        {overviewResult.kind === "unreachable" && (
           <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
             <p className="text-sm text-yellow-400">
-              Could not reach <code>/api/status/overview</code> — APIs may still
-              be starting up. Data will appear automatically once available.
+              Could not reach <code>/api/status/overview</code>
+              {overviewResult.status ? <> (HTTP {overviewResult.status})</> : null}
+              {" "}— the console pod may still be starting up. Data will appear automatically once available.
+            </p>
+          </div>
+        )}
+        {dockerMode && (
+          <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-300">
+            <p className="font-medium">Compose-mode runtime — k8s probes inactive.</p>
+            <p className="mt-1 text-sky-300/80">
+              The Overview KPIs (namespace pod counts, NIM warmup, GPU metrics from Prometheus, Kafka lag) are k8s-specific.
+              On the docker compose path, navigate to{" "}
+              <a href="/topology" className="underline hover:text-sky-200">/topology</a>,{" "}
+              <a href="/cameras" className="underline hover:text-sky-200">/cameras</a>, or{" "}
+              <a href="/chat" className="underline hover:text-sky-200">VSS Chat</a>{" "}
+              for compose-mode operations.
             </p>
           </div>
         )}
 
-        {/* Row 1 — KPI cards */}
-        {overview && (
+        {/* Row 1 — KPI cards (k8s mode only — KPIs are zero/empty on docker) */}
+        {overview && !dockerMode && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               System Overview

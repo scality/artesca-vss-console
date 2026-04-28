@@ -1,6 +1,28 @@
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { coreV1, watchedNamespaces } from "@/lib/k8s";
+
+/** Returns true iff a kubeconfig is reachable — either an in-cluster
+ *  service-account token or a local ~/.kube/config file. When neither
+ *  exists the k8s client-node library throws at first apiserver call,
+ *  so the overview route falls back to the docker-mode empty snapshot
+ *  instead of returning a 500. */
+function hasKubeconfig(): boolean {
+  if (existsSync("/var/run/secrets/kubernetes.io/serviceaccount/token")) {
+    return true;
+  }
+  if (process.env.KUBECONFIG && existsSync(process.env.KUBECONFIG)) {
+    return true;
+  }
+  try {
+    return existsSync(join(homedir(), ".kube", "config"));
+  } catch {
+    return false;
+  }
+}
 import { getKafka } from "@/lib/kafka";
 import { s3Stats } from "@/lib/aws";
 import { s3Bucket } from "@/lib/s3";
@@ -21,9 +43,17 @@ export async function GET() {
   // the home page renders without warnings instead of bombing with k8s
   // API errors. The docker compose stack is its own world (no kubectl,
   // no Prometheus, no Kafka admin via the k8s service); the operator
-  // navigates to /platform-health (deployer) + /incidents (console)
-  // instead. Set CONSOLE_RUNTIME=docker on the container env to opt in.
-  if (process.env.CONSOLE_RUNTIME === "docker") {
+  // navigates to /topology + /chat + /cameras instead.
+  //
+  // Detection order:
+  //   1. Explicit CONSOLE_RUNTIME=docker env (always wins).
+  //   2. Auto-detect: no service-account token under /var/run/secrets/
+  //      kubernetes.io AND no ~/.kube/config — the k8s client-node would
+  //      throw at first apiserver call, so we short-circuit deterministically.
+  if (
+    process.env.CONSOLE_RUNTIME === "docker" ||
+    !hasKubeconfig()
+  ) {
     const snap: OverviewSnapshot = {
       takenAt,
       namespaces: {},
@@ -33,7 +63,7 @@ export async function GET() {
       s3: { bucket: "", objectCount: 0, bytesTotal: 0, growth24h: 0 },
       cameraSim: { instanceState: "unreachable", pathsReady: 0, pathsTotal: 0 },
     };
-    return NextResponse.json(snap);
+    return NextResponse.json({ ...snap, mode: "docker" });
   }
 
   // ── Pod counts per namespace ────────────────────────────────────────────────
