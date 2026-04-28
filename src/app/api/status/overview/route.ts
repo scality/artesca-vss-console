@@ -17,6 +17,25 @@ export async function GET() {
   const warnings: string[] = [];
   const takenAt = new Date().toISOString();
 
+  // Docker-runtime branch: return an empty-but-valid OverviewSnapshot so
+  // the home page renders without warnings instead of bombing with k8s
+  // API errors. The docker compose stack is its own world (no kubectl,
+  // no Prometheus, no Kafka admin via the k8s service); the operator
+  // navigates to /platform-health (deployer) + /incidents (console)
+  // instead. Set CONSOLE_RUNTIME=docker on the container env to opt in.
+  if (process.env.CONSOLE_RUNTIME === "docker") {
+    const snap: OverviewSnapshot = {
+      takenAt,
+      namespaces: {},
+      nim: { ready: false, warmupPct: 0, queueDepth: 0 },
+      gpus: [],
+      kafka: {},
+      s3: { bucket: "", objectCount: 0, bytesTotal: 0, growth24h: 0 },
+      cameraSim: { instanceState: "unreachable", pathsReady: 0, pathsTotal: 0 },
+    };
+    return NextResponse.json(snap);
+  }
+
   // ── Pod counts per namespace ────────────────────────────────────────────────
   const namespaces: OverviewSnapshot["namespaces"] = {};
   const nsListResults = await Promise.allSettled(
