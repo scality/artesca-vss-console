@@ -6,9 +6,11 @@ import type { Camera } from "@/lib/types";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { ChevronDown, ChevronRight, Trash2, RefreshCw } from "lucide-react";
 import { FeedList } from "./FeedList";
+import { CameraDetailPanel } from "./CameraDetailPanel";
 
 interface CameraRowProps {
   camera: Camera & { gcsPersisted?: boolean };
@@ -180,7 +182,22 @@ export function CameraRow({ camera, eip }: CameraRowProps) {
       {expanded && (
         <TableRow>
           <TableCell colSpan={6} className="py-2 bg-muted/10">
-            <FeedList cameraId={camera.id} feeds={camera.feeds} eip={eip} />
+            <Tabs defaultValue="feeds" className="w-full">
+              <TabsList className="h-7 mb-2 bg-muted/40">
+                <TabsTrigger value="feeds" className="h-6 text-xs px-3">
+                  Feeds
+                </TabsTrigger>
+                <TabsTrigger value="bindings" className="h-6 text-xs px-3">
+                  Scenario bindings &amp; recording
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="feeds">
+                <FeedList cameraId={camera.id} feeds={camera.feeds} eip={eip} />
+              </TabsContent>
+              <TabsContent value="bindings">
+                <CameraDetailPanel camera={camera} />
+              </TabsContent>
+            </Tabs>
           </TableCell>
         </TableRow>
       )}

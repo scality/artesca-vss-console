@@ -29,11 +29,21 @@ export const FeedSchema = z.object({
   codec: z.enum(["hevc", "h264"]).optional(),
 });
 
+export const RecordingPolicySchema = z.enum(["always", "event-only", "off"]);
+
+export const CameraRecordingSchema = z.object({
+  enabled: z.boolean(),
+  policy: RecordingPolicySchema,
+  retentionDays: z.number().int().positive(),
+});
+
 export const CameraSchema = z.object({
   id: z.string().min(1),
   role: z.enum(["checkout", "aisle", "dock", "backroom", "other"]),
   description: z.string().optional(),
   feeds: z.array(FeedSchema).min(1),
+  scenarioIds: z.array(z.string()).optional(),
+  recording: CameraRecordingSchema.optional(),
 });
 
 export const ScenarioSchema = z.object({

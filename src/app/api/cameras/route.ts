@@ -20,6 +20,7 @@ import {
   type CameraList,
 } from "@/lib/helpers/gcs-config";
 import { triggerCameraBootstrap, awaitBootstrap } from "@/lib/gcs-bootstrap";
+import { listCameraOverrides } from "@/lib/db";
 
 // The camera-sim's control-plane API (http://<camera-sim>:8080) is the
 // authoritative source for cameras.yaml — it owns the YAML, triggers the
@@ -196,6 +197,30 @@ export async function GET() {
         feeds: [feed],
         gcsPersisted: false,
       };
+    });
+  }
+
+  // Enrich cameras with SQLite overrides (scenarioIds, recording).
+  const allOverrides = listCameraOverrides();
+  if (allOverrides.length > 0) {
+    const overrideMap = new Map(allOverrides.map((o) => [o.cameraId, o]));
+    cameras = cameras.map((cam) => {
+      const ov = overrideMap.get(cam.id);
+      if (!ov) return cam;
+      const enriched = { ...cam };
+      if (ov.scenarioIds !== null) enriched.scenarioIds = ov.scenarioIds;
+      if (
+        ov.recordingEnabled !== null &&
+        ov.recordingPolicy !== null &&
+        ov.recordingRetentionDays !== null
+      ) {
+        enriched.recording = {
+          enabled: ov.recordingEnabled,
+          policy: ov.recordingPolicy as "always" | "event-only" | "off",
+          retentionDays: ov.recordingRetentionDays,
+        };
+      }
+      return enriched;
     });
   }
 

@@ -11,9 +11,158 @@ import {
   camsimDeleteFile,
   CamsimControlError,
 } from "@/lib/helpers/camsim-control";
+import {
+  upsertCameraOverride,
+  getCameraOverride,
+  deleteCameraOverride,
+  listCameraOverrides,
+  type CameraOverrideRow,
+} from "@/lib/db";
+import {
+  gcsCamerasGet,
+  gcsCamerasPut,
+  type CameraList,
+  type CameraEntry,
+} from "@/lib/helpers/gcs-config";
 import { writeToGcs } from "../route";
 
 export const dynamic = "force-dynamic";
+
+const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
+
+// ─── GET — single camera overrides ────────────────────────────────────────────
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const session = await auth();
+  if (!session)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id } = await params;
+  const override = getCameraOverride(id);
+  return NextResponse.json({ cameraId: id, override });
+}
+
+// ─── PUT — upsert per-camera scenario bindings + recording policy ─────────────
+
+const PutCameraOverrideSchema = z.object({
+  /** undefined = remove override entirely. null = same effect. */
+  scenarioIds: z.array(z.string()).nullable().optional(),
+  recording: z
+    .object({
+      enabled: z.boolean(),
+      policy: z.enum(["always", "event-only", "off"]),
+      retentionDays: z.number().int().positive(),
+    })
+    .nullable()
+    .optional(),
+});
+
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const session = await auth();
+  if (!session)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id } = await params;
+  const body = await req.json().catch(() => null);
+  const parsed = PutCameraOverrideSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Validation failed", issues: parsed.error.issues },
+      { status: 400 },
+    );
+  }
+
+  const { scenarioIds, recording } = parsed.data;
+  const updatedBy = session.user?.email ?? "console";
+
+  // If both fields are absent/null, treat as clearing the override entirely.
+  if (scenarioIds === undefined && recording === undefined) {
+    deleteCameraOverride(id);
+    await auditLog("camera-override-clear", `camera/${id}`, {});
+    return NextResponse.json({ ok: true, cameraId: id, cleared: true });
+  }
+
+  const overrideRow: CameraOverrideRow = {
+    cameraId: id,
+    scenarioIds: scenarioIds ?? null,
+    recordingEnabled: recording?.enabled ?? null,
+    recordingPolicy: recording?.policy ?? null,
+    recordingRetentionDays: recording?.retentionDays ?? null,
+    updatedAt: new Date().toISOString(),
+    updatedBy,
+  };
+  upsertCameraOverride(overrideRow);
+
+  await auditLog("camera-override-update", `camera/${id}`, {
+    scenarioIds,
+    recording,
+  });
+
+  // Persist overrides to GCS as v2 (best-effort — SQLite write already done).
+  const gcsWarning = VSS_INSTANCE_NAME
+    ? await pushOverridesToGcs(updatedBy)
+    : undefined;
+
+  return NextResponse.json({
+    ok: true,
+    cameraId: id,
+    ...(gcsWarning ? { gcsWarning } : {}),
+  });
+}
+
+/**
+ * Read the current GCS camera list, apply all SQLite overrides, and write back
+ * as v2.  Best-effort — errors are returned as a warning string.
+ */
+async function pushOverridesToGcs(updatedBy: string): Promise<string | undefined> {
+  try {
+    const current = await gcsCamerasGet(VSS_INSTANCE_NAME);
+    if (!current) return undefined; // No GCS list yet — nothing to enrich.
+
+    const allOverrides = listCameraOverrides();
+    const overrideMap = new Map(allOverrides.map((o) => [o.cameraId, o]));
+
+    const cameras: CameraEntry[] = current.cameras.map((cam) => {
+      const ov = overrideMap.get(cam.id);
+      if (!ov) return cam;
+      const enriched: CameraEntry = { ...cam };
+      if (ov.scenarioIds !== null) enriched.scenarioIds = ov.scenarioIds;
+      if (
+        ov.recordingEnabled !== null &&
+        ov.recordingPolicy !== null &&
+        ov.recordingRetentionDays !== null
+      ) {
+        enriched.recording = {
+          enabled: ov.recordingEnabled,
+          policy: ov.recordingPolicy,
+          retentionDays: ov.recordingRetentionDays,
+        };
+      }
+      return enriched;
+    });
+
+    const list: CameraList = {
+      schema: "isv-labs.cameras.v2",
+      instance: VSS_INSTANCE_NAME,
+      updatedAt: new Date().toISOString(),
+      updatedBy,
+      cameras,
+    };
+    process.env.UPDATED_BY = updatedBy;
+    await gcsCamerasPut(list);
+    return undefined;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[cameras/[id]] GCS v2 push failed: ${msg}`);
+    return `GCS push failed (SQLite saved): ${msg}`;
+  }
+}
 
 // ─── PATCH — update a camera ──────────────────────────────────────────────────
 //
