@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { vstListSensors } from "@/lib/helpers/vst";
-import { gcsCamerasPut, type CameraList, type CameraEntry } from "@/lib/helpers/gcs-config";
+import { gcsCamerasGet, gcsCamerasPut, type CameraList, type CameraEntry } from "@/lib/helpers/gcs-config";
 
 export const dynamic = "force-dynamic";
 
@@ -33,14 +33,32 @@ export async function POST() {
     );
   }
 
-  const cameras: CameraEntry[] = sensors.map((s) => ({
-    id: s.sensor_id,
-    rtspUrl: typeof s.rtsp_url === "string" ? s.rtsp_url : "",
-    description: typeof s.name === "string" ? s.name : undefined,
-  }));
+  // Pull the existing GCS doc first so per-camera v2 overrides
+  // (scenarioIds, recording) survive a full sync from VST sensors.
+  let existingByCameraId = new Map<string, CameraEntry>();
+  try {
+    const existing = await gcsCamerasGet(VSS_INSTANCE_NAME);
+    if (existing) {
+      existingByCameraId = new Map(existing.cameras.map((c) => [c.id, c]));
+    }
+  } catch {
+    // No existing doc or read failed — proceed with fresh write.
+  }
+
+  const cameras: CameraEntry[] = sensors.map((s) => {
+    const existing = existingByCameraId.get(s.sensor_id);
+    return {
+      id: s.sensor_id,
+      rtspUrl: typeof s.rtsp_url === "string" ? s.rtsp_url : "",
+      description: typeof s.name === "string" ? s.name : undefined,
+      // Preserve operator-set v2 overrides across a full re-sync.
+      ...(existing?.scenarioIds != null && { scenarioIds: existing.scenarioIds }),
+      ...(existing?.recording != null && { recording: existing.recording }),
+    };
+  });
 
   const list: CameraList = {
-    schema: "isv-labs.cameras.v1",
+    schema: "isv-labs.cameras.v2",
     instance: VSS_INSTANCE_NAME,
     updatedAt: new Date().toISOString(),
     updatedBy: session.user?.email ?? "console",
