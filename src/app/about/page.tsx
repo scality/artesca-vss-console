@@ -1,6 +1,6 @@
 import { Shell } from "@/components/Shell";
 import { ExternalLink } from "lucide-react";
-import { gcsHealthCheck } from "@/lib/helpers/gcs-config";
+import { gcsHealthCheck, gcsCamerasGet, gcsPromptGet, gcsScenariosGet } from "@/lib/helpers/gcs-config";
 
 interface ServiceUrlRow {
   label: string;
@@ -141,6 +141,17 @@ export default async function AboutPage() {
     detail: "health check threw unexpectedly",
   }));
 
+  // Per-surface object existence check (only if GCS is reachable).
+  const instance = process.env.VSS_INSTANCE_NAME ?? "";
+  const [cameraObj, promptObj, scenariosObj] =
+    gcsHealth.status === "ok" && instance
+      ? await Promise.all([
+          gcsCamerasGet(instance).catch(() => null),
+          gcsPromptGet(instance).catch(() => null),
+          gcsScenariosGet(instance).catch(() => null),
+        ])
+      : [null, null, null];
+
   return (
     <Shell>
       <div className="max-w-3xl space-y-8">
@@ -234,10 +245,12 @@ export default async function AboutPage() {
         </section>
 
         {/* GCS persistence health */}
-        <section className="rounded-lg border border-border bg-card p-5 space-y-3">
+        <section className="rounded-lg border border-border bg-card p-5 space-y-4">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            GCS Camera Persistence
+            GCS Config Persistence
           </h2>
+
+          {/* Overall health */}
           <div className="flex items-center gap-3">
             <span
               className={
@@ -260,11 +273,62 @@ export default async function AboutPage() {
               <span className="text-xs text-muted-foreground">{gcsHealth.detail}</span>
             )}
           </div>
+
+          {/* Per-surface object status (only shown when GCS reachable) */}
+          {gcsHealth.status === "ok" && instance && (
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-border">
+                {[
+                  {
+                    surface: "Cameras",
+                    path: `cameras/${instance}.json`,
+                    obj: cameraObj,
+                    detail: cameraObj
+                      ? `${(cameraObj as { cameras?: unknown[] }).cameras?.length ?? 0} cameras · updated ${(cameraObj as { updatedAt?: string }).updatedAt ?? "?"}`
+                      : null,
+                  },
+                  {
+                    surface: "Prompt",
+                    path: `prompt/${instance}.json`,
+                    obj: promptObj,
+                    detail: promptObj
+                      ? `updated ${(promptObj as { updatedAt?: string }).updatedAt ?? "?"} by ${(promptObj as { updatedBy?: string }).updatedBy ?? "?"}`
+                      : null,
+                  },
+                  {
+                    surface: "Scenarios",
+                    path: `scenarios/${instance}.json`,
+                    obj: scenariosObj,
+                    detail: scenariosObj
+                      ? `${(scenariosObj as { scenarios?: unknown[] }).scenarios?.length ?? 0} scenarios · updated ${(scenariosObj as { updatedAt?: string }).updatedAt ?? "?"}`
+                      : null,
+                  },
+                ].map(({ surface, path, obj, detail }) => (
+                  <tr key={surface} className="hover:bg-muted/20 transition-colors">
+                    <td className="py-2 pr-4">
+                      <p className="font-medium text-sm">{surface}</p>
+                      <p className="font-mono text-[10px] text-muted-foreground">{path}</p>
+                    </td>
+                    <td className="py-2">
+                      {obj ? (
+                        <span className="text-emerald-400 text-xs font-semibold">object exists</span>
+                      ) : (
+                        <span className="text-slate-500 text-xs">object missing</span>
+                      )}
+                      {detail && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{detail}</p>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
           <p className="text-xs text-muted-foreground">
-            Cameras persist at{" "}
+            Bucket:{" "}
             <code className="font-mono">
-              gs://{process.env.GCS_CONFIG_BUCKET ?? "scality-isv-labs-config"}/cameras/
-              {process.env.VSS_INSTANCE_NAME ?? "<instance>"}.json
+              gs://{process.env.GCS_CONFIG_BUCKET ?? "scality-isv-labs-config"}/
             </code>
             . Mount the service account key at{" "}
             <code className="font-mono">/etc/gcs-config-rw.json</code> and set{" "}

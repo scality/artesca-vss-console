@@ -45,6 +45,14 @@ function gsObjectUrl(instance: string): string {
   return `gs://${GCS_CONFIG_BUCKET}/cameras/${instance}.json`;
 }
 
+function gsPromptUrl(instance: string): string {
+  return `gs://${GCS_CONFIG_BUCKET}/prompt/${instance}.json`;
+}
+
+function gsScenariosUrl(instance: string): string {
+  return `gs://${GCS_CONFIG_BUCKET}/scenarios/${instance}.json`;
+}
+
 /** Run a gsutil command with the configured credential env and a 15s timeout. */
 async function runGsutil(
   args: string[],
@@ -92,6 +100,34 @@ export class GcsConfigError extends Error {
 
 // ─── Schema validation ────────────────────────────────────────────────────────
 
+function isValidPromptConfig(obj: unknown): obj is PromptConfig {
+  if (!obj || typeof obj !== "object") return false;
+  const o = obj as Record<string, unknown>;
+  if (o["schema"] !== "isv-labs.prompt.v1") return false;
+  if (typeof o["instance"] !== "string") return false;
+  if (typeof o["updatedAt"] !== "string") return false;
+  if (typeof o["updatedBy"] !== "string") return false;
+  if (typeof o["prompt"] !== "string") return false;
+  return true;
+}
+
+function isValidScenariosConfig(obj: unknown): obj is ScenariosConfig {
+  if (!obj || typeof obj !== "object") return false;
+  const o = obj as Record<string, unknown>;
+  if (o["schema"] !== "isv-labs.scenarios.v1") return false;
+  if (typeof o["instance"] !== "string") return false;
+  if (typeof o["updatedAt"] !== "string") return false;
+  if (typeof o["updatedBy"] !== "string") return false;
+  if (!Array.isArray(o["scenarios"])) return false;
+  for (const s of o["scenarios"] as unknown[]) {
+    if (!s || typeof s !== "object") return false;
+    const sc = s as Record<string, unknown>;
+    if (typeof sc["id"] !== "string") return false;
+    if (typeof sc["name"] !== "string") return false;
+  }
+  return true;
+}
+
 function isValidCameraList(obj: unknown): obj is CameraList {
   if (!obj || typeof obj !== "object") return false;
   const o = obj as Record<string, unknown>;
@@ -107,6 +143,39 @@ function isValidCameraList(obj: unknown): obj is CameraList {
     if (typeof c["rtspUrl"] !== "string") return false;
   }
   return true;
+}
+
+// ─── Prompt interfaces ────────────────────────────────────────────────────────
+
+export interface PromptConfig {
+  schema: "isv-labs.prompt.v1";
+  instance: string;
+  updatedAt: string;
+  updatedBy: string;
+  prompt: string;
+  model?: string;
+}
+
+// ─── Scenarios interfaces ─────────────────────────────────────────────────────
+
+export interface ScenarioConfig {
+  id: string;
+  name: string;
+  description?: string;
+  severity: "low" | "medium" | "high" | "critical";
+  channels: ("ui" | "slack")[];
+  sensor_filter: string;
+  keywords: string[];
+  enabled: boolean;
+  cooldown_seconds?: number;
+}
+
+export interface ScenariosConfig {
+  schema: "isv-labs.scenarios.v1";
+  instance: string;
+  updatedAt: string;
+  updatedBy: string;
+  scenarios: ScenarioConfig[];
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -244,5 +313,117 @@ export async function gcsHealthCheck(): Promise<GcsHealthResult> {
       status: "error",
       detail: err instanceof Error ? err.message.slice(0, 300) : String(err),
     };
+  }
+}
+
+// ─── Prompt helpers ───────────────────────────────────────────────────────────
+
+/** Returns the prompt config from GCS, or null if missing / schema mismatch / unreachable. */
+export async function gcsPromptGet(instance: string): Promise<PromptConfig | null> {
+  try {
+    const { stdout } = await runGsutil(["cat", gsPromptUrl(instance)]);
+    const obj: unknown = JSON.parse(stdout);
+    if (!isValidPromptConfig(obj)) {
+      console.warn(
+        `[gcs-config] schema mismatch for prompt/${instance}: ` +
+          `expected isv-labs.prompt.v1, got schema=${
+            obj && typeof obj === "object" ? (obj as Record<string, unknown>)["schema"] : "unknown"
+          }`,
+      );
+      return null;
+    }
+    return obj;
+  } catch (err) {
+    if (err instanceof GcsConfigError) {
+      const isNotFound =
+        err.message.includes("No URLs matched") ||
+        err.message.includes("404") ||
+        err.message.includes("does not exist");
+      if (!isNotFound) {
+        console.warn(`[gcs-config] gcsPromptGet(${instance}): ${err.message}`);
+      }
+      return null;
+    }
+    if (err instanceof SyntaxError) {
+      console.warn(`[gcs-config] gcsPromptGet(${instance}): invalid JSON in GCS object`);
+      return null;
+    }
+    console.warn(
+      `[gcs-config] gcsPromptGet(${instance}): unexpected error: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return null;
+  }
+}
+
+/** Write the prompt config to GCS via a temp file. Stamps updatedAt. Throws GcsConfigError on failure. */
+export async function gcsPromptPut(config: PromptConfig): Promise<void> {
+  const stamped: PromptConfig = {
+    ...config,
+    updatedAt: new Date().toISOString(),
+  };
+  const tmpFile = path.join(os.tmpdir(), `gcs-prompt-${Date.now()}.json`);
+  try {
+    await fs.writeFile(tmpFile, JSON.stringify(stamped, null, 2), "utf-8");
+    await runGsutil(["cp", tmpFile, gsPromptUrl(config.instance)]);
+  } finally {
+    await fs.unlink(tmpFile).catch(() => void 0);
+  }
+}
+
+// ─── Scenarios helpers ────────────────────────────────────────────────────────
+
+/** Returns the scenarios config from GCS, or null if missing / schema mismatch / unreachable. */
+export async function gcsScenariosGet(instance: string): Promise<ScenariosConfig | null> {
+  try {
+    const { stdout } = await runGsutil(["cat", gsScenariosUrl(instance)]);
+    const obj: unknown = JSON.parse(stdout);
+    if (!isValidScenariosConfig(obj)) {
+      console.warn(
+        `[gcs-config] schema mismatch for scenarios/${instance}: ` +
+          `expected isv-labs.scenarios.v1, got schema=${
+            obj && typeof obj === "object" ? (obj as Record<string, unknown>)["schema"] : "unknown"
+          }`,
+      );
+      return null;
+    }
+    return obj;
+  } catch (err) {
+    if (err instanceof GcsConfigError) {
+      const isNotFound =
+        err.message.includes("No URLs matched") ||
+        err.message.includes("404") ||
+        err.message.includes("does not exist");
+      if (!isNotFound) {
+        console.warn(`[gcs-config] gcsScenariosGet(${instance}): ${err.message}`);
+      }
+      return null;
+    }
+    if (err instanceof SyntaxError) {
+      console.warn(`[gcs-config] gcsScenariosGet(${instance}): invalid JSON in GCS object`);
+      return null;
+    }
+    console.warn(
+      `[gcs-config] gcsScenariosGet(${instance}): unexpected error: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return null;
+  }
+}
+
+/** Write the scenarios config to GCS via a temp file. Stamps updatedAt. Throws GcsConfigError on failure. */
+export async function gcsScenariosPut(config: ScenariosConfig): Promise<void> {
+  const stamped: ScenariosConfig = {
+    ...config,
+    updatedAt: new Date().toISOString(),
+  };
+  const tmpFile = path.join(os.tmpdir(), `gcs-scenarios-${Date.now()}.json`);
+  try {
+    await fs.writeFile(tmpFile, JSON.stringify(stamped, null, 2), "utf-8");
+    await runGsutil(["cp", tmpFile, gsScenariosUrl(config.instance)]);
+  } finally {
+    await fs.unlink(tmpFile).catch(() => void 0);
   }
 }

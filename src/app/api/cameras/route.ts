@@ -19,7 +19,7 @@ import {
   type CameraEntry,
   type CameraList,
 } from "@/lib/helpers/gcs-config";
-import { triggerCameraBootstrap, awaitBootstrap } from "@/lib/cameras-bootstrap";
+import { triggerCameraBootstrap, awaitBootstrap } from "@/lib/gcs-bootstrap";
 
 // The camera-sim's control-plane API (http://<camera-sim>:8080) is the
 // authoritative source for cameras.yaml — it owns the YAML, triggers the

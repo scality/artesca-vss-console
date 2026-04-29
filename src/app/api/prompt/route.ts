@@ -7,6 +7,11 @@ import { coreV1, rolloutRestart } from "@/lib/k8s";
 import { patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
+import {
+  gcsPromptGet,
+  gcsPromptPut,
+  type PromptConfig,
+} from "@/lib/helpers/gcs-config";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +19,14 @@ const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
 const RTVI_VLM_CONTAINER = "rtvi-vlm";
 const DOCKER_PROMPT_ENV = "VLM_SYSTEM_PROMPT";
 const DOCKER_MODEL_ENV = "VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME";
+const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
+
+// Mutex for GCS writes — same pattern as cameras/route.ts.
+let _gcsWriteChain: Promise<void> = Promise.resolve();
+function chainGcsWrite(fn: () => Promise<void>): Promise<void> {
+  _gcsWriteChain = _gcsWriteChain.then(fn).catch(() => void 0);
+  return _gcsWriteChain;
+}
 
 /** Read the bundled default VLM system prompt (Pyramid retail loss-prevention
  *  scenario). Returns empty string if the file is missing — callers fall
@@ -209,42 +222,77 @@ export async function GET() {
 
   const warnings: string[] = [];
 
+  // Fetch GCS state in parallel with the live read.
+  const gcsPromise = VSS_INSTANCE_NAME
+    ? gcsPromptGet(VSS_INSTANCE_NAME)
+    : Promise.resolve(null);
+
   if (DOCKER_MODE) {
     const defaultPrompt = readDefaultPrompt();
     try {
-      const env = await dockerInspectEnv(RTVI_VLM_CONTAINER);
+      const [env, gcsCfg] = await Promise.all([
+        dockerInspectEnv(RTVI_VLM_CONTAINER),
+        gcsPromise,
+      ]);
+      const livePrompt = env[DOCKER_PROMPT_ENV] ?? "";
+      if (gcsCfg && !livePrompt) {
+        warnings.push("GCS-persisted prompt not yet applied — restart will pick it up");
+      }
       return NextResponse.json({
-        prompt: env[DOCKER_PROMPT_ENV] ?? "",
+        prompt: livePrompt,
         model: env[DOCKER_MODEL_ENV] ?? "",
         resourceVersion: undefined,
         runtime: "docker",
         defaultPrompt,
+        gcs: buildGcsField(gcsCfg),
         warnings,
       });
     } catch (err) {
       warnings.push(`rtvi-vlm inspect failed: ${String(err)}`);
+      const gcsCfg = await gcsPromise.catch(() => null);
       return NextResponse.json(
-        { prompt: "", model: "", runtime: "docker", defaultPrompt, warnings },
+        { prompt: "", model: "", runtime: "docker", defaultPrompt: readDefaultPrompt(), gcs: buildGcsField(gcsCfg), warnings },
         { status: 502 }
       );
     }
   }
 
   try {
-    const cm = await coreV1().readNamespacedConfigMap({
-      name: CLUSTER.rtvi.runtimeEnvCm,
-      namespace: CLUSTER.rtvi.nimNamespace,
-    });
+    const [cm, gcsCfg] = await Promise.all([
+      coreV1().readNamespacedConfigMap({
+        name: CLUSTER.rtvi.runtimeEnvCm,
+        namespace: CLUSTER.rtvi.nimNamespace,
+      }),
+      gcsPromise,
+    ]);
 
     const prompt = cm.data?.[CLUSTER.rtvi.promptKey] ?? "";
     const model = cm.data?.[CLUSTER.rtvi.modelKey] ?? "";
     const resourceVersion = cm.metadata?.resourceVersion;
 
-    return NextResponse.json({ prompt, model, resourceVersion, warnings });
+    if (gcsCfg && !prompt) {
+      warnings.push("GCS-persisted prompt not yet applied — restart will pick it up");
+    }
+
+    return NextResponse.json({ prompt, model, resourceVersion, gcs: buildGcsField(gcsCfg), warnings });
   } catch (err) {
     warnings.push(`rtvi-runtime-env unreadable: ${String(err)}`);
-    return NextResponse.json({ prompt: "", model: "", warnings }, { status: 502 });
+    const gcsCfg = await gcsPromise.catch(() => null);
+    return NextResponse.json({ prompt: "", model: "", gcs: buildGcsField(gcsCfg), warnings }, { status: 502 });
   }
+}
+
+function buildGcsField(gcsCfg: PromptConfig | null) {
+  if (!gcsCfg) {
+    return { available: false };
+  }
+  return {
+    available: true,
+    lastUpdated: gcsCfg.updatedAt,
+    lastUpdatedBy: gcsCfg.updatedBy,
+    prompt: gcsCfg.prompt,
+    model: gcsCfg.model,
+  };
 }
 
 // ─── PATCH ─────────────────────────────────────────────────────────────────────
@@ -274,7 +322,20 @@ export async function PATCH(req: NextRequest) {
         promptLength: newPrompt.length,
         newContainerId: id.slice(0, 12),
       });
-      return NextResponse.json({ ok: true, runtime: "docker", containerId: id.slice(0, 12) });
+
+      // Persist to GCS (best-effort — live update already done).
+      const gcsWarnings: string[] = [];
+      if (VSS_INSTANCE_NAME) {
+        const gcsWarning = await persistPromptToGcs(newPrompt, undefined, session.user?.email ?? "console");
+        if (gcsWarning) gcsWarnings.push(gcsWarning);
+      }
+
+      return NextResponse.json({
+        ok: true,
+        runtime: "docker",
+        containerId: id.slice(0, 12),
+        ...(gcsWarnings.length ? { gcsWarnings } : {}),
+      });
     } catch (err) {
       return NextResponse.json(
         {
@@ -350,8 +411,45 @@ export async function PATCH(req: NextRequest) {
     newModel: model,
   });
 
+  // Persist to GCS (best-effort — live update already done).
+  const gcsWarnings: string[] = [];
+  if (VSS_INSTANCE_NAME) {
+    const gcsWarning = await persistPromptToGcs(prompt, model, session.user?.email ?? "console");
+    if (gcsWarning) gcsWarnings.push(gcsWarning);
+  }
+
   return NextResponse.json({
     ok: true,
     restartErrors: restartErrors.length ? restartErrors : undefined,
+    ...(gcsWarnings.length ? { gcsWarnings } : {}),
   });
+}
+
+// ─── GCS write helper ─────────────────────────────────────────────────────────
+
+async function persistPromptToGcs(
+  prompt: string,
+  model: string | undefined,
+  updatedBy: string,
+): Promise<string | undefined> {
+  let warning: string | undefined;
+  await chainGcsWrite(async () => {
+    try {
+      const config: PromptConfig = {
+        schema: "isv-labs.prompt.v1",
+        instance: VSS_INSTANCE_NAME,
+        updatedAt: new Date().toISOString(),
+        updatedBy,
+        prompt,
+        ...(model ? { model } : {}),
+      };
+      await gcsPromptPut(config);
+    } catch (err) {
+      warning = `GCS prompt write failed (live update already applied): ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      console.warn(`[prompt/route] ${warning}`);
+    }
+  });
+  return warning;
 }

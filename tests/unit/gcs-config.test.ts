@@ -21,7 +21,13 @@ import {
   gcsCamerasGet,
   gcsCamerasPut,
   gcsHealthCheck,
+  gcsPromptGet,
+  gcsPromptPut,
+  gcsScenariosGet,
+  gcsScenariosPut,
   type CameraList,
+  type PromptConfig,
+  type ScenariosConfig,
 } from "@/lib/helpers/gcs-config";
 
 // Helper: mock execFile to resolve with stdout/stderr
@@ -216,5 +222,182 @@ describe("gcsHealthCheck", () => {
     mockExecFileSuccess("gs://scality-isv-labs-config/cameras/");
     const result = await gcsHealthCheck();
     expect(result.status).toBe("ok");
+  });
+});
+
+// ─── gcsPromptGet ─────────────────────────────────────────────────────────────
+
+const VALID_PROMPT_CONFIG: PromptConfig = {
+  schema: "isv-labs.prompt.v1",
+  instance: "vss-brev-1",
+  updatedAt: "2026-04-28T22:00:00Z",
+  updatedBy: "stephane.richard@scality.com",
+  prompt: "You are a retail surveillance assistant. Detect theft.",
+  model: "cosmos-reason1-7b",
+};
+
+describe("gcsPromptGet", () => {
+  it("returns null when the object does not exist (No URLs matched)", async () => {
+    mockExecFileError(1, "CommandException: No URLs matched");
+    expect(await gcsPromptGet("vss-brev-1")).toBeNull();
+  });
+
+  it("returns parsed PromptConfig when the object exists", async () => {
+    mockExecFileSuccess(JSON.stringify(VALID_PROMPT_CONFIG));
+    const result = await gcsPromptGet("vss-brev-1");
+    expect(result).not.toBeNull();
+    expect(result?.schema).toBe("isv-labs.prompt.v1");
+    expect(result?.prompt).toBe(VALID_PROMPT_CONFIG.prompt);
+  });
+
+  it("returns null on schema mismatch (wrong schema string)", async () => {
+    const bad = { ...VALID_PROMPT_CONFIG, schema: "isv-labs.prompt.v0" };
+    mockExecFileSuccess(JSON.stringify(bad));
+    vi.spyOn(console, "warn").mockImplementation(() => void 0);
+    const result = await gcsPromptGet("vss-brev-1");
+    expect(result).toBeNull();
+  });
+
+  it("returns null on invalid JSON", async () => {
+    mockExecFileSuccess("not valid json {{{");
+    vi.spyOn(console, "warn").mockImplementation(() => void 0);
+    expect(await gcsPromptGet("vss-brev-1")).toBeNull();
+  });
+
+  it("invokes gsutil cat with the correct GCS URL", async () => {
+    mockExecFileSuccess(JSON.stringify(VALID_PROMPT_CONFIG));
+    await gcsPromptGet("my-instance");
+    const calls = (childProcess.execFile as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    const [cmd, args] = calls[0] as [string, string[]];
+    expect(cmd).toBe("gsutil");
+    expect(args[0]).toBe("cat");
+    expect(args[1]).toContain("prompt/my-instance.json");
+  });
+});
+
+// ─── gcsPromptPut ─────────────────────────────────────────────────────────────
+
+describe("gcsPromptPut", () => {
+  it("invokes gsutil cp with the correct destination URL", async () => {
+    mockExecFileSuccess("");
+    await gcsPromptPut(VALID_PROMPT_CONFIG);
+    const calls = (childProcess.execFile as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    const [cmd, args] = calls[0] as [string, string[]];
+    expect(cmd).toBe("gsutil");
+    expect(args[0]).toBe("cp");
+    expect(args[2]).toContain("prompt/vss-brev-1.json");
+  });
+
+  it("stamps updatedAt before writing", async () => {
+    const inputTs = "2020-01-01T00:00:00Z";
+    const before = new Date().toISOString();
+    (fsMod.writeFile as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (_path: string, content: string) => {
+        const obj = JSON.parse(content as string) as PromptConfig;
+        expect(obj.updatedAt >= before).toBe(true);
+        expect(obj.updatedAt).not.toBe(inputTs);
+        return Promise.resolve();
+      },
+    );
+    mockExecFileSuccess("");
+    await gcsPromptPut({ ...VALID_PROMPT_CONFIG, updatedAt: inputTs });
+  });
+
+  it("throws on gsutil failure", async () => {
+    mockExecFileError(1, "AccessDeniedException: 403");
+    await expect(gcsPromptPut(VALID_PROMPT_CONFIG)).rejects.toThrow();
+  });
+});
+
+// ─── gcsScenariosGet ──────────────────────────────────────────────────────────
+
+const VALID_SCENARIOS_CONFIG: ScenariosConfig = {
+  schema: "isv-labs.scenarios.v1",
+  instance: "vss-brev-1",
+  updatedAt: "2026-04-28T22:00:00Z",
+  updatedBy: "stephane.richard@scality.com",
+  scenarios: [
+    {
+      id: "theft-1",
+      name: "Theft Detection",
+      severity: "high",
+      channels: ["ui", "slack"],
+      sensor_filter: "*",
+      keywords: ["steal", "conceal"],
+      enabled: true,
+    },
+  ],
+};
+
+describe("gcsScenariosGet", () => {
+  it("returns null when the object does not exist (No URLs matched)", async () => {
+    mockExecFileError(1, "CommandException: No URLs matched");
+    expect(await gcsScenariosGet("vss-brev-1")).toBeNull();
+  });
+
+  it("returns parsed ScenariosConfig when the object exists", async () => {
+    mockExecFileSuccess(JSON.stringify(VALID_SCENARIOS_CONFIG));
+    const result = await gcsScenariosGet("vss-brev-1");
+    expect(result).not.toBeNull();
+    expect(result?.schema).toBe("isv-labs.scenarios.v1");
+    expect(result?.scenarios).toHaveLength(1);
+    expect(result?.scenarios[0].id).toBe("theft-1");
+  });
+
+  it("returns null on schema mismatch", async () => {
+    const bad = { ...VALID_SCENARIOS_CONFIG, schema: "isv-labs.scenarios.v0" };
+    mockExecFileSuccess(JSON.stringify(bad));
+    vi.spyOn(console, "warn").mockImplementation(() => void 0);
+    expect(await gcsScenariosGet("vss-brev-1")).toBeNull();
+  });
+
+  it("returns null on invalid JSON", async () => {
+    mockExecFileSuccess("not valid json {{{");
+    vi.spyOn(console, "warn").mockImplementation(() => void 0);
+    expect(await gcsScenariosGet("vss-brev-1")).toBeNull();
+  });
+
+  it("invokes gsutil cat with the correct GCS URL", async () => {
+    mockExecFileSuccess(JSON.stringify(VALID_SCENARIOS_CONFIG));
+    await gcsScenariosGet("my-instance");
+    const calls = (childProcess.execFile as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    const [cmd, args] = calls[0] as [string, string[]];
+    expect(cmd).toBe("gsutil");
+    expect(args[0]).toBe("cat");
+    expect(args[1]).toContain("scenarios/my-instance.json");
+  });
+});
+
+// ─── gcsScenariosPut ─────────────────────────────────────────────────────────
+
+describe("gcsScenariosPut", () => {
+  it("invokes gsutil cp with the correct destination URL", async () => {
+    mockExecFileSuccess("");
+    await gcsScenariosPut(VALID_SCENARIOS_CONFIG);
+    const calls = (childProcess.execFile as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    const [cmd, args] = calls[0] as [string, string[]];
+    expect(cmd).toBe("gsutil");
+    expect(args[0]).toBe("cp");
+    expect(args[2]).toContain("scenarios/vss-brev-1.json");
+  });
+
+  it("stamps updatedAt before writing", async () => {
+    const inputTs = "2020-01-01T00:00:00Z";
+    const before = new Date().toISOString();
+    (fsMod.writeFile as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (_path: string, content: string) => {
+        const obj = JSON.parse(content as string) as ScenariosConfig;
+        expect(obj.updatedAt >= before).toBe(true);
+        expect(obj.updatedAt).not.toBe(inputTs);
+        return Promise.resolve();
+      },
+    );
+    mockExecFileSuccess("");
+    await gcsScenariosPut({ ...VALID_SCENARIOS_CONFIG, updatedAt: inputTs });
+  });
+
+  it("throws on gsutil failure", async () => {
+    mockExecFileError(1, "AccessDeniedException: 403");
+    await expect(gcsScenariosPut(VALID_SCENARIOS_CONFIG)).rejects.toThrow();
   });
 });
