@@ -7,8 +7,24 @@ import { patchConfigMapKey, readConfigMapKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
 import type { Scenario } from "@/lib/types";
+import {
+  gcsScenariosGet,
+  gcsScenariosPut,
+  type ScenariosConfig,
+  type ScenarioConfig,
+} from "@/lib/helpers/gcs-config";
+import { scenarioToGcsConfig } from "@/lib/helpers/scenarios-apply";
 
 export const dynamic = "force-dynamic";
+
+const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
+
+// Mutex for GCS writes.
+let _gcsWriteChain: Promise<void> = Promise.resolve();
+function chainGcsWrite(fn: () => Promise<void>): Promise<void> {
+  _gcsWriteChain = _gcsWriteChain.then(fn).catch(() => void 0);
+  return _gcsWriteChain;
+}
 
 type ScenariosConfigRaw = {
   scenarios?: Array<{
@@ -61,19 +77,45 @@ export async function GET() {
 
   const warnings: string[] = [];
 
+  // GCS fetch runs in parallel with the ConfigMap read.
+  const gcsPromise = VSS_INSTANCE_NAME
+    ? gcsScenariosGet(VSS_INSTANCE_NAME)
+    : Promise.resolve(null);
+
   try {
-    const { value: raw, resourceVersion } = await readConfigMapKey<ScenariosConfigRaw>(
-      CLUSTER.scenarios.namespace,
-      CLUSTER.scenarios.configMap,
-      CLUSTER.scenarios.yamlKey
-    );
+    const [{ value: raw, resourceVersion }, gcsCfg] = await Promise.all([
+      readConfigMapKey<ScenariosConfigRaw>(
+        CLUSTER.scenarios.namespace,
+        CLUSTER.scenarios.configMap,
+        CLUSTER.scenarios.yamlKey
+      ),
+      gcsPromise,
+    ]);
 
     const scenarios = parseRawScenarios(raw ?? {});
-    return NextResponse.json({ scenarios, resourceVersion, warnings });
+    return NextResponse.json({
+      scenarios,
+      resourceVersion,
+      gcs: buildGcsField(gcsCfg),
+      warnings,
+    });
   } catch (err) {
     warnings.push(`scenarios-config unreadable: ${String(err)}`);
-    return NextResponse.json({ scenarios: [], warnings });
+    const gcsCfg = await gcsPromise.catch(() => null);
+    return NextResponse.json({ scenarios: [], gcs: buildGcsField(gcsCfg), warnings });
   }
+}
+
+function buildGcsField(gcsCfg: ScenariosConfig | null) {
+  if (!gcsCfg) {
+    return { available: false };
+  }
+  return {
+    available: true,
+    lastUpdated: gcsCfg.updatedAt,
+    lastUpdatedBy: gcsCfg.updatedBy,
+    totalScenarios: gcsCfg.scenarios.length,
+  };
 }
 
 // ─── PATCH ─────────────────────────────────────────────────────────────────────
@@ -142,5 +184,44 @@ export async function PATCH(req: NextRequest) {
     ids: scenarios.map((s) => s.id),
   });
 
-  return NextResponse.json({ ok: true, count: scenarios.length });
+  // Persist to GCS (best-effort — ConfigMap already patched).
+  const gcsWarnings: string[] = [];
+  if (VSS_INSTANCE_NAME) {
+    const gcsWarning = await persistScenarisoToGcs(scenarios, session.user?.email ?? "console");
+    if (gcsWarning) gcsWarnings.push(gcsWarning);
+  }
+
+  return NextResponse.json({
+    ok: true,
+    count: scenarios.length,
+    ...(gcsWarnings.length ? { gcsWarnings } : {}),
+  });
+}
+
+// ─── GCS write helper ─────────────────────────────────────────────────────────
+
+async function persistScenarisoToGcs(
+  scenarios: Scenario[],
+  updatedBy: string,
+): Promise<string | undefined> {
+  let warning: string | undefined;
+  await chainGcsWrite(async () => {
+    try {
+      const gcsScenarios: ScenarioConfig[] = scenarios.map(scenarioToGcsConfig);
+      const config: ScenariosConfig = {
+        schema: "isv-labs.scenarios.v1",
+        instance: VSS_INSTANCE_NAME,
+        updatedAt: new Date().toISOString(),
+        updatedBy,
+        scenarios: gcsScenarios,
+      };
+      await gcsScenariosPut(config);
+    } catch (err) {
+      warning = `GCS scenarios write failed (ConfigMap already patched): ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      console.warn(`[scenarios/route] ${warning}`);
+    }
+  });
+  return warning;
 }

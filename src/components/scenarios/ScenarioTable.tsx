@@ -14,13 +14,21 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Loader2, Plus, Save, AlertTriangle } from "lucide-react";
+import { Loader2, Plus, Save, AlertTriangle, CloudUpload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScenarioRow } from "./ScenarioRow";
 import { ScenarioDiffDialog } from "./ScenarioDiffDialog";
 
+const GcsStatusSchema = z.object({
+  available: z.boolean(),
+  lastUpdated: z.string().optional(),
+  lastUpdatedBy: z.string().optional(),
+  totalScenarios: z.number().optional(),
+});
+
 const ScenarioListSchema = z.object({
   scenarios: z.array(ScenarioSchema),
+  gcs: GcsStatusSchema.optional(),
 });
 
 function generateId() {
@@ -35,6 +43,28 @@ export function ScenarioTable() {
   const [diffOpen, setDiffOpen] = React.useState(false);
   const [conflictBanner, setConflictBanner] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+
+  const syncToGcs = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/scenarios/sync-gcs", { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error((body as { error?: string }).error ?? "Sync failed");
+      }
+      return res.json();
+    },
+    onSuccess: (result: { synced?: number }) => {
+      queryClient.invalidateQueries({ queryKey: ["scenarios"] });
+      toast({ title: `Saved ${result.synced ?? 0} scenarios to GCS` });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Save to GCS failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["scenarios"],
@@ -144,8 +174,37 @@ export function ScenarioTable() {
           <p className="text-sm text-muted-foreground">
             Configure alert rules. Changes are staged locally until you save.
           </p>
+          {data?.gcs && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              GCS:{" "}
+              {data.gcs.available ? (
+                <span className="text-emerald-400">
+                  {data.gcs.totalScenarios ?? 0} scenarios persisted
+                  {data.gcs.lastUpdatedBy ? ` · last by ${data.gcs.lastUpdatedBy}` : ""}
+                </span>
+              ) : (
+                <span className="text-slate-500">unavailable (no credentials)</span>
+              )}
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
+          {data?.gcs?.available !== false && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => syncToGcs.mutate()}
+              disabled={syncToGcs.isPending}
+              title="Save current scenarios to GCS for persistence across restarts"
+            >
+              {syncToGcs.isPending ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <CloudUpload className="h-4 w-4 mr-1" />
+              )}
+              Save all to GCS
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={addScenario}>
             <Plus className="h-4 w-4 mr-1" />
             Add Scenario
