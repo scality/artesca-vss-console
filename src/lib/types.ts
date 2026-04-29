@@ -14,11 +14,23 @@ export interface PodSummary {
   gpus?: number;
 }
 
+export type RecordingPolicy = "always" | "event-only" | "off";
+
+export interface CameraRecording {
+  enabled: boolean;
+  policy: RecordingPolicy;
+  retentionDays: number;
+}
+
 export interface Camera {
   id: string; // "checkout-1"
   role: "checkout" | "aisle" | "dock" | "backroom" | "other";
   description?: string;
   feeds: Feed[]; // default 2 per Pyramid 2-lens rail; 1..N allowed
+  /** Per-camera scenario overrides.  undefined = use sensor_filter glob (no override).
+   *  Empty array = explicit suppression (no scenarios fire for this camera). */
+  scenarioIds?: string[];
+  recording?: CameraRecording;
 }
 
 export interface Feed {

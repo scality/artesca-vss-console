@@ -53,6 +53,16 @@ export function getDb(): Database.Database {
       key        TEXT PRIMARY KEY,
       rotated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS camera_overrides (
+      camera_id                TEXT PRIMARY KEY,
+      scenario_ids             TEXT,
+      recording_enabled        INTEGER,
+      recording_policy         TEXT,
+      recording_retention_days INTEGER,
+      updated_at               TEXT NOT NULL,
+      updated_by               TEXT NOT NULL
+    );
   `);
 
   return _db;
@@ -194,6 +204,104 @@ export function upsertSgEntry(entry: SgWhitelistEntry): void {
 export function deleteSgEntry(id: string): void {
   const db = getDb();
   db.prepare("DELETE FROM sg_whitelist WHERE id = ?").run(id);
+}
+
+// ─── Camera overrides ─────────────────────────────────────────────────────────
+
+export interface CameraOverrideRow {
+  cameraId: string;
+  /** null = no scenarioIds override stored; [] = explicit suppression. */
+  scenarioIds: string[] | null;
+  recordingEnabled: boolean | null;
+  recordingPolicy: "always" | "event-only" | "off" | null;
+  recordingRetentionDays: number | null;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export function getCameraOverride(cameraId: string): CameraOverrideRow | null {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT camera_id, scenario_ids, recording_enabled, recording_policy,
+              recording_retention_days, updated_at, updated_by
+       FROM camera_overrides WHERE camera_id = ?`
+    )
+    .get(cameraId) as
+    | {
+        camera_id: string;
+        scenario_ids: string | null;
+        recording_enabled: number | null;
+        recording_policy: string | null;
+        recording_retention_days: number | null;
+        updated_at: string;
+        updated_by: string;
+      }
+    | undefined;
+
+  if (!row) return null;
+
+  return {
+    cameraId: row.camera_id,
+    scenarioIds: row.scenario_ids !== null ? (JSON.parse(row.scenario_ids) as string[]) : null,
+    recordingEnabled: row.recording_enabled !== null ? row.recording_enabled !== 0 : null,
+    recordingPolicy: (row.recording_policy as CameraOverrideRow["recordingPolicy"]) ?? null,
+    recordingRetentionDays: row.recording_retention_days,
+    updatedAt: row.updated_at,
+    updatedBy: row.updated_by,
+  };
+}
+
+export function listCameraOverrides(): CameraOverrideRow[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT camera_id, scenario_ids, recording_enabled, recording_policy,
+              recording_retention_days, updated_at, updated_by
+       FROM camera_overrides ORDER BY camera_id`
+    )
+    .all() as Array<{
+      camera_id: string;
+      scenario_ids: string | null;
+      recording_enabled: number | null;
+      recording_policy: string | null;
+      recording_retention_days: number | null;
+      updated_at: string;
+      updated_by: string;
+    }>;
+
+  return rows.map((row) => ({
+    cameraId: row.camera_id,
+    scenarioIds: row.scenario_ids !== null ? (JSON.parse(row.scenario_ids) as string[]) : null,
+    recordingEnabled: row.recording_enabled !== null ? row.recording_enabled !== 0 : null,
+    recordingPolicy: (row.recording_policy as CameraOverrideRow["recordingPolicy"]) ?? null,
+    recordingRetentionDays: row.recording_retention_days,
+    updatedAt: row.updated_at,
+    updatedBy: row.updated_by,
+  }));
+}
+
+export function upsertCameraOverride(row: CameraOverrideRow): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT OR REPLACE INTO camera_overrides
+       (camera_id, scenario_ids, recording_enabled, recording_policy,
+        recording_retention_days, updated_at, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    row.cameraId,
+    row.scenarioIds !== null ? JSON.stringify(row.scenarioIds) : null,
+    row.recordingEnabled !== null ? (row.recordingEnabled ? 1 : 0) : null,
+    row.recordingPolicy,
+    row.recordingRetentionDays,
+    row.updatedAt,
+    row.updatedBy,
+  );
+}
+
+export function deleteCameraOverride(cameraId: string): void {
+  const db = getDb();
+  db.prepare("DELETE FROM camera_overrides WHERE camera_id = ?").run(cameraId);
 }
 
 // ─── Rotation tracking ────────────────────────────────────────────────────────

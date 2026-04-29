@@ -13,15 +13,25 @@ const GCS_CONFIG_BUCKET =
 
 // ─── Public interfaces ────────────────────────────────────────────────────────
 
+export interface CameraRecordingEntry {
+  enabled: boolean;
+  policy: "always" | "event-only" | "off";
+  retentionDays: number;
+}
+
 export interface CameraEntry {
   id: string;
   rtspUrl: string;
   description?: string;
   role?: string;
+  /** Per-camera scenario overrides (v2+).  undefined = sensor_filter glob.
+   *  Empty array = explicit suppression. */
+  scenarioIds?: string[];
+  recording?: CameraRecordingEntry;
 }
 
 export interface CameraList {
-  schema: "isv-labs.cameras.v1";
+  schema: "isv-labs.cameras.v1" | "isv-labs.cameras.v2";
   instance: string;
   updatedAt: string;
   updatedBy: string;
@@ -131,7 +141,7 @@ function isValidScenariosConfig(obj: unknown): obj is ScenariosConfig {
 function isValidCameraList(obj: unknown): obj is CameraList {
   if (!obj || typeof obj !== "object") return false;
   const o = obj as Record<string, unknown>;
-  if (o["schema"] !== "isv-labs.cameras.v1") return false;
+  if (o["schema"] !== "isv-labs.cameras.v1" && o["schema"] !== "isv-labs.cameras.v2") return false;
   if (typeof o["instance"] !== "string") return false;
   if (typeof o["updatedAt"] !== "string") return false;
   if (typeof o["updatedBy"] !== "string") return false;
@@ -197,7 +207,7 @@ export async function gcsCamerasGet(
     if (!isValidCameraList(obj)) {
       console.warn(
         `[gcs-config] schema mismatch for ${instance}: ` +
-          `expected isv-labs.cameras.v1, got schema=${
+          `expected isv-labs.cameras.v1 or v2, got schema=${
             obj && typeof obj === "object" ? (obj as Record<string, unknown>)["schema"] : "unknown"
           }`,
       );
