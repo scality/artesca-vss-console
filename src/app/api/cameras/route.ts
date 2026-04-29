@@ -361,7 +361,7 @@ async function writeToGcs(
       }
 
       const list: CameraList = {
-        schema: "isv-labs.cameras.v1",
+        schema: "isv-labs.cameras.v2",
         instance: VSS_INSTANCE_NAME,
         updatedAt: new Date().toISOString(),
         updatedBy,
