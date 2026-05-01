@@ -26,7 +26,7 @@ SECRETS_EXAMPLE="$CONSOLE_DIR/10-secrets.yaml.example"
 SECRETS_FILE="$CONSOLE_DIR/10-secrets.yaml"
 
 # Laptop-side kubectl — apiserver :6443 isn't laptop-reachable, so fetch
-# admin.conf over SSH and tunnel through. Same pattern as deploy-all.sh.
+# admin.conf over SSH and tunnel through. Same pattern as deploy-stack.sh.
 # Teardown is folded into on_exit (set below) so we don't stomp on traps.
 # shellcheck source=lib-kubectl.sh
 source "$SCRIPT_DIR/lib-kubectl.sh"
