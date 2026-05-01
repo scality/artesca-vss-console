@@ -265,8 +265,8 @@ export default async function AboutPage() {
                 ? "available"
                 : gcsHealth.status === "no-credentials"
                   ? "no credentials"
-                  : gcsHealth.status === "no-gsutil"
-                    ? "no gsutil"
+                  : gcsHealth.status === "no-gcloud"
+                    ? "no gcloud"
                     : "error"}
             </span>
             {gcsHealth.detail && (
