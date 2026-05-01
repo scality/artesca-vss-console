@@ -142,29 +142,31 @@ describe("gcsCamerasGet", () => {
     expect(await gcsCamerasGet("vss-brev-1")).toBeNull();
   });
 
-  it("invokes gsutil cat with the correct GCS URL", async () => {
+  it("invokes gcloud storage cat with the correct GCS URL", async () => {
     mockExecFileSuccess(JSON.stringify(VALID_CAMERA_LIST));
     await gcsCamerasGet("vss-my-instance");
     const calls = (childProcess.execFile as unknown as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls.length).toBeGreaterThan(0);
     const [cmd, args] = calls[0] as [string, string[]];
-    expect(cmd).toBe("gsutil");
-    expect(args[0]).toBe("cat");
-    expect(args[1]).toContain("cameras/vss-my-instance.json");
+    expect(cmd).toBe("gcloud");
+    expect(args[0]).toBe("storage");
+    expect(args[1]).toBe("cat");
+    expect(args[2]).toContain("cameras/vss-my-instance.json");
   });
 });
 
 // --- gcsCamerasPut ---
 
 describe("gcsCamerasPut", () => {
-  it("invokes gsutil cp with the correct destination URL", async () => {
+  it("invokes gcloud storage cp with the correct destination URL", async () => {
     mockExecFileSuccess("");
     await gcsCamerasPut(VALID_CAMERA_LIST);
     const calls = (childProcess.execFile as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const [cmd, args] = calls[0] as [string, string[]];
-    expect(cmd).toBe("gsutil");
-    expect(args[0]).toBe("cp");
-    expect(args[2]).toContain("cameras/vss-brev-1.json");
+    expect(cmd).toBe("gcloud");
+    expect(args[0]).toBe("storage");
+    expect(args[1]).toBe("cp");
+    expect(args[3]).toContain("cameras/vss-brev-1.json");
   });
 
   it("stamps updatedAt before writing (not the original input value)", async () => {
@@ -191,23 +193,23 @@ describe("gcsCamerasPut", () => {
 // --- gcsHealthCheck ---
 
 describe("gcsHealthCheck", () => {
-  it("returns no-gsutil when gsutil is not in PATH", async () => {
+  it("returns no-gcloud when gcloud is not in PATH", async () => {
     mockExecFileNotFound();
     const result = await gcsHealthCheck();
-    expect(result.status).toBe("no-gsutil");
+    expect(result.status).toBe("no-gcloud");
   });
 
-  it("returns no-credentials on AccessDeniedException from gsutil ls", async () => {
+  it("returns no-credentials on PermissionDenied from gcloud storage ls", async () => {
     let callCount = 0;
     (childProcess.execFile as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (_cmd: string, _args: string[], _opts: unknown, callback: (err: null | (Error & { code?: number; stderr?: string; killed?: boolean }), result?: { stdout: string; stderr: string }) => void) => {
         callCount++;
         if (callCount === 1) {
-          callback(null, { stdout: "gsutil version: 5.x", stderr: "" });
+          callback(null, { stdout: "Google Cloud SDK 500.0.0", stderr: "" });
         } else {
           const err = Object.assign(new Error("exec error"), {
             code: 1,
-            stderr: "AccessDeniedException: 403 Forbidden",
+            stderr: "ERROR: (gcloud.storage.ls) PermissionDenied: 403 Forbidden",
             killed: false,
           });
           callback(err);
@@ -218,7 +220,7 @@ describe("gcsHealthCheck", () => {
     expect(result.status).toBe("no-credentials");
   });
 
-  it("returns ok when gsutil ls succeeds", async () => {
+  it("returns ok when gcloud storage ls succeeds", async () => {
     mockExecFileSuccess("gs://scality-isv-labs-config/cameras/");
     const result = await gcsHealthCheck();
     expect(result.status).toBe("ok");
@@ -264,28 +266,30 @@ describe("gcsPromptGet", () => {
     expect(await gcsPromptGet("vss-brev-1")).toBeNull();
   });
 
-  it("invokes gsutil cat with the correct GCS URL", async () => {
+  it("invokes gcloud storage cat with the correct GCS URL", async () => {
     mockExecFileSuccess(JSON.stringify(VALID_PROMPT_CONFIG));
     await gcsPromptGet("my-instance");
     const calls = (childProcess.execFile as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const [cmd, args] = calls[0] as [string, string[]];
-    expect(cmd).toBe("gsutil");
-    expect(args[0]).toBe("cat");
-    expect(args[1]).toContain("prompt/my-instance.json");
+    expect(cmd).toBe("gcloud");
+    expect(args[0]).toBe("storage");
+    expect(args[1]).toBe("cat");
+    expect(args[2]).toContain("prompt/my-instance.json");
   });
 });
 
 // ─── gcsPromptPut ─────────────────────────────────────────────────────────────
 
 describe("gcsPromptPut", () => {
-  it("invokes gsutil cp with the correct destination URL", async () => {
+  it("invokes gcloud storage cp with the correct destination URL", async () => {
     mockExecFileSuccess("");
     await gcsPromptPut(VALID_PROMPT_CONFIG);
     const calls = (childProcess.execFile as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const [cmd, args] = calls[0] as [string, string[]];
-    expect(cmd).toBe("gsutil");
-    expect(args[0]).toBe("cp");
-    expect(args[2]).toContain("prompt/vss-brev-1.json");
+    expect(cmd).toBe("gcloud");
+    expect(args[0]).toBe("storage");
+    expect(args[1]).toBe("cp");
+    expect(args[3]).toContain("prompt/vss-brev-1.json");
   });
 
   it("stamps updatedAt before writing", async () => {
@@ -357,28 +361,30 @@ describe("gcsScenariosGet", () => {
     expect(await gcsScenariosGet("vss-brev-1")).toBeNull();
   });
 
-  it("invokes gsutil cat with the correct GCS URL", async () => {
+  it("invokes gcloud storage cat with the correct GCS URL", async () => {
     mockExecFileSuccess(JSON.stringify(VALID_SCENARIOS_CONFIG));
     await gcsScenariosGet("my-instance");
     const calls = (childProcess.execFile as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const [cmd, args] = calls[0] as [string, string[]];
-    expect(cmd).toBe("gsutil");
-    expect(args[0]).toBe("cat");
-    expect(args[1]).toContain("scenarios/my-instance.json");
+    expect(cmd).toBe("gcloud");
+    expect(args[0]).toBe("storage");
+    expect(args[1]).toBe("cat");
+    expect(args[2]).toContain("scenarios/my-instance.json");
   });
 });
 
 // ─── gcsScenariosPut ─────────────────────────────────────────────────────────
 
 describe("gcsScenariosPut", () => {
-  it("invokes gsutil cp with the correct destination URL", async () => {
+  it("invokes gcloud storage cp with the correct destination URL", async () => {
     mockExecFileSuccess("");
     await gcsScenariosPut(VALID_SCENARIOS_CONFIG);
     const calls = (childProcess.execFile as unknown as ReturnType<typeof vi.fn>).mock.calls;
     const [cmd, args] = calls[0] as [string, string[]];
-    expect(cmd).toBe("gsutil");
-    expect(args[0]).toBe("cp");
-    expect(args[2]).toContain("scenarios/vss-brev-1.json");
+    expect(cmd).toBe("gcloud");
+    expect(args[0]).toBe("storage");
+    expect(args[1]).toBe("cp");
+    expect(args[3]).toContain("scenarios/vss-brev-1.json");
   });
 
   it("stamps updatedAt before writing", async () => {

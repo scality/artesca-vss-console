@@ -41,7 +41,7 @@ export interface CameraList {
 export type GcsHealthStatus =
   | "ok"
   | "no-credentials"
-  | "no-gsutil"
+  | "no-gcloud"
   | "error";
 
 export interface GcsHealthResult {
@@ -63,8 +63,8 @@ function gsScenariosUrl(instance: string): string {
   return `gs://${GCS_CONFIG_BUCKET}/scenarios/${instance}.json`;
 }
 
-/** Run a gsutil command with the configured credential env and a 15s timeout. */
-async function runGsutil(
+/** Run a gcloud storage command with the configured credential env and a 15s timeout. */
+async function runGcloud(
   args: string[],
   input?: string,
 ): Promise<{ stdout: string; stderr: string }> {
@@ -75,7 +75,7 @@ async function runGsutil(
   // execFile accepts AbortSignal via options.signal in Node 16+; we use a
   // timeout option instead for simplicity — maps to the same SIGTERM.
   try {
-    const result = await execFile("gsutil", args, {
+    const result = await execFile("gcloud", args, {
       env,
       timeout: GCS_TIMEOUT_MS,
       maxBuffer: 4 * 1024 * 1024, // 4 MB — generous for a camera list JSON
@@ -88,11 +88,11 @@ async function runGsutil(
     const stderr = e.stderr ?? "";
     const killed = e.killed ?? false;
     if (killed) {
-      throw new GcsConfigError("gsutil timed out after 15 s", "timeout");
+      throw new GcsConfigError("gcloud timed out after 15 s", "timeout");
     }
     throw new GcsConfigError(
-      `gsutil exited with code ${e.code}: ${stderr.slice(0, 500)}`,
-      "gsutil-error",
+      `gcloud exited with code ${e.code}: ${stderr.slice(0, 500)}`,
+      "gcloud-error",
     );
   }
 }
@@ -202,7 +202,7 @@ export async function gcsCamerasGet(
   instance: string,
 ): Promise<CameraList | null> {
   try {
-    const { stdout } = await runGsutil(["cat", gsObjectUrl(instance)]);
+    const { stdout } = await runGcloud(["storage", "cat", gsObjectUrl(instance)]);
     const obj: unknown = JSON.parse(stdout);
     if (!isValidCameraList(obj)) {
       console.warn(
@@ -216,9 +216,10 @@ export async function gcsCamerasGet(
     return obj;
   } catch (err) {
     if (err instanceof GcsConfigError) {
-      // "No URLs matched" = object does not exist; that's expected on first run.
+      // "No URLs matched" (legacy gsutil) / "NotFound" (gcloud storage) = object does not exist; expected on first run.
       const isNotFound =
         err.message.includes("No URLs matched") ||
+        err.message.includes("NotFound") ||
         err.message.includes("404") ||
         err.message.includes("does not exist");
       if (!isNotFound) {
@@ -240,7 +241,7 @@ export async function gcsCamerasGet(
 }
 
 /**
- * Write the camera list to GCS via a temp file.  gsutil cp reads from a
+ * Write the camera list to GCS via a temp file.  gcloud storage cp reads from a
  * local file — avoids any stdin/piping complexity.
  *
  * Stamps `updatedAt` on the object before writing.
@@ -257,11 +258,11 @@ export async function gcsCamerasPut(list: CameraList): Promise<void> {
     updatedBy: process.env.UPDATED_BY ?? "unknown",
   };
 
-  // Write to a temp file, then gsutil cp it.
+  // Write to a temp file, then gcloud storage cp it.
   const tmpFile = path.join(os.tmpdir(), `gcs-cameras-${Date.now()}.json`);
   try {
     await fs.writeFile(tmpFile, JSON.stringify(stamped, null, 2), "utf-8");
-    await runGsutil(["cp", tmpFile, gsObjectUrl(list.instance)]);
+    await runGcloud(["storage", "cp", tmpFile, gsObjectUrl(list.instance)]);
   } finally {
     await fs.unlink(tmpFile).catch(() => void 0);
   }
@@ -272,31 +273,32 @@ export async function gcsCamerasPut(list: CameraList): Promise<void> {
  * page and for the bootstrap logic to gate on.
  */
 export async function gcsHealthCheck(): Promise<GcsHealthResult> {
-  // 1. Check that gsutil exists.
+  // 1. Check that gcloud exists.
   try {
-    await execFile("gsutil", ["version"], { timeout: 5_000 });
+    await execFile("gcloud", ["--version"], { timeout: 5_000 });
   } catch (err) {
     const e = err as { code?: string | number };
     if (e.code === "ENOENT") {
-      return { status: "no-gsutil", detail: "gsutil not found in PATH" };
+      return { status: "no-gcloud", detail: "gcloud not found in PATH" };
     }
-    // Any other error at version check = treat as no-gsutil.
+    // Any other error at version check = treat as no-gcloud.
     return {
-      status: "no-gsutil",
-      detail: `gsutil version check failed: ${err instanceof Error ? err.message : String(err)}`,
+      status: "no-gcloud",
+      detail: `gcloud version check failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 
   // 2. Check credentials by attempting a metadata fetch on the bucket.
-  //    `gsutil ls gs://bucket` returns 0 if the bucket is accessible.
+  //    `gcloud storage ls gs://bucket` returns 0 if the bucket is accessible.
   try {
-    await runGsutil(["ls", `gs://${GCS_CONFIG_BUCKET}/cameras/`]);
+    await runGcloud(["storage", "ls", `gs://${GCS_CONFIG_BUCKET}/cameras/`]);
     return { status: "ok" };
   } catch (err) {
     if (err instanceof GcsConfigError) {
-      // "AccessDeniedException" or similar = have gsutil but no valid creds.
+      // "AccessDeniedException" (legacy) / "PermissionDenied" (gcloud storage) = have gcloud but no valid creds.
       const noAuth =
         err.message.includes("AccessDeniedException") ||
+        err.message.includes("PermissionDenied") ||
         err.message.includes("401") ||
         err.message.includes("403") ||
         err.message.includes("credentials");
@@ -310,6 +312,7 @@ export async function gcsHealthCheck(): Promise<GcsHealthResult> {
       const notFound =
         err.message.includes("404") ||
         err.message.includes("No URLs matched") ||
+        err.message.includes("NotFound") ||
         err.message.includes("BucketNotFoundException");
       if (notFound) {
         return {
@@ -331,7 +334,7 @@ export async function gcsHealthCheck(): Promise<GcsHealthResult> {
 /** Returns the prompt config from GCS, or null if missing / schema mismatch / unreachable. */
 export async function gcsPromptGet(instance: string): Promise<PromptConfig | null> {
   try {
-    const { stdout } = await runGsutil(["cat", gsPromptUrl(instance)]);
+    const { stdout } = await runGcloud(["storage", "cat", gsPromptUrl(instance)]);
     const obj: unknown = JSON.parse(stdout);
     if (!isValidPromptConfig(obj)) {
       console.warn(
@@ -347,6 +350,7 @@ export async function gcsPromptGet(instance: string): Promise<PromptConfig | nul
     if (err instanceof GcsConfigError) {
       const isNotFound =
         err.message.includes("No URLs matched") ||
+        err.message.includes("NotFound") ||
         err.message.includes("404") ||
         err.message.includes("does not exist");
       if (!isNotFound) {
@@ -376,7 +380,7 @@ export async function gcsPromptPut(config: PromptConfig): Promise<void> {
   const tmpFile = path.join(os.tmpdir(), `gcs-prompt-${Date.now()}.json`);
   try {
     await fs.writeFile(tmpFile, JSON.stringify(stamped, null, 2), "utf-8");
-    await runGsutil(["cp", tmpFile, gsPromptUrl(config.instance)]);
+    await runGcloud(["storage", "cp", tmpFile, gsPromptUrl(config.instance)]);
   } finally {
     await fs.unlink(tmpFile).catch(() => void 0);
   }
@@ -387,7 +391,7 @@ export async function gcsPromptPut(config: PromptConfig): Promise<void> {
 /** Returns the scenarios config from GCS, or null if missing / schema mismatch / unreachable. */
 export async function gcsScenariosGet(instance: string): Promise<ScenariosConfig | null> {
   try {
-    const { stdout } = await runGsutil(["cat", gsScenariosUrl(instance)]);
+    const { stdout } = await runGcloud(["storage", "cat", gsScenariosUrl(instance)]);
     const obj: unknown = JSON.parse(stdout);
     if (!isValidScenariosConfig(obj)) {
       console.warn(
@@ -403,6 +407,7 @@ export async function gcsScenariosGet(instance: string): Promise<ScenariosConfig
     if (err instanceof GcsConfigError) {
       const isNotFound =
         err.message.includes("No URLs matched") ||
+        err.message.includes("NotFound") ||
         err.message.includes("404") ||
         err.message.includes("does not exist");
       if (!isNotFound) {
@@ -432,7 +437,7 @@ export async function gcsScenariosPut(config: ScenariosConfig): Promise<void> {
   const tmpFile = path.join(os.tmpdir(), `gcs-scenarios-${Date.now()}.json`);
   try {
     await fs.writeFile(tmpFile, JSON.stringify(stamped, null, 2), "utf-8");
-    await runGsutil(["cp", tmpFile, gsScenariosUrl(config.instance)]);
+    await runGcloud(["storage", "cp", tmpFile, gsScenariosUrl(config.instance)]);
   } finally {
     await fs.unlink(tmpFile).catch(() => void 0);
   }
