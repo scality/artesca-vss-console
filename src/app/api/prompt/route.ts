@@ -31,7 +31,7 @@ function chainGcsWrite(fn: () => Promise<void>): Promise<void> {
 /** Read the bundled default VLM system prompt (Pyramid retail loss-prevention
  *  scenario). Returns empty string if the file is missing — callers fall
  *  back to leaving the editor blank. The same text is applied at deploy
- *  time by scripts/stacks/vss/bootstrap-compose.sh. */
+ *  time by scripts/stacks/nvidia-vss/bootstrap-compose.sh. */
 function readDefaultPrompt(): string {
   try {
     return readFileSync(
@@ -398,7 +398,7 @@ export async function PATCH(req: NextRequest) {
 
   if (model) {
     try {
-      // cosmos-reason2-8b is a StatefulSet (k8s/vss/rtvi/30-nim-cosmos-reason2-8b.yaml)
+      // cosmos-reason2-8b is a StatefulSet (k8s/nvidia-vss/rtvi/30-nim-cosmos-reason2-8b.yaml)
       await rolloutRestart("StatefulSet", CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.nimStatefulSet);
     } catch {
       // Best-effort — NIM restart may be disallowed by RBAC or timing

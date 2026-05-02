@@ -181,7 +181,7 @@ test.describe("incidents + clip playback — Phase 6", () => {
     async () => {
       // Phase 6 decision C: requires actual HLS segments from ffmpeg transcoding
       // an S3 clip. The stub HLS playlist points to fake .ts segments that don't exist.
-      // Full playback verification requires a live cluster with the S3 vss-video bucket.
+      // Full playback verification requires a live cluster with the S3 nvidia-vss-video bucket.
     }
   );
 

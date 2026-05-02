@@ -6,7 +6,7 @@
 //
 // Reads, in order of preference:
 //   - OBJECTSTORE_ENDPOINT  (preferred) → falls back to S3_ENDPOINT
-//   - OBJECTSTORE_BUCKET    (preferred) → falls back to S3_BUCKET / VSS_VIDEO_BUCKET / "vss-video"
+//   - OBJECTSTORE_BUCKET    (preferred) → falls back to S3_BUCKET / VSS_VIDEO_BUCKET / "nvidia-vss-video"
 //   - OBJECTSTORE_REGION    (preferred) → falls back to AWS_REGION → "us-west-2"
 //   - OBJECTSTORE_ACCESS_KEY_ID + OBJECTSTORE_SECRET_ACCESS_KEY (preferred,
 //     comes from the objectstore-creds Secret remapped via secretKeyRef)
@@ -35,7 +35,7 @@ export function s3Bucket(): string {
     process.env.OBJECTSTORE_BUCKET ??
     process.env.S3_BUCKET ??
     process.env.VSS_VIDEO_BUCKET ??
-    "vss-video"
+    "nvidia-vss-video"
   );
 }
 

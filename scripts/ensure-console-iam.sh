@@ -2,7 +2,7 @@
 # ensure-console-iam.sh — idempotent provisioner for the IAM identity the
 # operator console uses to call EC2 SG APIs (Describe/Authorize/Revoke).
 #
-# Creates (if missing) a per-instance IAM user `vss-console-<instance>`, an
+# Creates (if missing) a per-instance IAM user `nvidia-vss-console-<instance>`, an
 # inline policy scoped to the instance's Security Group, and one access key
 # pair. The key pair is cached in
 #   scripts/instances/<instance>/.console-iam.env
@@ -16,7 +16,7 @@
 #   CONSOLE_IAM_SECRET_ACCESS_KEY=...
 #
 # Requires: aws CLI + AWS_PROFILE with iam:CreateUser, iam:PutUserPolicy,
-# iam:CreateAccessKey, iam:ListAccessKeys on users/vss-console-*. If the
+# iam:CreateAccessKey, iam:ListAccessKeys on users/nvidia-vss-console-*. If the
 # caller lacks those (e.g. Engineering-EC2User SSO role), fails with a
 # clear error and a policy snippet for the admin to attach.
 set -euo pipefail
@@ -44,8 +44,8 @@ ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text 2>/dev/n
   exit 1
 }
 
-USER_NAME="vss-console-${VSS_INSTANCE}"
-POLICY_NAME="vss-console-sg-crud"
+USER_NAME="nvidia-vss-console-${VSS_INSTANCE}"
+POLICY_NAME="nvidia-vss-console-sg-crud"
 CACHE_FILE="$VSS_INSTANCE_DIR/.console-iam.env"
 
 SG_ARN="arn:aws:ec2:${AWS_REGION}:${ACCOUNT_ID}:security-group/${SG_ID}"
@@ -94,7 +94,7 @@ this script once on your behalf.
         "iam:CreateUser", "iam:GetUser", "iam:PutUserPolicy",
         "iam:CreateAccessKey", "iam:ListAccessKeys", "iam:DeleteAccessKey"
       ],
-      "Resource": "arn:aws:iam::${ACCOUNT_ID}:user/vss-console-*"
+      "Resource": "arn:aws:iam::${ACCOUNT_ID}:user/nvidia-vss-console-*"
     }
 EOF
     exit 1

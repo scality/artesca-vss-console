@@ -64,7 +64,7 @@ async function stubOverviewApis(page: Page) {
           "vision-llm-responses": { topic: "vision-llm-responses", consumerLagMsgs: 2 },
         },
         s3: {
-          bucket: "vss-video",
+          bucket: "nvidia-vss-video",
           objectCount: 4820,
           bytesTotal: 107374182400,
           growth24h: 1073741824,
@@ -173,7 +173,7 @@ test.describe("overview page — Phase 1", () => {
           nim: { ready: false, warmupPct: 42, queueDepth: 7 },
           gpus: [],
           kafka: {},
-          s3: { bucket: "vss-video", objectCount: 0, bytesTotal: 0, growth24h: 0 },
+          s3: { bucket: "nvidia-vss-video", objectCount: 0, bytesTotal: 0, growth24h: 0 },
           cameraSim: { instanceState: "unreachable", pathsReady: 0, pathsTotal: 4 },
         }),
       })

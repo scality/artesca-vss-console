@@ -3,5 +3,5 @@ kind: Namespace
 metadata:
   name: console
   labels:
-    app.kubernetes.io/part-of: vss-live-ingest
+    app.kubernetes.io/part-of: nvidia-vss-live-ingest
     scality.com/phase: console

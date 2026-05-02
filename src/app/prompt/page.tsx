@@ -225,7 +225,7 @@ export default function PromptPage() {
               <div className="font-medium">No prompt configured.</div>
               <div className="mt-1 text-emerald-300/80">
                 Apply the bundled Pyramid retail-scenario default? Same prompt is wired into
-                future deploys via <code>scripts/stacks/vss/bootstrap-compose.sh</code>.
+                future deploys via <code>scripts/stacks/nvidia-vss/bootstrap-compose.sh</code>.
               </div>
             </div>
             <Button

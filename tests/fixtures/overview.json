@@ -43,7 +43,7 @@
     "vision-llm-responses": { "topic": "vision-llm-responses", "consumerLagMsgs": 2 }
   },
   "s3": {
-    "bucket": "vss-video",
+    "bucket": "nvidia-vss-video",
     "objectCount": 4820,
     "bytesTotal": 107374182400,
     "growth24h": 1073741824

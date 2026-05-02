@@ -6,7 +6,7 @@
 # cluster's containerd image store via a privileged K8s Job. The deploy
 # side uses imagePullPolicy: Never so kubelet never tries GHCR.
 #
-# Rationale: ghcr.io/scality/isv-nvidia-vss/console:latest is private, the
+# Rationale: ghcr.io/scality/isv-nvidia-nvidia-vss/console:latest is private, the
 # EC2 instance has no imagePullSecret, and wiring one requires a GitHub PAT
 # with read:packages scope — not grantable from the SSO role the laptop
 # already has. Building locally and sideloading makes the deploy work with
@@ -23,12 +23,12 @@
 #                    (does NOT invalidate the buildx layer cache — unchanged
 #                    layers still replay instantly)
 #   BUILDX_CACHE_DIR — override buildx local cache path
-#                    (default: ${TMPDIR:-/tmp}/vss-console-buildx-cache)
+#                    (default: ${TMPDIR:-/tmp}/nvidia-vss-console-buildx-cache)
 #
-# Buildx cache: persistent local layer cache at ${TMPDIR:-/tmp}/vss-console-buildx-cache
+# Buildx cache: persistent local layer cache at ${TMPDIR:-/tmp}/nvidia-vss-console-buildx-cache
 # (outside the repo on purpose — it's gitignored build state). Reruns with no
 # source change replay layers in seconds instead of re-running `npm ci` +
-# `next build`. To bust it:  rm -rf "${TMPDIR:-/tmp}/vss-console-buildx-cache"
+# `next build`. To bust it:  rm -rf "${TMPDIR:-/tmp}/nvidia-vss-console-buildx-cache"
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,7 +43,7 @@ REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 # shellcheck source=/dev/null
 source "$VSS_STATE_FILE"
 : "${PUB_IP:?PUB_IP missing from $VSS_STATE_FILE}"
-KEY_NAME="${KEY_NAME:-isv-nvidia-vss}"
+KEY_NAME="${KEY_NAME:-isv-nvidia-nvidia-vss}"
 KEY_PATH="${CAMERA_SIM_KEY_FILE:-$HOME/.ssh/${KEY_NAME}.pem}"
 [[ -f "$KEY_PATH" ]] || { echo "ERROR: SSH key $KEY_PATH missing" >&2; exit 1; }
 : "${SSH_USER:=artesca-os}"
@@ -100,7 +100,7 @@ fi
 # reruns. Path lives outside the repo (laptop-local state). mode=max exports
 # intermediate layers too so subsequent builds can resume mid-Dockerfile.
 # ---------------------------------------------------------------------------
-BUILDX_CACHE_DIR="${BUILDX_CACHE_DIR:-${TMPDIR:-/tmp}/vss-console-buildx-cache}"
+BUILDX_CACHE_DIR="${BUILDX_CACHE_DIR:-${TMPDIR:-/tmp}/nvidia-vss-console-buildx-cache}"
 mkdir -p "$BUILDX_CACHE_DIR"
 echo "==> building $FULL_IMAGE (platform linux/amd64, cache $BUILDX_CACHE_DIR)"
 docker buildx build \

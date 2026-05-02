@@ -221,7 +221,7 @@ const NODE_TO_RESTART_KEY: Record<string, string> = {
   "rtvi-embed": "rtvi-embed",
   "nim-cosmos-reason2": "cosmos-reason2-8b",
   "alert-worker": "alert-worker",
-  agent: "vss-agent",
+  agent: "nvidia-vss-agent",
   mediamtx: "mediamtx", // no matching RESTARTABLE entry — button will be disabled
 };
 
@@ -236,7 +236,7 @@ function RolloutRestartRenderer({ componentKey }: RolloutRestartRendererProps) {
   // Known restartable keys from cluster-refs.ts RESTARTABLE map
   const KNOWN_KEYS = new Set([
     "sensor-ms", "streamprocessing-ms", "rtvi-vlm", "rtvi-embed",
-    "cosmos-reason2-8b", "alert-worker", "vss-agent", "demo-producer",
+    "cosmos-reason2-8b", "alert-worker", "nvidia-vss-agent", "demo-producer",
   ]);
   const isKnown = KNOWN_KEYS.has(componentKey);
 
