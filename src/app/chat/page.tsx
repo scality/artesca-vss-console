@@ -10,8 +10,8 @@ type Message = { role: Role; content: string; ts: string };
 type CameraFeed = { vstRegistered?: boolean; rtspUrl?: string };
 type Camera = { id: string; description?: string; feeds?: CameraFeed[] };
 
-const STORAGE_KEY = "vss-chat-history";
-const SCOPE_KEY = "vss-chat-scope";
+const STORAGE_KEY = "nvidia-vss-chat-history";
+const SCOPE_KEY = "nvidia-vss-chat-scope";
 const SCOPE_ALL = "__all__";
 
 /**
@@ -26,7 +26,7 @@ function stripReasoning(content: string): string {
     .trim();
 }
 
-/** Returns true when the upstream NVIDIA vss-agent returned its canned
+/** Returns true when the upstream NVIDIA nvidia-vss-agent returned its canned
  *  "something went wrong internally" fallback. The agent emits this when
  *  the underlying workflow (LLM call, tool use, knowledge graph lookup)
  *  raises an unhandled exception — the bare text gives no hint as to
@@ -189,7 +189,7 @@ export default function ChatPage() {
               VSS Chat
             </h1>
             <p className="text-xs text-slate-500">
-              Talk to the cosmos-reason2-8b VLM via vss-agent. The agent has access to
+              Talk to the cosmos-reason2-8b VLM via nvidia-vss-agent. The agent has access to
               every registered camera + recent recordings.
             </p>
           </div>
@@ -265,7 +265,7 @@ export default function ChatPage() {
                       <div className="mt-1 text-amber-300/80">
                         Common causes: cosmos-reason NIM not warmed up · no cameras registered with VST ·
                         knowledge-graph empty · LLM tool call timed out. Check{" "}
-                        <code className="rounded bg-slate-800 px-1 text-amber-200">docker compose logs vss-agent</code>{" "}
+                        <code className="rounded bg-slate-800 px-1 text-amber-200">docker compose logs nvidia-vss-agent</code>{" "}
                         on the workspace.
                         {hasReasoningBlocks && !showReasoning && (
                           <> Toggle <span className="font-mono text-amber-200">show reasoning</span> above to see the agent&apos;s internal trace.</>
@@ -280,7 +280,7 @@ export default function ChatPage() {
           {loading && (
             <div className="flex items-center gap-2 text-xs text-slate-500">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              vss-agent is thinking…
+              nvidia-vss-agent is thinking…
             </div>
           )}
         </div>
@@ -349,7 +349,7 @@ export default function ChatPage() {
                 void send();
               }
             }}
-            placeholder="Ask vss-agent…  (Enter to send, Shift+Enter for newline)"
+            placeholder="Ask nvidia-vss-agent…  (Enter to send, Shift+Enter for newline)"
             rows={2}
             className="flex-1 resize-y rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-700 focus:outline-none"
             disabled={loading}

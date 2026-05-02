@@ -179,7 +179,7 @@ describe("OverviewSnapshotSchema", () => {
     nim: { ready: true, warmupPct: 100, queueDepth: 0 },
     gpus: [],
     kafka: { "vision-llm-responses": { topic: "vision-llm-responses", consumerLagMsgs: 2 } },
-    s3: { bucket: "vss-video", objectCount: 4820, bytesTotal: 107374182400, growth24h: 1073741824 },
+    s3: { bucket: "nvidia-vss-video", objectCount: 4820, bytesTotal: 107374182400, growth24h: 1073741824 },
     cameraSim: { instanceState: "running" as const, pathsReady: 4, pathsTotal: 4 },
   };
 

@@ -28,7 +28,7 @@ spec:
       - name: console
         # CI bumps this tag via kustomize image override on every push to main.
         # Pin to a specific sha-<short-sha> tag for production rollouts.
-        image: ghcr.io/scality/isv-nvidia-vss/console:latest
+        image: ghcr.io/scality/isv-nvidia-nvidia-vss/console:latest
         ports:
         - name: http
           containerPort: 8800

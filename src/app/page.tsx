@@ -136,7 +136,7 @@ export default async function OverviewPage() {
           <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-300">
             <p className="font-medium">Compose-mode runtime — no compose containers detected.</p>
             <p className="mt-1 text-sky-300/80">
-              Run <code>scripts/stacks/vss/bootstrap-compose.sh</code> on the workspace to bring up the stack.
+              Run <code>scripts/stacks/nvidia-vss/bootstrap-compose.sh</code> on the workspace to bring up the stack.
               KPIs and topology populate automatically once containers are running.
             </p>
           </div>

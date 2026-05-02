@@ -88,7 +88,7 @@ const DEPLOY_TO_NODE: Record<string, string> = {
   "cosmos-reason2-8b": "nim-cosmos-reason2",
   "nim-cosmos-reason2": "nim-cosmos-reason2",
   "alert-worker": "alert-worker",
-  "vss-agent": "agent",
+  "nvidia-vss-agent": "agent",
   "agent": "agent",
   "demo-producer": "demo-data-producer",
   "demo-data-producer": "demo-data-producer",
@@ -329,7 +329,7 @@ async function collectCache(warnings: string[]): Promise<CacheState | null> {
     return {
       fillPct: isNaN(fillPct) ? null : fillPct,
       thresholdPct: 90,
-      sizeGiB: 500, // emptyDir — see k8s/vss/vst/30-sensor-ms.yaml
+      sizeGiB: 500, // emptyDir — see k8s/nvidia-vss/vst/30-sensor-ms.yaml
       frameDropCount: rawCount !== null && !isNaN(rawCount) ? rawCount : null,
       frameDropRatePerMin:
         rawRate !== null && !isNaN(rawRate) ? rawRate * 60 : null,
@@ -557,7 +557,7 @@ async function collectPostgres(warnings: string[]): Promise<DbState | null> {
     const result = await withTimeout(
       runInPod(
         CLUSTER.vst.namespace,
-        "app=postgres", // label used by k8s/vss/vst postgres Deployment
+        "app=postgres", // label used by k8s/nvidia-vss/vst postgres Deployment
         ["pg_isready", "-q"],
         CALL_TIMEOUT_MS
       ),
@@ -845,7 +845,7 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
     collectNim(warnings),
     collectPostgres(warnings),
     // Single Redis — alerts reuses the VST Redis for cooldown state
-    // (k8s/vss/alerts/README.md § "Known gaps"), so there is no separate Redis
+    // (k8s/nvidia-vss/alerts/README.md § "Known gaps"), so there is no separate Redis
     // in the alerts namespace to probe.
     collectRedis(CLUSTER.vst.namespace, "app=redis", warnings, "VST"),
   ]);

@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
 
 // Component whitelist is centralized in cluster-refs.ts.
 // Real names verified against k8s/ manifests:
-//   - "vss-agent" (not "agent") — k8s/vss/agent/20-vss-agent.yaml
-//   - "demo-producer" (not "demo-data-producer") — k8s/vss/demo-data/20-producer.yaml
+//   - "nvidia-vss-agent" (not "agent") — k8s/nvidia-vss/agent/20-nvidia-vss-agent.yaml
+//   - "demo-producer" (not "demo-data-producer") — k8s/nvidia-vss/demo-data/20-producer.yaml
 //   - "cosmos-reason2-8b" as StatefulSet (not "nim-cosmos-reason2" Deployment)
 const { restartable: RESTARTABLE } = CLUSTER;
 

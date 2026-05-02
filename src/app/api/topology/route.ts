@@ -35,7 +35,7 @@ interface TopologyEdge {
 //   camera-sim, mediamtx, sensor-ms, streamprocessing-ms, rtvi-vlm, rtvi-embed,
 //   nim-cosmos-reason2, kafka, alert-worker, agent, demo-data-producer,
 //   artesca-s3, vst-local-cache, vst-postgres, vst-redis.
-// Alerts reuses the VST Redis (see k8s/vss/alerts/README.md § "Known gaps"),
+// Alerts reuses the VST Redis (see k8s/nvidia-vss/alerts/README.md § "Known gaps"),
 // so there is no separate alerts-redis node — the alert-worker edge points
 // at vst-redis.
 const COMPONENTS: Array<{
@@ -132,7 +132,7 @@ const COMPONENTS: Array<{
     label: "Agent UI",
     namespace: "agent",
     type: "service",
-    deploymentName: "vss-agent",
+    deploymentName: "nvidia-vss-agent",
     position: { x: 960, y: 180 },
   },
 
@@ -149,7 +149,7 @@ const COMPONENTS: Array<{
   // ── Storage nodes (new) ──────────────────────────────────────────────────────
   {
     id: "artesca-s3",
-    label: "ARTESCA S3 (vss-video)",
+    label: "ARTESCA S3 (nvidia-vss-video)",
     namespace: "storage",
     type: "storage",
     position: { x: 1180, y: 500 },
@@ -205,7 +205,7 @@ const STATIC_EDGES: TopologyEdge[] = [
   { id: "edge:sensor-ms->vst-redis", source: "sensor-ms", target: "vst-redis", label: "vst.event", protocol: "redis" },
   // Alert Redis
   // alert-worker reuses the VST Redis for cooldown state (SETNX EX). See
-  // k8s/vss/alerts/README.md § "Known gaps / follow-ups".
+  // k8s/nvidia-vss/alerts/README.md § "Known gaps / follow-ups".
   { id: "edge:alert-worker->vst-redis", source: "alert-worker", target: "vst-redis", label: "Redis", protocol: "redis" },
   // Console clip playback (dormant)
   { id: "edge:console->artesca-s3", source: "console", target: "artesca-s3", label: "S3 GET", protocol: "s3", dormant: true },
@@ -351,12 +351,12 @@ async function buildDockerTopology() {
   // Node spec: id (also container name), label, type, position. Layout:
   //
   //   ┌─ INGEST ─┐ ┌─ PROCESSING ─┐ ┌─ INFERENCE ─┐ ┌─ AGENT/UI ─┐
-  //   nvstreamer  sensor-ms       rtvi-vlm        vss-agent       phoenix
-  //               streamprocess.  cosmos VLM      vss-va-mcp      kibana
+  //   nvstreamer  sensor-ms       rtvi-vlm        nvidia-vss-agent       phoenix
+  //               streamprocess.  cosmos VLM      nvidia-vss-va-mcp      kibana
   //               sdr-processing  (LLM=remote)    metropolis-ui
-  //               envoy-process.                  vss-console
+  //               envoy-process.                  nvidia-vss-console
   //   ┌── STORAGE / MESSAGING (bottom) ──┐
-  //   centralizedb   redis   kafka   ES   logstash   vss-video-analytics-api
+  //   centralizedb   redis   kafka   ES   logstash   nvidia-vss-video-analytics-api
   type NodeSpec = {
     id: string;
     label: string;
@@ -384,10 +384,10 @@ async function buildDockerTopology() {
     { id: "cosmos-reason2-8b", label: "cosmos VLM (NIM)", type: "service", position: { x: COL(2), y: ROW(1) } },
 
     // AGENT / UI col 3
-    { id: "vss-agent", label: "vss-agent", type: "service", position: { x: COL(3), y: ROW(0) } },
-    { id: "vss-va-mcp", label: "vss-va-mcp", type: "service", position: { x: COL(3), y: ROW(1) } },
-    { id: "metropolis-vss-ui", label: "metropolis UI", type: "service", position: { x: COL(3), y: ROW(2) } },
-    { id: "vss-console", label: "vss-console (Scality)", type: "service", position: { x: COL(3), y: ROW(3) } },
+    { id: "nvidia-vss-agent", label: "nvidia-vss-agent", type: "service", position: { x: COL(3), y: ROW(0) } },
+    { id: "nvidia-vss-va-mcp", label: "nvidia-vss-va-mcp", type: "service", position: { x: COL(3), y: ROW(1) } },
+    { id: "metropolis-nvidia-vss-ui", label: "metropolis UI", type: "service", position: { x: COL(3), y: ROW(2) } },
+    { id: "nvidia-vss-console", label: "nvidia-vss-console (Scality)", type: "service", position: { x: COL(3), y: ROW(3) } },
 
     // STORAGE / MESSAGING (lower band)
     { id: "centralizedb-dev", label: "centralizedb (postgres)", type: "database", position: { x: COL(1), y: ROW(6) } },
@@ -395,7 +395,7 @@ async function buildDockerTopology() {
     { id: "mdx-kafka", label: "kafka", type: "service", position: { x: COL(3), y: ROW(6) } },
     { id: "mdx-elastic", label: "elasticsearch", type: "service", position: { x: COL(4), y: ROW(5) } },
     { id: "mdx-logstash", label: "logstash", type: "service", position: { x: COL(4), y: ROW(6) } },
-    { id: "vss-video-analytics-api-alerts", label: "video-analytics-api", type: "service", position: { x: COL(4), y: ROW(2) } },
+    { id: "nvidia-vss-video-analytics-api-alerts", label: "video-analytics-api", type: "service", position: { x: COL(4), y: ROW(2) } },
 
     // OBSERVABILITY col 4
     { id: "phoenix", label: "phoenix (traces)", type: "service", position: { x: COL(4), y: ROW(0) } },
@@ -433,17 +433,17 @@ async function buildDockerTopology() {
     { id: "stream-vlm", source: "envoy-streamprocessing", target: "rtvi-vlm", protocol: "HTTP" },
     { id: "vlm-nim", source: "rtvi-vlm", target: "cosmos-reason2-8b", protocol: "OpenAI/HTTP" },
     { id: "vlm-kafka", source: "rtvi-vlm", target: "mdx-kafka", protocol: "mdx-vlm" },
-    { id: "agent-vlm", source: "vss-agent", target: "rtvi-vlm", protocol: "HTTP" },
-    { id: "agent-mcp", source: "vss-agent", target: "vss-va-mcp", protocol: "MCP" },
-    { id: "agent-db", source: "vss-agent", target: "centralizedb-dev", protocol: "SQL" },
-    { id: "ui-agent", source: "metropolis-vss-ui", target: "vss-agent", protocol: "HTTP" },
-    { id: "console-agent", source: "vss-console", target: "vss-agent", protocol: "HTTP" },
-    { id: "console-jsonl", source: "rtvi-vlm", target: "vss-console", protocol: "SSE→JSONL", dormant: true },
+    { id: "agent-vlm", source: "nvidia-vss-agent", target: "rtvi-vlm", protocol: "HTTP" },
+    { id: "agent-mcp", source: "nvidia-vss-agent", target: "nvidia-vss-va-mcp", protocol: "MCP" },
+    { id: "agent-db", source: "nvidia-vss-agent", target: "centralizedb-dev", protocol: "SQL" },
+    { id: "ui-agent", source: "metropolis-nvidia-vss-ui", target: "nvidia-vss-agent", protocol: "HTTP" },
+    { id: "console-agent", source: "nvidia-vss-console", target: "nvidia-vss-agent", protocol: "HTTP" },
+    { id: "console-jsonl", source: "rtvi-vlm", target: "nvidia-vss-console", protocol: "SSE→JSONL", dormant: true },
     { id: "sensor-db", source: "sensor-ms-dev", target: "centralizedb-dev", protocol: "SQL" },
     { id: "sensor-redis", source: "sensor-ms-dev", target: "mdx-redis", protocol: "events" },
-    { id: "kafka-api", source: "mdx-kafka", target: "vss-video-analytics-api-alerts", protocol: "consume" },
+    { id: "kafka-api", source: "mdx-kafka", target: "nvidia-vss-video-analytics-api-alerts", protocol: "consume" },
     { id: "es-logs", source: "mdx-logstash", target: "mdx-elastic", protocol: "Beats" },
-    { id: "es-api", source: "vss-video-analytics-api-alerts", target: "mdx-elastic", protocol: "index" },
+    { id: "es-api", source: "nvidia-vss-video-analytics-api-alerts", target: "mdx-elastic", protocol: "index" },
     { id: "kibana-es", source: "mdx-kibana", target: "mdx-elastic", protocol: "query" },
     { id: "stream-storage", source: "streamprocessing-ms-dev", target: "objectstore", protocol: "S3 PUT" },
   ];

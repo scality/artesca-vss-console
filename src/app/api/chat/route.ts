@@ -1,15 +1,15 @@
 /**
  * POST /api/chat
  *
- * Console-side proxy to the vss-agent's OpenAI-compatible /chat endpoint.
- * vss-agent listens on host port 8000 in the upstream blueprint compose
+ * Console-side proxy to the nvidia-vss-agent's OpenAI-compatible /chat endpoint.
+ * nvidia-vss-agent listens on host port 8000 in the upstream blueprint compose
  * network; from inside the console container we reach it as
  * `http://envoy-streamprocessing:8000` or, since envoy is on host network,
  * via the host's internal IP. Override VSS_AGENT_URL when the upstream
  * placement differs.
  *
  * Body: { messages: [{ role: "user" | "assistant" | "system", content: string }] }
- * Returns the vss-agent's OpenAI ChatCompletion shape verbatim — the
+ * Returns the nvidia-vss-agent's OpenAI ChatCompletion shape verbatim — the
  * console's /chat page reads `choices[0].message.content` and renders it.
  *
  * Auth: gated by the same NextAuth session as the rest of the console.
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     if (!resp.ok) {
       const text = await resp.text();
       return NextResponse.json(
-        { error: `vss-agent HTTP ${resp.status}: ${text.slice(0, 300)}` },
+        { error: `nvidia-vss-agent HTTP ${resp.status}: ${text.slice(0, 300)}` },
         { status: 502 },
       );
     }
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(data);
   } catch (e) {
     return NextResponse.json(
-      { error: `vss-agent unreachable: ${(e as Error).message}` },
+      { error: `nvidia-vss-agent unreachable: ${(e as Error).message}` },
       { status: 503 },
     );
   }

@@ -29,7 +29,7 @@
     "vision-llm-responses": { "topic": "vision-llm-responses", "consumerLagMsgs": 0 }
   },
   "s3": {
-    "bucket": "vss-video",
+    "bucket": "nvidia-vss-video",
     "objectCount": 0,
     "bytesTotal": 0,
     "growth24h": 0

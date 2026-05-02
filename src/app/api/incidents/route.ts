@@ -5,7 +5,7 @@ import { CLUSTER } from "@/lib/cluster-refs";
 
 export const dynamic = "force-dynamic";
 
-// k8s runtime: alert-worker exposes :9100 via hostPort (k8s/vss/alerts/);
+// k8s runtime: alert-worker exposes :9100 via hostPort (k8s/nvidia-vss/alerts/);
 // console reads via the ClusterIP service. ALERT_WORKER_URL overrides.
 const ALERT_WORKER_URL = CLUSTER.alertWorker.url;
 

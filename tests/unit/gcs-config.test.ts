@@ -65,7 +65,7 @@ function resetFsMocks() {
 
 const VALID_CAMERA_LIST: CameraList = {
   schema: "isv-labs.cameras.v1",
-  instance: "vss-brev-1",
+  instance: "nvidia-vss-brev-1",
   updatedAt: "2026-04-28T22:00:00Z",
   updatedBy: "stephane.richard@scality.com",
   cameras: [
@@ -89,7 +89,7 @@ afterEach(() => {
 describe("gcsCamerasGet", () => {
   it("returns null when the object does not exist (No URLs matched)", async () => {
     mockExecFileError(1, "CommandException: No URLs matched");
-    const result = await gcsCamerasGet("vss-brev-1");
+    const result = await gcsCamerasGet("nvidia-vss-brev-1");
     expect(result).toBeNull();
   });
 
@@ -100,13 +100,13 @@ describe("gcsCamerasGet", () => {
         callback(err);
       },
     );
-    const result = await gcsCamerasGet("vss-brev-1");
+    const result = await gcsCamerasGet("nvidia-vss-brev-1");
     expect(result).toBeNull();
   });
 
   it("returns parsed CameraList when the object exists", async () => {
     mockExecFileSuccess(JSON.stringify(VALID_CAMERA_LIST));
-    const result = await gcsCamerasGet("vss-brev-1");
+    const result = await gcsCamerasGet("nvidia-vss-brev-1");
     expect(result).not.toBeNull();
     expect(result?.schema).toBe("isv-labs.cameras.v1");
     expect(result?.cameras).toHaveLength(2);
@@ -117,7 +117,7 @@ describe("gcsCamerasGet", () => {
     const badSchema = { ...VALID_CAMERA_LIST, schema: "isv-labs.cameras.v0" };
     mockExecFileSuccess(JSON.stringify(badSchema));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => void 0);
-    const result = await gcsCamerasGet("vss-brev-1");
+    const result = await gcsCamerasGet("nvidia-vss-brev-1");
     expect(result).toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("schema mismatch"));
   });
@@ -126,32 +126,32 @@ describe("gcsCamerasGet", () => {
     const v2 = { ...VALID_CAMERA_LIST, schema: "isv-labs.cameras.v2" };
     mockExecFileSuccess(JSON.stringify(v2));
     vi.spyOn(console, "warn").mockImplementation(() => void 0);
-    expect(await gcsCamerasGet("vss-brev-1")).toBeNull();
+    expect(await gcsCamerasGet("nvidia-vss-brev-1")).toBeNull();
   });
 
   it("returns null when cameras field is missing", async () => {
     const { cameras: _c, ...noCams } = VALID_CAMERA_LIST;
     mockExecFileSuccess(JSON.stringify(noCams));
     vi.spyOn(console, "warn").mockImplementation(() => void 0);
-    expect(await gcsCamerasGet("vss-brev-1")).toBeNull();
+    expect(await gcsCamerasGet("nvidia-vss-brev-1")).toBeNull();
   });
 
   it("returns null on invalid JSON", async () => {
     mockExecFileSuccess("not valid json {{{");
     vi.spyOn(console, "warn").mockImplementation(() => void 0);
-    expect(await gcsCamerasGet("vss-brev-1")).toBeNull();
+    expect(await gcsCamerasGet("nvidia-vss-brev-1")).toBeNull();
   });
 
   it("invokes gcloud storage cat with the correct GCS URL", async () => {
     mockExecFileSuccess(JSON.stringify(VALID_CAMERA_LIST));
-    await gcsCamerasGet("vss-my-instance");
+    await gcsCamerasGet("nvidia-vss-my-instance");
     const calls = (childProcess.execFile as unknown as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls.length).toBeGreaterThan(0);
     const [cmd, args] = calls[0] as [string, string[]];
     expect(cmd).toBe("gcloud");
     expect(args[0]).toBe("storage");
     expect(args[1]).toBe("cat");
-    expect(args[2]).toContain("cameras/vss-my-instance.json");
+    expect(args[2]).toContain("cameras/nvidia-vss-my-instance.json");
   });
 });
 
@@ -166,7 +166,7 @@ describe("gcsCamerasPut", () => {
     expect(cmd).toBe("gcloud");
     expect(args[0]).toBe("storage");
     expect(args[1]).toBe("cp");
-    expect(args[3]).toContain("cameras/vss-brev-1.json");
+    expect(args[3]).toContain("cameras/nvidia-vss-brev-1.json");
   });
 
   it("stamps updatedAt before writing (not the original input value)", async () => {
@@ -231,7 +231,7 @@ describe("gcsHealthCheck", () => {
 
 const VALID_PROMPT_CONFIG: PromptConfig = {
   schema: "isv-labs.prompt.v1",
-  instance: "vss-brev-1",
+  instance: "nvidia-vss-brev-1",
   updatedAt: "2026-04-28T22:00:00Z",
   updatedBy: "stephane.richard@scality.com",
   prompt: "You are a retail surveillance assistant. Detect theft.",
@@ -241,12 +241,12 @@ const VALID_PROMPT_CONFIG: PromptConfig = {
 describe("gcsPromptGet", () => {
   it("returns null when the object does not exist (No URLs matched)", async () => {
     mockExecFileError(1, "CommandException: No URLs matched");
-    expect(await gcsPromptGet("vss-brev-1")).toBeNull();
+    expect(await gcsPromptGet("nvidia-vss-brev-1")).toBeNull();
   });
 
   it("returns parsed PromptConfig when the object exists", async () => {
     mockExecFileSuccess(JSON.stringify(VALID_PROMPT_CONFIG));
-    const result = await gcsPromptGet("vss-brev-1");
+    const result = await gcsPromptGet("nvidia-vss-brev-1");
     expect(result).not.toBeNull();
     expect(result?.schema).toBe("isv-labs.prompt.v1");
     expect(result?.prompt).toBe(VALID_PROMPT_CONFIG.prompt);
@@ -256,14 +256,14 @@ describe("gcsPromptGet", () => {
     const bad = { ...VALID_PROMPT_CONFIG, schema: "isv-labs.prompt.v0" };
     mockExecFileSuccess(JSON.stringify(bad));
     vi.spyOn(console, "warn").mockImplementation(() => void 0);
-    const result = await gcsPromptGet("vss-brev-1");
+    const result = await gcsPromptGet("nvidia-vss-brev-1");
     expect(result).toBeNull();
   });
 
   it("returns null on invalid JSON", async () => {
     mockExecFileSuccess("not valid json {{{");
     vi.spyOn(console, "warn").mockImplementation(() => void 0);
-    expect(await gcsPromptGet("vss-brev-1")).toBeNull();
+    expect(await gcsPromptGet("nvidia-vss-brev-1")).toBeNull();
   });
 
   it("invokes gcloud storage cat with the correct GCS URL", async () => {
@@ -289,7 +289,7 @@ describe("gcsPromptPut", () => {
     expect(cmd).toBe("gcloud");
     expect(args[0]).toBe("storage");
     expect(args[1]).toBe("cp");
-    expect(args[3]).toContain("prompt/vss-brev-1.json");
+    expect(args[3]).toContain("prompt/nvidia-vss-brev-1.json");
   });
 
   it("stamps updatedAt before writing", async () => {
@@ -317,7 +317,7 @@ describe("gcsPromptPut", () => {
 
 const VALID_SCENARIOS_CONFIG: ScenariosConfig = {
   schema: "isv-labs.scenarios.v1",
-  instance: "vss-brev-1",
+  instance: "nvidia-vss-brev-1",
   updatedAt: "2026-04-28T22:00:00Z",
   updatedBy: "stephane.richard@scality.com",
   scenarios: [
@@ -336,12 +336,12 @@ const VALID_SCENARIOS_CONFIG: ScenariosConfig = {
 describe("gcsScenariosGet", () => {
   it("returns null when the object does not exist (No URLs matched)", async () => {
     mockExecFileError(1, "CommandException: No URLs matched");
-    expect(await gcsScenariosGet("vss-brev-1")).toBeNull();
+    expect(await gcsScenariosGet("nvidia-vss-brev-1")).toBeNull();
   });
 
   it("returns parsed ScenariosConfig when the object exists", async () => {
     mockExecFileSuccess(JSON.stringify(VALID_SCENARIOS_CONFIG));
-    const result = await gcsScenariosGet("vss-brev-1");
+    const result = await gcsScenariosGet("nvidia-vss-brev-1");
     expect(result).not.toBeNull();
     expect(result?.schema).toBe("isv-labs.scenarios.v1");
     expect(result?.scenarios).toHaveLength(1);
@@ -352,13 +352,13 @@ describe("gcsScenariosGet", () => {
     const bad = { ...VALID_SCENARIOS_CONFIG, schema: "isv-labs.scenarios.v0" };
     mockExecFileSuccess(JSON.stringify(bad));
     vi.spyOn(console, "warn").mockImplementation(() => void 0);
-    expect(await gcsScenariosGet("vss-brev-1")).toBeNull();
+    expect(await gcsScenariosGet("nvidia-vss-brev-1")).toBeNull();
   });
 
   it("returns null on invalid JSON", async () => {
     mockExecFileSuccess("not valid json {{{");
     vi.spyOn(console, "warn").mockImplementation(() => void 0);
-    expect(await gcsScenariosGet("vss-brev-1")).toBeNull();
+    expect(await gcsScenariosGet("nvidia-vss-brev-1")).toBeNull();
   });
 
   it("invokes gcloud storage cat with the correct GCS URL", async () => {
@@ -384,7 +384,7 @@ describe("gcsScenariosPut", () => {
     expect(cmd).toBe("gcloud");
     expect(args[0]).toBe("storage");
     expect(args[1]).toBe("cp");
-    expect(args[3]).toContain("scenarios/vss-brev-1.json");
+    expect(args[3]).toContain("scenarios/nvidia-vss-brev-1.json");
   });
 
   it("stamps updatedAt before writing", async () => {

@@ -23,5 +23,5 @@ labels:
 # .github/workflows/build-console.yml.  Do not edit by hand in production —
 # use the CI-generated sha-<short-sha> tags.
 images:
-- name: ghcr.io/scality/isv-nvidia-vss/console
+- name: ghcr.io/scality/isv-nvidia-nvidia-vss/console
   newTag: latest

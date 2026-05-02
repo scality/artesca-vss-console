@@ -3,7 +3,7 @@ name: build-console
 # Triggers: push to main when console sources or this workflow change.
 # PRs that touch the same paths run lint + tests + build but do not push.
 #
-# GHCR image: ghcr.io/scality/isv-nvidia-vss/console
+# GHCR image: ghcr.io/scality/isv-nvidia-nvidia-vss/console
 # Two tags on push to main:
 #   :latest
 #   :sha-<7-char short SHA>
@@ -108,8 +108,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/scality/isv-nvidia-vss/console:latest
-            ghcr.io/scality/isv-nvidia-vss/console:sha-${{ steps.sha.outputs.short }}
+            ghcr.io/scality/isv-nvidia-nvidia-vss/console:latest
+            ghcr.io/scality/isv-nvidia-nvidia-vss/console:sha-${{ steps.sha.outputs.short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -118,7 +118,7 @@ jobs:
         env:
           SHORT_SHA: ${{ steps.sha.outputs.short }}
         run: |
-          IMAGE="ghcr.io/scality/isv-nvidia-vss/console:sha-${SHORT_SHA}"
+          IMAGE="ghcr.io/scality/isv-nvidia-nvidia-vss/console:sha-${SHORT_SHA}"
           echo "Pushed: ${IMAGE}"
           echo ""
           echo "To deploy on the ARTESCA node:"

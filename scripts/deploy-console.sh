@@ -168,7 +168,7 @@ if [ ! -f "$SECRETS_FILE" ]; then
 
   # Camera-sim SSH key — reuse the EC2 key-pair file (same pem authorizes
   # artesca-os on both hosts per repo convention).
-  SSH_KEY_FILE="${CAMERA_SIM_KEY_FILE:-$HOME/.ssh/${KEY_NAME:-isv-nvidia-vss}.pem}"
+  SSH_KEY_FILE="${CAMERA_SIM_KEY_FILE:-$HOME/.ssh/${KEY_NAME:-isv-nvidia-nvidia-vss}.pem}"
   [ -f "$SSH_KEY_FILE" ] || {
     echo "ERROR: $SSH_KEY_FILE missing — cannot embed camera-sim SSH key" >&2
     exit 1
@@ -256,7 +256,7 @@ echo "==> creating host directory for console PV (/srv/scality/console-data)"
 # Same salt-call pattern as bootstrap-rtvi.sh + bootstrap-vst.sh —
 # artesca-os sudoers blocks mkdir/chmod but permits salt-call, which
 # runs as root on the node.
-KEY_PATH_HOST="${KEY_PATH:-$HOME/.ssh/${KEY_NAME:-isv-nvidia-vss}.pem}"
+KEY_PATH_HOST="${KEY_PATH:-$HOME/.ssh/${KEY_NAME:-isv-nvidia-nvidia-vss}.pem}"
 ssh -i "$KEY_PATH_HOST" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
   -o ConnectTimeout=10 "${SSH_USER:-artesca-os}@$PUB_IP" \
   "sudo -n salt-call --local --out=quiet cmd.run '
@@ -288,7 +288,7 @@ LOCAL_IMAGE_NAME="console.local"
 
 # ---------------------------------------------------------------------------
 # Apply the kustomize stack with the local image override. A tmp overlay
-# rewrites ghcr.io/scality/isv-nvidia-vss/console:latest ->
+# rewrites ghcr.io/scality/isv-nvidia-nvidia-vss/console:latest ->
 # console.local:<git-hash> and forces imagePullPolicy: Never so kubelet
 # never attempts a registry pull.
 # ---------------------------------------------------------------------------
@@ -345,7 +345,7 @@ if [[ -z "$S3_ENDPOINT_VALUE" ]]; then
   S3_ENDPOINT_VALUE="https://s3.${BASE_DOMAIN}"
 fi
 if [[ -z "$S3_BUCKET_VALUE" ]]; then
-  S3_BUCKET_VALUE="vss-video"
+  S3_BUCKET_VALUE="nvidia-vss-video"
 fi
 echo "==> S3_ENDPOINT=$S3_ENDPOINT_VALUE  S3_BUCKET=$S3_BUCKET_VALUE"
 
@@ -383,7 +383,7 @@ for d in docs:
         if s3_endpoint == "" or "<base-domain>" in s3_endpoint:
             data["S3_ENDPOINT"] = s3_endpoint_value
         s3_bucket = data.get("S3_BUCKET", "") or ""
-        if s3_bucket in ("", "vss-video"):
+        if s3_bucket in ("", "nvidia-vss-video"):
             data["S3_BUCKET"] = s3_bucket_value
 yaml.safe_dump_all([d for d in docs if d], sys.stdout, default_flow_style=False)
 ' "$IMAGE_REPO" "$NODE_HOSTNAME" "$CAMSIM_PUB_IP" "$S3_ENDPOINT_VALUE" "$S3_BUCKET_VALUE" \

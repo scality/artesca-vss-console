@@ -4,7 +4,7 @@
 //
 // Resolution order:
 //   1. Server-side cache (/data/clip-cache/<sensor>-<ts>/index.m3u8) — hit → serve.
-//   2. S3 bucket `vss-video`: key `<sensor>/<ts-rounded>.mp4`.
+//   2. S3 bucket `nvidia-vss-video`: key `<sensor>/<ts-rounded>.mp4`.
 //   3. VST clip endpoint: http://sensor-ms.vst.svc.cluster.local:5010/...
 //
 // Response headers:

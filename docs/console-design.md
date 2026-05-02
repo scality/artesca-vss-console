@@ -54,7 +54,7 @@ able to run the demo from one browser tab, not four tabs plus a terminal.
 | 3 | **Auth**: Single shared password in K8s Secret (`console-auth`). `next-auth@5` credentials provider. | No user model, no reset flow, no email. Rotation via `/settings` regenerates the Secret via K8s API. |
 | 4 | **AWS launch/teardown**: Out of scope (owned by `web/:5002` and the menubar). | Removes one whole page set (provisioning, instance lifecycle) and simplifies RBAC to in-cluster only. |
 | 5 | **EC2 stop/start**: Out of scope (menubar owns it). | — |
-| 6 | **Incident drill-in playback**: Click an incident → play the source VST-recorded clip in-browser via HLS. Server-side fetches the clip from ARTESCA S3 (`vss-video` bucket) OR proxies VST's clip endpoint; if only MP4/TS is available, ffmpeg sidecar transcodes to HLS on demand. Browser uses `hls.js` for cross-browser playback. | Adds `/api/clips/:sensor/:ts` SSE + HLS endpoint; adds ~2 dev-days to Phase 6. |
+| 6 | **Incident drill-in playback**: Click an incident → play the source VST-recorded clip in-browser via HLS. Server-side fetches the clip from ARTESCA S3 (`nvidia-vss-video` bucket) OR proxies VST's clip endpoint; if only MP4/TS is available, ffmpeg sidecar transcodes to HLS on demand. Browser uses `hls.js` for cross-browser playback. | Adds `/api/clips/:sensor/:ts` SSE + HLS endpoint; adds ~2 dev-days to Phase 6. |
 | 7 | **Camera model**: One camera has **N feeds** (default 2, matching the Pyramid 2-lens camera rail; 4+ allowed). Each feed is a separate RTSP source registered into VST as its own sensor. Naming: sensor_id = `<camera-id>-<feed-id>` e.g. `checkout-1-a`, `checkout-1-b`. | Revised TypeScript data model (below). The alert worker's `sensor_filter` glob still works (`checkout-*` matches both `checkout-1-a` and `checkout-1-b`). |
 | 8 | **Editing scope**: All eight surfaces editable. Cameras (add/edit/remove, with N feeds each), scenario rules (keywords, sensor_filter, severity, cooldown-per-scenario), VLM system prompt, alert-worker env (cooldown, Slack webhook), rtvi-vlm tuning (max_num_seqs, KV cache %, max_model_len), manual rollout-restarts, demo-data controls (on/off, tick rate, match probability), NIM model swap (cosmos-reason2 ↔ cosmos-reason1 ↔ future NVILA-Lite). Plus: **named demo profiles** (save/load the whole scenario+prompt+camera config), **mediamtx path management**, **secret rotation UI** (NGC key, NVIDIA API key, HuggingFace token, Slack webhook). | Biggest scope expansion. Adds one Profiles page + one Secrets page + inline model-swap control on Prompt page. |
 
@@ -124,7 +124,7 @@ not to Vercel).
 | `kafkajs` | — | Live Kafka consumer for the incident + VLM message stream |
 | `ioredis` | — | Alert-worker Redis (queue + counters + cooldown keys) |
 | `ssh2` or `node-ssh` | — | Writes to `/opt/camera-sim/cameras.yaml` + `mediamtx.yml` + `systemctl restart` on the camera-sim instance |
-| `@aws-sdk/client-s3` | — | Count `vss-video` objects, compute growth rate |
+| `@aws-sdk/client-s3` | — | Count `nvidia-vss-video` objects, compute growth rate |
 | `@xyflow/react` (React Flow) | Recharts alone | Interactive topology graph with live status on each node |
 | `@monaco-editor/react` | Textareas | VLM prompt editor with YAML/Markdown syntax highlight + diff view |
 | `eventsource-parser` + Next.js Route Handlers streaming | WebSockets | Server-Sent Events for logs + Kafka stream — simpler than WS, one-way, plays nicely with Next.js Route Handlers |
@@ -169,14 +169,14 @@ others are hidden in kiosk mode.
 | `/topology` | [kiosk] | Interactive **React Flow** diagram — nodes = services, edges = connections (RTSP, gRPC, Kafka, HTTP). Live-colored by health. Click a node for its detail panel. |
 | `/incidents` | [kiosk] | Live feed (replaces the standalone alert dashboard for console users). Filter by scenario / sensor / severity / time-window. Click an incident → **play the source clip** (HLS via `hls.js`, server-side ffmpeg proxy from ARTESCA S3) + raw Kafka payload + thumbnail. |
 | `/cameras` | — | Table of cameras, each with N feeds (default 2 per Pyramid rail). Per-camera actions: edit / remove / restart. Per-feed actions: swap `.ts` file / disable / re-register. "Add camera" dialog uploads one or more `.ts` files → SCP to camera-sim → patch ConfigMap + restart replay + re-run register Job. |
-| `/scenarios` | — | Table of scenario rules (from `k8s/vss/alerts/12-configmap-scenarios.yaml`). Inline edit per row: keywords (chips), sensor_filter (glob input with live match preview against current camera feeds), severity, channels, **per-scenario cooldown override**, enabled. Save issues `kubectl patch configmap` + rollout-restart of the alert-worker. |
+| `/scenarios` | — | Table of scenario rules (from `k8s/nvidia-vss/alerts/12-configmap-scenarios.yaml`). Inline edit per row: keywords (chips), sensor_filter (glob input with live match preview against current camera feeds), severity, channels, **per-scenario cooldown override**, enabled. Save issues `kubectl patch configmap` + rollout-restart of the alert-worker. |
 | `/prompt` | — | **VLM prompt editor** (Monaco). Current prompt in one pane; diff vs proposed in the other. "Preview" button sends a test message to the NIM and shows the response. Inline **NIM model swap** selector (cosmos-reason2 ↔ cosmos-reason1) rewrites the rtvi-vlm + NIM ConfigMaps and rollout-restarts both Deployments. "Save + restart" writes the ConfigMap + rollout-restart of rtvi-vlm. |
 | `/tuning` | — | Knobs for rtvi-vlm (`max_num_seqs`, `kv_cache_percent`, `max_model_len`), alert worker (global `cooldown_seconds`, Slack webhook), and **VST ingest** (`always_recording` / `event_recording` mode, `event_record_length_secs`, `default_gov_length`, `supported_video_codecs`, `storage_threshold_percentage`, `default_file_expiry_minutes`). Form edits → ConfigMap patches → rollout-restart the affected Deployment. VST form shows live observed bitrate + GoP per camera next to the inputs so the operator sees the impact of a change. |
 | `/demo-data` | — | Toggle the synthetic demo-data producer (scale 0 ↔ 1). Tick rate + match probability sliders → `kubectl set env`. Quick "rehearsal mode" button that scales to 1 with high match probability for a 60 s burst. |
 | `/profiles` | — | **Save / load named demo profiles** — a profile bundles scenarios + VLM prompt + cameras + rtvi tuning + alert tuning + NIM model into one object stored in a `console-profiles` ConfigMap. Use cases: "pyramid-jun-8" config snapshotted after rehearsal; "aarco-oct" variant; roll back to a known-good before a new demo. Load applies every component atomically. |
 | `/secrets` | — | **Secret rotation UI** — NGC key, NVIDIA API key, HuggingFace token, Slack webhook, console auth password. Paste a new value, confirm, and the console patches the target K8s Secret + rolls the consuming Deployment. |
 | `/logs` | — | Log streamer — pick a pod + container → live tail via SSE. Filter regex, pause/resume, download last N lines. Camera-sim `journalctl -fu camera-sim` available via an SSH tail. |
-| `/diagnostics` | — | On-demand runs of `scripts/validate-manifests.sh`, smoke tests per phase, `kubectl get events -A`, `nvidia-smi`, `kubectl top`. **VST Storage panel**: live S3 PUT rate + bytes/sec to `vss-video`, local `vst-video` emptyDir fill % against its 500 GiB limit, segment size distribution (last 200 objects), recorder frame-drop counter, last 20 objects in the bucket with sensor_id / timestamp / size. Results rendered inline. |
+| `/diagnostics` | — | On-demand runs of `scripts/validate-manifests.sh`, smoke tests per phase, `kubectl get events -A`, `nvidia-smi`, `kubectl top`. **VST Storage panel**: live S3 PUT rate + bytes/sec to `nvidia-vss-video`, local `vst-video` emptyDir fill % against its 500 GiB limit, segment size distribution (last 200 objects), recorder frame-drop counter, last 20 objects in the bucket with sensor_id / timestamp / size. Results rendered inline. |
 | `/settings` | — | Console-level config: **Network access** sub-panel — CIDR allow-list for `:8800` with add/remove (writes to the EC2 SG via `console-aws` creds + audit log). Kiosk-mode toggle persistence, feature flags, SSH key rotation for camera-sim, inspect current ServiceAccount permissions. |
 | `/about` | — | Build info (git SHA, Next.js / Node versions), links to all docs, list of underlying service URLs, cross-link to the pre-install [`web/`](../deployer/) dashboard at `:5002`. |
 
@@ -192,23 +192,23 @@ All under `src/app/api/*`. JSON in + out except SSE streams.
 | GET | `/api/pods?ns=<ns>` | Pods in a namespace with summary status |
 | GET | `/api/pods/:ns/:name` | Single pod detail |
 | GET | `/api/cameras` | Registered sensors (VST) + replay-side sources (camera-sim) unified |
-| GET | `/api/scenarios` | Parsed `k8s/vss/alerts/12-configmap-scenarios.yaml` |
+| GET | `/api/scenarios` | Parsed `k8s/nvidia-vss/alerts/12-configmap-scenarios.yaml` |
 | GET | `/api/prompt` | Current VLM system prompt |
 | GET | `/api/incidents?limit=50` | Recent incidents (proxies alert-worker `/api/incidents/recent`) |
 | GET | `/api/gpu` | `nvidia-smi` output parsed as JSON |
 | GET | `/api/topology` | Nodes + edges for React Flow, with live health |
 | GET | `/api/tuning/vst` | Current subset of `vst-config` ConfigMap (recording mode, GoP, codecs, storage thresholds, file expiry) + per-camera observed bitrate / GoP from `:30000/api/v1/sensor/list` |
-| GET | `/api/storage/vst` | `vss-video` object count + bytes + recent-object listing (S3 `ListObjectsV2` limit=20 sorted by LastModified), local `vst-video` emptyDir fill % (`kubectl exec sensor-ms -- df`), segment-size histogram from last 200 S3 objects, frame-drop counter from `sensor-ms` Prometheus at `:8080/metrics` |
+| GET | `/api/storage/vst` | `nvidia-vss-video` object count + bytes + recent-object listing (S3 `ListObjectsV2` limit=20 sorted by LastModified), local `vst-video` emptyDir fill % (`kubectl exec sensor-ms -- df`), segment-size histogram from last 200 S3 objects, frame-drop counter from `sensor-ms` Prometheus at `:8080/metrics` |
 
 ### Write
 
 | Method | Path | Action |
 | --- | --- | --- |
-| POST | `/api/cameras` | Add camera — dual-write: SCP to camera-sim + patch `k8s/vss/pyramid-ingress/11-configmap-cameras.yaml` + restart both sides |
+| POST | `/api/cameras` | Add camera — dual-write: SCP to camera-sim + patch `k8s/nvidia-vss/pyramid-ingress/11-configmap-cameras.yaml` + restart both sides |
 | PATCH | `/api/cameras/:id` | Update a camera — same dual-write path |
 | DELETE | `/api/cameras/:id` | Remove — dual-unwrite |
 | PATCH | `/api/scenarios` | Patch the entire scenarios ConfigMap + rollout-restart alert-worker |
-| PATCH | `/api/prompt` | Patch `RTVI_VLM_SYSTEM_PROMPT` in `k8s/vss/rtvi/11-configmap-runtime-env.yaml` + rollout-restart rtvi-vlm |
+| PATCH | `/api/prompt` | Patch `RTVI_VLM_SYSTEM_PROMPT` in `k8s/nvidia-vss/rtvi/11-configmap-runtime-env.yaml` + rollout-restart rtvi-vlm |
 | POST | `/api/restart/:component` | Rollout restart a Deployment or StatefulSet — whitelisted set |
 | POST | `/api/prompt/preview` | Send a one-shot prompt to the NIM, return the VLM response (dry-run) |
 | PATCH | `/api/tuning/vst` | Patch the `vst-config` ConfigMap (guarded subset only — recording mode, GoP, codecs, thresholds, expiry) + rollout-restart `sensor-ms` + `streamprocessing-ms`. Rejects changes that flip `cloud_storage_*` fields — those rotate through `/secrets`, not `/tuning`. |
@@ -407,7 +407,7 @@ Role `console-writer` in each of the 6 namespaces (`vst`, `rtvi`, `agent`,
 
 - `.github/workflows/build-console.yml` — builds on push to `main` touching
   `console/**` or the workflow, pushes
-  `ghcr.io/scality/isv-nvidia-vss/console:sha-<short>` + `:latest`.
+  `ghcr.io/scality/isv-nvidia-nvidia-vss/console:sha-<short>` + `:latest`.
 - SHA-pinned actions (checkout@v4, setup-node@v4, docker/setup-buildx-action@v3,
   docker/login-action@v3, docker/build-push-action@v6).
 - Multi-stage Dockerfile: deps → build → runner. Final image runs as uid 1001.
@@ -488,11 +488,11 @@ All remaining implementation questions resolved.
 
 | # | Decision | Impact |
 | --- | --- | --- |
-| G | **GPU metrics: DCGM exporter → Prometheus → Grafana.** Not `kubectl exec nvidia-smi`. | Adds a foundational observability layer (new `k8s/vss/observability/` namespace). Console reads GPU metrics from Prometheus, gets history graphs for free. Same stack benefits future Kafka / pod-level metrics. +1 dev-day (new phase 10). |
+| G | **GPU metrics: DCGM exporter → Prometheus → Grafana.** Not `kubectl exec nvidia-smi`. | Adds a foundational observability layer (new `k8s/nvidia-vss/observability/` namespace). Console reads GPU metrics from Prometheus, gets history graphs for free. Same stack benefits future Kafka / pod-level metrics. +1 dev-day (new phase 10). |
 | H | **Camera-sim SSH key rotation: 90-day nag banner.** `/settings` flashes red when the key is > 90 days old. | UI-only: timestamp stored alongside the key in `console-data` SQLite; banner component on `/settings` and `/secrets`. |
 | I | **AWS creds rotation: 90-day nag banner.** Same pattern as (H). | Same UI-only change. |
 | J | **Preview NIM model: NVILA-Lite-2B.** Not Cosmos 1 7B — 14 GB weights + 16 GB primary = 30 GB won't fit even on L40S if we also want real KV cache. NVILA-Lite 2B weights ≈ 4 GB, proven on L4 per Rahul Padigela's Dec 2025 POC. | Smaller + faster preview (~1 min warmup vs. 20+ for Cosmos 1). Preview output differs from live inference — that's a feature: if a prompt works on 2B, it's likely OK on 8B. First-line prompt iteration is cheap. |
-| K | **Instance upgrade: `g6.12xlarge` → `g6e.12xlarge` (4× L40S 48 GB).** Removes the "L4 not in blueprint profile" risk flagged in every `k8s/vss/rtvi/README.md` and gives every component memory headroom. | **+$4.60/h** ($110/day; $3,300/mo always-on). Drop-in upgrade: edit `INSTANCE_TYPE` default in `scripts/launch-stack.sh` + swap NIM `.env` to the blueprint's L40S profile (replaces our hand-tuned L4 guesses). |
+| K | **Instance upgrade: `g6.12xlarge` → `g6e.12xlarge` (4× L40S 48 GB).** Removes the "L4 not in blueprint profile" risk flagged in every `k8s/nvidia-vss/rtvi/README.md` and gives every component memory headroom. | **+$4.60/h** ($110/day; $3,300/mo always-on). Drop-in upgrade: edit `INSTANCE_TYPE` default in `scripts/launch-stack.sh` + swap NIM `.env` to the blueprint's L40S profile (replaces our hand-tuned L4 guesses). |
 
 ### Instance-type upgrade — specifics
 
@@ -532,7 +532,7 @@ without another instance-type change.
 
 ## Implementation decisions (round 4 — VST ingest exposure)
 
-Gap surfaced during live-flow review: the full VST recording/segmentation/storage config surface in [`k8s/vss/vst/11-configmap-vst-config.yaml`](../k8s/vss/vst/11-configmap-vst-config.yaml) is not editable anywhere in the UI today. Only `/cameras` (CRUD + observed bitrate display) and read-only pod status + `kubectl logs` cover VST. Operators currently have to edit YAML and rollout-restart by hand to change recording mode, GoP, local cache thresholds, or the cloud storage target.
+Gap surfaced during live-flow review: the full VST recording/segmentation/storage config surface in [`k8s/nvidia-vss/vst/11-configmap-vst-config.yaml`](../k8s/nvidia-vss/vst/11-configmap-vst-config.yaml) is not editable anywhere in the UI today. Only `/cameras` (CRUD + observed bitrate display) and read-only pod status + `kubectl logs` cover VST. Operators currently have to edit YAML and rollout-restart by hand to change recording mode, GoP, local cache thresholds, or the cloud storage target.
 
 | # | Decision | Impact |
 | --- | --- | --- |
@@ -561,8 +561,8 @@ Read-only diagnostic surface on `/diagnostics`. All numbers update every 5 s via
 
 | Widget | Source | Refresh |
 | --- | --- | --- |
-| S3 PUT rate (objects/s, MB/s) | Derived from `ListObjectsV2` on `vss-video` between two samples | 5 s |
-| `vss-video` object count + total bytes | `ListObjectsV2` with pagination | 30 s |
+| S3 PUT rate (objects/s, MB/s) | Derived from `ListObjectsV2` on `nvidia-vss-video` between two samples | 5 s |
+| `nvidia-vss-video` object count + total bytes | `ListObjectsV2` with pagination | 30 s |
 | Local `vst-video` emptyDir fill % | `kubectl exec sensor-ms -- df /home/vst/vst_release/vst_video` | 10 s |
 | Segment size histogram | Last 200 S3 objects, bucketed by size | 30 s |
 | Segment duration (empirical) | Consecutive-object timestamp deltas per sensor | 30 s |
@@ -597,7 +597,7 @@ First live run is the only remaining validation surface.
 | 7 | 0.5 day | Topology (React Flow) |
 | 8 | 0.5 day | Demo-data controls + Diagnostics |
 | 9 | 1.5 day | Profiles (SQLite-backed save/load) + Secrets rotation (incl. AWS creds + **90-day nag banners**) + Settings (**SG whitelist CRUD**) |
-| 10 | 1 day | **Observability sidecar** — DCGM exporter DaemonSet + Prometheus + Grafana in a new `k8s/vss/observability/` namespace. Console reads GPU metrics from Prometheus. |
+| 10 | 1 day | **Observability sidecar** — DCGM exporter DaemonSet + Prometheus + Grafana in a new `k8s/nvidia-vss/observability/` namespace. Console reads GPU metrics from Prometheus. |
 | 11 | 1.5 day | **VST ingest config + storage visibility** — `VstRecordingForm` on `/tuning` (guarded subset of `vst_config.json` — see round-4 decisions), `VstStoragePanel` on `/diagnostics` (S3 PUT rate, local cache fill, segment histogram, frame drops). `/api/tuning/vst` + `/api/storage/vst` routes. Playwright E2E: edit GoP in UI → ConfigMap mutates → sensor-ms rolls → new value visible on readback. |
 | Total | **~14 dev-days** | — |
 
@@ -618,5 +618,5 @@ alongside primary Cosmos 2 8B on GPU 0 without contention.
 - [`docs/demo-runbook.md`](demo-runbook.md) — operator procedures the console replaces
 - [`docs/troubleshooting.md`](troubleshooting.md) — failure modes the console should surface
 - [`docs/camera-sim-setup.md`](camera-sim-setup.md) — the camera-sim side the console writes to
-- [`k8s/vss/alerts/13-configmap-worker-code.yaml`](../k8s/vss/alerts/13-configmap-worker-code.yaml) — alert worker the console proxies
+- [`k8s/nvidia-vss/alerts/13-configmap-worker-code.yaml`](../k8s/nvidia-vss/alerts/13-configmap-worker-code.yaml) — alert worker the console proxies
 - [`CLAUDE.md`](../CLAUDE.md) — overall project rules

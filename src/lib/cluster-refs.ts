@@ -21,7 +21,7 @@
 const KAFKA_BROKERS =
   process.env.KAFKA_BROKERS ?? "redpanda.rtvi.svc.cluster.local:9092";
 
-// Topics created by k8s/vss/rtvi/20-redpanda.yaml redpanda-topic-init Job.
+// Topics created by k8s/nvidia-vss/rtvi/20-redpanda.yaml redpanda-topic-init Job.
 const KAFKA_TOPICS = {
   visionLlm: "vision-llm-messages",
   incidents: "vision-llm-events-incidents",
@@ -33,15 +33,15 @@ const KAFKA_TOPICS = {
 } as const;
 
 // ─── Redis ────────────────────────────────────────────────────────────────────
-// Redis is in namespace "vst", service name "redis" (k8s/vss/vst/21-redis.yaml).
+// Redis is in namespace "vst", service name "redis" (k8s/nvidia-vss/vst/21-redis.yaml).
 // The console's original default "alerts-redis.alerts.svc.cluster.local:6379"
 // was wrong — there is no Redis in the alerts namespace.
 const REDIS_URL =
   process.env.REDIS_URL ?? "redis://redis.vst.svc.cluster.local:6379";
 
 // ─── VST (sensor-ms) ─────────────────────────────────────────────────────────
-// sensor-ms (k8s/vss/vst/30-sensor-ms.yaml) binds :30000 (HTTP).
-// Headless Service defined in k8s/vss/vst/35-sensor-ms-service.yaml.
+// sensor-ms (k8s/nvidia-vss/vst/30-sensor-ms.yaml) binds :30000 (HTTP).
+// Headless Service defined in k8s/nvidia-vss/vst/35-sensor-ms-service.yaml.
 // VST API sensor list endpoint: GET /api/v1/live/sensor/list
 const VST_SENSOR_URL =
   process.env.VST_SENSOR_URL ??
@@ -64,7 +64,7 @@ const VST = {
 
 // ─── mediamtx ────────────────────────────────────────────────────────────────
 // mediamtx runs in the "replay-server" Deployment in namespace
-// "pyramid-ingress" (k8s/vss/pyramid-ingress/21-replay-server.yaml).
+// "pyramid-ingress" (k8s/nvidia-vss/pyramid-ingress/21-replay-server.yaml).
 // It exposes the REST API on :9997.  The console uses CAMERA_SIM_HOST as
 // the mediamtx host because mediamtx is on the camera-sim EC2 instance (same
 // host as the replay server), not inside the K8s cluster.
@@ -84,8 +84,8 @@ const PROMETHEUS_URL =
   "http://prometheus-operated.artesca-monitoring.svc.cluster.local:9090";
 
 // ─── alert-worker ────────────────────────────────────────────────────────────
-// alert-worker (k8s/vss/alerts/20-alert-worker.yaml) exposes :9100 (hostPort).
-// The headless Service is defined in k8s/vss/alerts/21-alert-worker-service.yaml.
+// alert-worker (k8s/nvidia-vss/alerts/20-alert-worker.yaml) exposes :9100 (hostPort).
+// The headless Service is defined in k8s/nvidia-vss/alerts/21-alert-worker-service.yaml.
 // DNS resolves alert-worker.alerts.svc.cluster.local to the pod/node IP
 // (headless, consistent with redpanda and redis).
 const ALERT_WORKER_URL =
@@ -93,7 +93,7 @@ const ALERT_WORKER_URL =
   "http://alert-worker.alerts.svc.cluster.local:9100";
 
 // ─── RTVI ────────────────────────────────────────────────────────────────────
-// ConfigMap "rtvi-runtime-env" in namespace "rtvi" (k8s/vss/rtvi/11-configmap-runtime-env.yaml).
+// ConfigMap "rtvi-runtime-env" in namespace "rtvi" (k8s/nvidia-vss/rtvi/11-configmap-runtime-env.yaml).
 // Key for system prompt: "RTVI_VLM_SYSTEM_PROMPT".
 // Key for model deployment name: "RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME".
 const RTVI = {
@@ -106,7 +106,7 @@ const RTVI = {
   /** rtvi-embed Deployment name. */
   embedDeployment: "rtvi-embed",
   /**
-   * NIM StatefulSet — cosmos-reason2-8b (k8s/vss/rtvi/30-nim-cosmos-reason2-8b.yaml).
+   * NIM StatefulSet — cosmos-reason2-8b (k8s/nvidia-vss/rtvi/30-nim-cosmos-reason2-8b.yaml).
    * It is a StatefulSet, not a Deployment.  The restart API route accounts for this.
    */
   nimStatefulSet: "cosmos-reason2-8b",
@@ -114,7 +114,7 @@ const RTVI = {
   /**
    * KV-cache tuning key in rtvi-runtime-env.
    * The NIM reads env var NIM_KVCACHE_PERCENT, but the ConfigMap key is
-   * VLM_NIM_KVCACHE_PERCENT (k8s/vss/rtvi/30-nim-cosmos-reason2-8b.yaml line 52-54).
+   * VLM_NIM_KVCACHE_PERCENT (k8s/nvidia-vss/rtvi/30-nim-cosmos-reason2-8b.yaml line 52-54).
    */
   nimKvCacheKey: "VLM_NIM_KVCACHE_PERCENT",
   nimMaxModelLenKey: "NIM_MAX_MODEL_LEN",
@@ -125,13 +125,13 @@ const RTVI = {
 // The k8s/console/11-configmap-env.yaml says "nvila-lite-preview" but
 // .env.example says "nim-preview".  The ConfigMap is the authoritative
 // deploy-time value; .env.example is for local dev only.
-// Flag: ASSUMED — no NIM preview Deployment found in k8s/vss/rtvi/; confirm name at deploy.
+// Flag: ASSUMED — no NIM preview Deployment found in k8s/nvidia-vss/rtvi/; confirm name at deploy.
 const NIM_PREVIEW_ENDPOINT =
   process.env.NIM_PREVIEW_ENDPOINT ??
   "http://nvila-lite-preview.rtvi.svc.cluster.local:8000";
 
 // ─── Scenarios ────────────────────────────────────────────────────────────────
-// ConfigMap name in k8s/vss/alerts/12-configmap-scenarios.yaml is "scenarios",
+// ConfigMap name in k8s/nvidia-vss/alerts/12-configmap-scenarios.yaml is "scenarios",
 // NOT "scenarios-config" as the console originally assumed.
 const SCENARIOS = {
   namespace: "alerts",
@@ -142,7 +142,7 @@ const SCENARIOS = {
 
 // ─── Alerts tuning ────────────────────────────────────────────────────────────
 // The tuning/alerts route patches env keys in a ConfigMap.  The real ConfigMap
-// is "alerts-runtime-env" (k8s/vss/alerts/11-configmap-runtime-env.yaml), NOT
+// is "alerts-runtime-env" (k8s/nvidia-vss/alerts/11-configmap-runtime-env.yaml), NOT
 // "alert-worker-config" as the console originally assumed.
 // The cooldown key is "COOLDOWN_SECONDS" — matches the console.
 const ALERTS_TUNING = {
@@ -153,7 +153,7 @@ const ALERTS_TUNING = {
 } as const;
 
 // ─── Cameras / pyramid-ingress ────────────────────────────────────────────────
-// ConfigMap name in k8s/vss/pyramid-ingress/11-configmap-cameras.yaml is "cameras",
+// ConfigMap name in k8s/nvidia-vss/pyramid-ingress/11-configmap-cameras.yaml is "cameras",
 // NOT "cameras-config" as the console originally assumed.
 //
 // Schema difference: the real cameras.yaml uses "name" and "source" per entry,
@@ -161,7 +161,7 @@ const ALERTS_TUNING = {
 // assuming the wrong schema.  The CLUSTER object exposes the CM name; schema
 // handling is fixed in cameras/route.ts.
 //
-// The register-cameras Job template (k8s/vss/pyramid-ingress/30-register-job.yaml)
+// The register-cameras Job template (k8s/nvidia-vss/pyramid-ingress/30-register-job.yaml)
 // is named "register-cameras" — matches what the console searches for.
 const CAMERAS = {
   namespace: "pyramid-ingress",
@@ -172,7 +172,7 @@ const CAMERAS = {
 
 // ─── Demo-data ────────────────────────────────────────────────────────────────
 // Deployment is "demo-producer" in namespace "demo-data"
-// (k8s/vss/demo-data/20-producer.yaml), NOT "demo-data-producer".
+// (k8s/nvidia-vss/demo-data/20-producer.yaml), NOT "demo-data-producer".
 //
 // Env var for tick rate: "TICK_SECONDS" (value is seconds as a string integer),
 // NOT "TICK_RATE_MS".
@@ -193,7 +193,7 @@ const S3 = {
     process.env.OBJECTSTORE_BUCKET ??
     process.env.S3_BUCKET ??
     process.env.VSS_VIDEO_BUCKET ??
-    "vss-video",
+    "nvidia-vss-video",
   endpoint:
     process.env.OBJECTSTORE_ENDPOINT ?? process.env.S3_ENDPOINT ?? "",
 } as const;
@@ -201,7 +201,7 @@ const S3 = {
 // ─── Restartable components ───────────────────────────────────────────────────
 // Maps console component IDs → { namespace, kind, name }.
 // cosmos-reason2-8b is a StatefulSet (not Deployment).
-// nim-preview has no Deployment in k8s/vss/rtvi/ — flagged as ASSUMED.
+// nim-preview has no Deployment in k8s/nvidia-vss/rtvi/ — flagged as ASSUMED.
 export type ComponentKind = "Deployment" | "StatefulSet";
 
 export interface ComponentSpec {
@@ -236,11 +236,11 @@ export const RESTARTABLE: Record<string, ComponentSpec> = {
     kind: "Deployment",
     name: "streamprocessing-ms",
   },
-  "vss-agent": {
-    // k8s/vss/agent/20-vss-agent.yaml — Deployment name is "vss-agent"
+  "nvidia-vss-agent": {
+    // k8s/nvidia-vss/agent/20-nvidia-vss-agent.yaml — Deployment name is "nvidia-vss-agent"
     namespace: "agent",
     kind: "Deployment",
-    name: "vss-agent",
+    name: "nvidia-vss-agent",
   },
   "demo-producer": {
     // Real name is demo-producer, not demo-data-producer
@@ -249,12 +249,12 @@ export const RESTARTABLE: Record<string, ComponentSpec> = {
     name: "demo-producer",
   },
   "cosmos-reason2-8b": {
-    // StatefulSet in k8s/vss/rtvi/30-nim-cosmos-reason2-8b.yaml
+    // StatefulSet in k8s/nvidia-vss/rtvi/30-nim-cosmos-reason2-8b.yaml
     namespace: "rtvi",
     kind: "StatefulSet",
     name: "cosmos-reason2-8b",
   },
-  // ASSUMED: nim-preview deployment not found in k8s/vss/rtvi/ manifests.
+  // ASSUMED: nim-preview deployment not found in k8s/nvidia-vss/rtvi/ manifests.
   // Operators must confirm the name at deploy time.
   "nim-preview": {
     namespace: "rtvi",

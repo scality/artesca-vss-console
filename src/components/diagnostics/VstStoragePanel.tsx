@@ -575,7 +575,7 @@ export function VstStoragePanel() {
         {/* Objects tile — with optional stale hint */}
         <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-1">
           <p className="text-xs text-muted-foreground uppercase tracking-wide">
-            Objects in vss-video
+            Objects in nvidia-vss-video
           </p>
           <p className="text-3xl font-mono font-semibold">
             {d.objectCount.toLocaleString()}

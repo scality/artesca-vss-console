@@ -22,7 +22,7 @@
       "~28 min warmup on first boot (cached ~3 min)"
     ],
     "scalityUseCase": "Primary live VLM — retail scene understanding for the Pyramid showroom demo",
-    "tags": ["blueprint-pinned", "vss-3.1"],
+    "tags": ["blueprint-pinned", "nvidia-vss-3.1"],
     "ngcCatalogUrl": "https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/containers/cosmos-reason2-8b"
   },
   {
@@ -45,7 +45,7 @@
       "Blueprint pins version 1.4.1 — not 1.5.x"
     ],
     "scalityUseCase": "Fallback primary VLM when Cosmos 2 is unavailable or for low-GPU-budget environments",
-    "tags": ["blueprint-pinned", "vss-3.1"],
+    "tags": ["blueprint-pinned", "nvidia-vss-3.1"],
     "ngcCatalogUrl": "https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/containers/cosmos-reason1-7b"
   },
   {
@@ -96,7 +96,7 @@
       "~20 min warmup on first boot"
     ],
     "scalityUseCase": "Alternate 8B VLM for future showrooms — comparable quality, adds French-language support",
-    "tags": ["vllm", "blueprint-included", "vss-3.1"],
+    "tags": ["vllm", "blueprint-included", "nvidia-vss-3.1"],
     "ngcCatalogUrl": "https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/containers/qwen3-vl-8b-instruct"
   }
 ]
