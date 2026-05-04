@@ -14,6 +14,7 @@ import {
   type NodeTypes,
   type EdgeTypes,
   type NodeMouseHandler,
+  type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -118,15 +119,17 @@ interface TopologyPayload {
 function mergeTopologyData(
   payload: TopologyPayload | null,
   snapshot: PipelineSnapshot | null,
+  savedPositions: Record<string, { x: number; y: number }>,
 ): Node<TopologyNodeData>[] {
   const apiNodes = payload?.nodes ?? [];
   return apiNodes.map((n, idx) => {
     const runtimeState = snapshot?.nodes[n.id];
     const health: PipelineHealth = runtimeState?.health ?? n.health ?? "unknown";
     const rfType = reactFlowTypeFor(n.type);
+    const apiPos = n.position ?? { x: idx * 180, y: 200 };
     return {
       id: n.id,
-      position: n.position ?? { x: idx * 180, y: 200 },
+      position: savedPositions[n.id] ?? apiPos,
       type: rfType,
       data: {
         label: n.label ?? n.sensorId ?? n.id,
@@ -167,7 +170,9 @@ function mergeTopologyEdges(
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React from "react";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle, LayoutGrid } from "lucide-react";
+
+const POSITIONS_LS_KEY = "topology:node-positions:v1";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Page
@@ -176,6 +181,29 @@ import { Loader2, AlertTriangle } from "lucide-react";
 export default function TopologyPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<TopologyNodeData>>(BASE_NODES);
   const [edges, setEdges, onEdgesChange] = useEdgesState(BASE_EDGES);
+
+  // Persist user-dragged positions in localStorage so they survive polls + reloads.
+  const savedPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
+  useEffect(() => {
+    try {
+      savedPositionsRef.current = JSON.parse(localStorage.getItem(POSITIONS_LS_KEY) ?? "{}");
+    } catch { savedPositionsRef.current = {}; }
+  }, []);
+
+  const handleNodesChange = useCallback((changes: NodeChange<Node<TopologyNodeData>>[]) => {
+    onNodesChange(changes);
+    for (const c of changes) {
+      if (c.type === "position" && c.dragging === false && c.position) {
+        savedPositionsRef.current = { ...savedPositionsRef.current, [c.id]: c.position };
+        try { localStorage.setItem(POSITIONS_LS_KEY, JSON.stringify(savedPositionsRef.current)); } catch {}
+      }
+    }
+  }, [onNodesChange]);
+
+  const resetLayout = useCallback(() => {
+    savedPositionsRef.current = {};
+    try { localStorage.removeItem(POSITIONS_LS_KEY); } catch {}
+  }, []);
 
   // Selected node for the detail panel
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -273,7 +301,7 @@ export default function TopologyPage() {
   // nodes that have disappeared (e.g. a camera feed was removed).
   const prevNodeIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const merged = mergeTopologyData(topologyPayload ?? null, snapshot);
+    const merged = mergeTopologyData(topologyPayload ?? null, snapshot, savedPositionsRef.current);
     const mergedIds = new Set(merged.map((n) => n.id));
     for (const prevId of prevNodeIdsRef.current) {
       if (!mergedIds.has(prevId)) clearNodeSparklines(prevId);
@@ -320,13 +348,22 @@ export default function TopologyPage() {
               Live service dependency graph — refreshes every 3 s
             </p>
           </div>
+          <button
+            type="button"
+            onClick={resetLayout}
+            title="Reset all node positions to defaults"
+            className="flex items-center gap-1.5 rounded border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Reset layout
+          </button>
         </div>
 
         <div className="flex-1 relative" style={{ minHeight: "calc(100vh - 8rem)" }}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
-            onNodesChange={onNodesChange}
+            onNodesChange={handleNodesChange}
             onEdgesChange={onEdgesChange}
             onNodeClick={onNodeClick}
             nodeTypes={NODE_TYPES}
