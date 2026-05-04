@@ -52,6 +52,13 @@ const VST_SENSOR_LIST_URL =
   process.env.VST_SENSOR_LIST_URL ??
   "http://sensor-ms.vst.svc.cluster.local:30000/api/v1/live/sensor/list";
 
+// VST sensor add endpoint — must go through the nginx ingress (vst-ingress,
+// port 30888) which accepts the camelCase sensorUrl/name payload. Calling
+// sensor-ms directly (port 30000) requires a different field schema.
+const VST_SENSOR_ADD_URL =
+  process.env.VST_SENSOR_ADD_URL ??
+  "http://vst-ingress.vst.svc.cluster.local:30888/vst/api/v1/sensor/add";
+
 // VST ConfigMap + Deployment constants used by tuning/storage routes.
 const VST = {
   namespace: "vst",
@@ -274,6 +281,7 @@ export const CLUSTER = {
   },
   vst: {
     sensorUrl: VST_SENSOR_URL,
+    sensorAddUrl: VST_SENSOR_ADD_URL,
     ...VST,
   },
   mediamtx: {

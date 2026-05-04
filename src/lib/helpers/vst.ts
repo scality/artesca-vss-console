@@ -87,15 +87,14 @@ export async function vstAddSensor(input: {
   rtspUrl: string;
   description?: string;
 }): Promise<{ ok: boolean; warning?: string }> {
-  const body = {
-    sensor_id: input.sensorId,
-    sensor_url: input.rtspUrl,
-    sensor_description: input.description ?? input.sensorId,
-    sensor_type: "rtsp",
+  const body: Record<string, string> = {
+    sensorUrl: input.rtspUrl,
+    name: input.sensorId,
   };
+  if (input.description) body.location = input.description;
 
   try {
-    const resp = await fetch(`${VST_BASE}/add`, {
+    const resp = await fetch(CLUSTER.vst.sensorAddUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
