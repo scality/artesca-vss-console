@@ -1,11 +1,7 @@
 import "server-only";
-import { execFile as execFileCb } from "child_process";
-import { promisify } from "util";
-import * as os from "os";
-import * as path from "path";
-import * as fs from "fs/promises";
+import { createSign } from "crypto";
+import { readFileSync } from "fs";
 
-const execFile = promisify(execFileCb);
 const GCS_TIMEOUT_MS = 15_000;
 
 const GCS_CONFIG_BUCKET =
@@ -49,54 +45,6 @@ export interface GcsHealthResult {
   detail?: string;
 }
 
-// ─── Internal helpers ─────────────────────────────────────────────────────────
-
-function gsObjectUrl(instance: string): string {
-  return `gs://${GCS_CONFIG_BUCKET}/cameras/${instance}.json`;
-}
-
-function gsPromptUrl(instance: string): string {
-  return `gs://${GCS_CONFIG_BUCKET}/prompt/${instance}.json`;
-}
-
-function gsScenariosUrl(instance: string): string {
-  return `gs://${GCS_CONFIG_BUCKET}/scenarios/${instance}.json`;
-}
-
-/** Run a gcloud storage command with the configured credential env and a 15s timeout. */
-async function runGcloud(
-  args: string[],
-  input?: string,
-): Promise<{ stdout: string; stderr: string }> {
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-  };
-
-  // execFile accepts AbortSignal via options.signal in Node 16+; we use a
-  // timeout option instead for simplicity — maps to the same SIGTERM.
-  try {
-    const result = await execFile("gcloud", args, {
-      env,
-      timeout: GCS_TIMEOUT_MS,
-      maxBuffer: 4 * 1024 * 1024, // 4 MB — generous for a camera list JSON
-      // When writing, we write via a temp file, not stdin, so input is unused.
-      ...(input !== undefined ? { input } : {}),
-    });
-    return { stdout: result.stdout, stderr: result.stderr };
-  } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; code?: string | number; killed?: boolean };
-    const stderr = e.stderr ?? "";
-    const killed = e.killed ?? false;
-    if (killed) {
-      throw new GcsConfigError("gcloud timed out after 15 s", "timeout");
-    }
-    throw new GcsConfigError(
-      `gcloud exited with code ${e.code}: ${stderr.slice(0, 500)}`,
-      "gcloud-error",
-    );
-  }
-}
-
 // ─── Error class ──────────────────────────────────────────────────────────────
 
 export class GcsConfigError extends Error {
@@ -108,7 +56,202 @@ export class GcsConfigError extends Error {
   }
 }
 
+// ─── Service-account JWT auth ─────────────────────────────────────────────────
+
+interface ServiceAccountKey {
+  client_email: string;
+  private_key: string;
+  private_key_id?: string;
+  token_uri?: string;
+}
+
+interface TokenCache {
+  token: string;
+  expiresAt: number; // epoch ms
+}
+
+let _tokenCache: TokenCache | null = null;
+
+function loadKey(): ServiceAccountKey | null {
+  const credFile = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (!credFile) return null;
+  try {
+    return JSON.parse(readFileSync(credFile, "utf-8")) as ServiceAccountKey;
+  } catch {
+    return null;
+  }
+}
+
+function mintJwt(key: ServiceAccountKey): string {
+  const now = Math.floor(Date.now() / 1000);
+  const tokenUri = key.token_uri ?? "https://oauth2.googleapis.com/token";
+
+  const header = Buffer.from(
+    JSON.stringify({ alg: "RS256", typ: "JWT", kid: key.private_key_id ?? "" }),
+  ).toString("base64url");
+
+  const payload = Buffer.from(
+    JSON.stringify({
+      iss: key.client_email,
+      scope: "https://www.googleapis.com/auth/devstorage.read_write",
+      aud: tokenUri,
+      exp: now + 3600,
+      iat: now,
+    }),
+  ).toString("base64url");
+
+  const signing = `${header}.${payload}`;
+  const sign = createSign("RSA-SHA256");
+  sign.update(signing);
+  const sig = sign.sign(key.private_key, "base64url");
+  return `${signing}.${sig}`;
+}
+
+async function getAccessToken(): Promise<string> {
+  if (_tokenCache && _tokenCache.expiresAt - Date.now() > 5 * 60 * 1000) {
+    return _tokenCache.token;
+  }
+
+  const key = loadKey();
+  if (!key) {
+    throw new GcsConfigError(
+      "GOOGLE_APPLICATION_CREDENTIALS not set or unreadable",
+      "no-credentials",
+    );
+  }
+
+  const tokenUri = key.token_uri ?? "https://oauth2.googleapis.com/token";
+  const resp = await timedFetch(tokenUri, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: mintJwt(key),
+    }).toString(),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new GcsConfigError(
+      `Token exchange failed (${resp.status}): ${body.slice(0, 200)}`,
+      "no-credentials",
+    );
+  }
+
+  const data = (await resp.json()) as { access_token: string; expires_in?: number };
+  const ttlMs = (data.expires_in ?? 3600) * 1000;
+  _tokenCache = { token: data.access_token, expiresAt: Date.now() + ttlMs };
+  return data.access_token;
+}
+
+// ─── Internal GCS REST helpers ────────────────────────────────────────────────
+
+function timedFetch(url: string, init?: RequestInit): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), GCS_TIMEOUT_MS);
+  return fetch(url, { ...init, signal: ctrl.signal }).finally(() =>
+    clearTimeout(timer),
+  );
+}
+
+/** Read a GCS object, returning its text body. Throws GcsConfigError. */
+async function gcsGet(bucket: string, object: string): Promise<string> {
+  const token = await getAccessToken();
+  const url = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(object)}?alt=media`;
+  const resp = await timedFetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (resp.status === 404) throw new GcsConfigError("NotFound", "not-found");
+  if (resp.status === 401 || resp.status === 403) {
+    throw new GcsConfigError(`Permission denied (${resp.status})`, "no-credentials");
+  }
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new GcsConfigError(
+      `GCS GET failed (${resp.status}): ${body.slice(0, 200)}`,
+      "gcs-error",
+    );
+  }
+  return resp.text();
+}
+
+/** Write a GCS object (media upload). Throws GcsConfigError. */
+async function gcsPut(bucket: string, object: string, content: string): Promise<void> {
+  const token = await getAccessToken();
+  const url = `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(bucket)}/o?uploadType=media&name=${encodeURIComponent(object)}`;
+  const resp = await timedFetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: content,
+  });
+  if (resp.status === 401 || resp.status === 403) {
+    throw new GcsConfigError(`Permission denied (${resp.status})`, "no-credentials");
+  }
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new GcsConfigError(
+      `GCS PUT failed (${resp.status}): ${body.slice(0, 200)}`,
+      "gcs-error",
+    );
+  }
+}
+
+/** Check whether any objects exist under a prefix. Throws GcsConfigError. */
+async function gcsHasPrefix(bucket: string, prefix: string): Promise<boolean> {
+  const token = await getAccessToken();
+  const url = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o?prefix=${encodeURIComponent(prefix)}&maxResults=1`;
+  const resp = await timedFetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (resp.status === 401 || resp.status === 403) {
+    throw new GcsConfigError(`Permission denied (${resp.status})`, "no-credentials");
+  }
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new GcsConfigError(
+      `GCS list failed (${resp.status}): ${body.slice(0, 200)}`,
+      "gcs-error",
+    );
+  }
+  const data = (await resp.json()) as { items?: unknown[] };
+  return (data.items?.length ?? 0) > 0;
+}
+
+// ─── Object URLs ──────────────────────────────────────────────────────────────
+
+function camerasObject(instance: string) {
+  return `cameras/${instance}.json`;
+}
+
+function promptObject(instance: string) {
+  return `prompt/${instance}.json`;
+}
+
+function scenariosObject(instance: string) {
+  return `scenarios/${instance}.json`;
+}
+
 // ─── Schema validation ────────────────────────────────────────────────────────
+
+function isValidCameraList(obj: unknown): obj is CameraList {
+  if (!obj || typeof obj !== "object") return false;
+  const o = obj as Record<string, unknown>;
+  if (o["schema"] !== "isv-labs.cameras.v1" && o["schema"] !== "isv-labs.cameras.v2") return false;
+  if (typeof o["instance"] !== "string") return false;
+  if (typeof o["updatedAt"] !== "string") return false;
+  if (typeof o["updatedBy"] !== "string") return false;
+  if (!Array.isArray(o["cameras"])) return false;
+  for (const cam of o["cameras"] as unknown[]) {
+    if (!cam || typeof cam !== "object") return false;
+    const c = cam as Record<string, unknown>;
+    if (typeof c["id"] !== "string") return false;
+    if (typeof c["rtspUrl"] !== "string") return false;
+  }
+  return true;
+}
 
 function isValidPromptConfig(obj: unknown): obj is PromptConfig {
   if (!obj || typeof obj !== "object") return false;
@@ -138,24 +281,7 @@ function isValidScenariosConfig(obj: unknown): obj is ScenariosConfig {
   return true;
 }
 
-function isValidCameraList(obj: unknown): obj is CameraList {
-  if (!obj || typeof obj !== "object") return false;
-  const o = obj as Record<string, unknown>;
-  if (o["schema"] !== "isv-labs.cameras.v1" && o["schema"] !== "isv-labs.cameras.v2") return false;
-  if (typeof o["instance"] !== "string") return false;
-  if (typeof o["updatedAt"] !== "string") return false;
-  if (typeof o["updatedBy"] !== "string") return false;
-  if (!Array.isArray(o["cameras"])) return false;
-  for (const cam of o["cameras"] as unknown[]) {
-    if (!cam || typeof cam !== "object") return false;
-    const c = cam as Record<string, unknown>;
-    if (typeof c["id"] !== "string") return false;
-    if (typeof c["rtspUrl"] !== "string") return false;
-  }
-  return true;
-}
-
-// ─── Prompt interfaces ────────────────────────────────────────────────────────
+// ─── Prompt + Scenarios interfaces ───────────────────────────────────────────
 
 export interface PromptConfig {
   schema: "isv-labs.prompt.v1";
@@ -165,8 +291,6 @@ export interface PromptConfig {
   prompt: string;
   model?: string;
 }
-
-// ─── Scenarios interfaces ─────────────────────────────────────────────────────
 
 export interface ScenarioConfig {
   id: string;
@@ -188,27 +312,37 @@ export interface ScenariosConfig {
   scenarios: ScenarioConfig[];
 }
 
+// ─── Shared error-to-null helper ─────────────────────────────────────────────
+
+function isNotFoundError(err: GcsConfigError): boolean {
+  return (
+    err.code === "not-found" ||
+    err.message.includes("NotFound") ||
+    err.message.includes("404") ||
+    err.message.includes("does not exist")
+  );
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Returns the camera list from GCS, or null if:
- * - The object does not exist (404-like errors from gsutil).
- * - GCS is unreachable (timeout, auth failure).
- * - The payload fails schema validation.
- *
- * Never throws — callers always fall back to VST.
+ * Returns the camera list from GCS, or null if the object doesn't exist,
+ * GCS is unreachable, or the payload fails schema validation.
+ * Never throws.
  */
 export async function gcsCamerasGet(
   instance: string,
 ): Promise<CameraList | null> {
   try {
-    const { stdout } = await runGcloud(["storage", "cat", gsObjectUrl(instance)]);
-    const obj: unknown = JSON.parse(stdout);
+    const text = await gcsGet(GCS_CONFIG_BUCKET, camerasObject(instance));
+    const obj: unknown = JSON.parse(text);
     if (!isValidCameraList(obj)) {
       console.warn(
         `[gcs-config] schema mismatch for ${instance}: ` +
           `expected isv-labs.cameras.v1 or v2, got schema=${
-            obj && typeof obj === "object" ? (obj as Record<string, unknown>)["schema"] : "unknown"
+            obj && typeof obj === "object"
+              ? (obj as Record<string, unknown>)["schema"]
+              : "unknown"
           }`,
       );
       return null;
@@ -216,13 +350,7 @@ export async function gcsCamerasGet(
     return obj;
   } catch (err) {
     if (err instanceof GcsConfigError) {
-      // "No URLs matched" (legacy gsutil) / "NotFound" (gcloud storage) = object does not exist; expected on first run.
-      const isNotFound =
-        err.message.includes("No URLs matched") ||
-        err.message.includes("NotFound") ||
-        err.message.includes("404") ||
-        err.message.includes("does not exist");
-      if (!isNotFound) {
+      if (!isNotFoundError(err)) {
         console.warn(`[gcs-config] gcsCamerasGet(${instance}): ${err.message}`);
       }
       return null;
@@ -241,15 +369,8 @@ export async function gcsCamerasGet(
 }
 
 /**
- * Write the camera list to GCS via a temp file.  gcloud storage cp reads from a
- * local file — avoids any stdin/piping complexity.
- *
- * Stamps `updatedAt` on the object before writing.
- * Reads `updatedBy` from process.env.UPDATED_BY ?? 'unknown' (overridden by
- * the route layer before calling, e.g. from session.user.email).
- *
- * Throws GcsConfigError on failure — callers surface the message in the API
- * response but do NOT roll back the VST operation.
+ * Write the camera list to GCS. Stamps updatedAt before writing.
+ * Throws GcsConfigError on failure.
  */
 export async function gcsCamerasPut(list: CameraList): Promise<void> {
   const stamped: CameraList = {
@@ -257,61 +378,42 @@ export async function gcsCamerasPut(list: CameraList): Promise<void> {
     updatedAt: new Date().toISOString(),
     updatedBy: process.env.UPDATED_BY ?? "unknown",
   };
-
-  // Write to a temp file, then gcloud storage cp it.
-  const tmpFile = path.join(os.tmpdir(), `gcs-cameras-${Date.now()}.json`);
-  try {
-    await fs.writeFile(tmpFile, JSON.stringify(stamped, null, 2), "utf-8");
-    await runGcloud(["storage", "cp", tmpFile, gsObjectUrl(list.instance)]);
-  } finally {
-    await fs.unlink(tmpFile).catch(() => void 0);
-  }
+  await gcsPut(GCS_CONFIG_BUCKET, camerasObject(list.instance), JSON.stringify(stamped, null, 2));
 }
 
 /**
- * Health check — returns the GCS availability status for display in the About
- * page and for the bootstrap logic to gate on.
+ * Health check — returns GCS availability for the About page and bootstrap logic.
  */
 export async function gcsHealthCheck(): Promise<GcsHealthResult> {
-  // 1. Check that gcloud exists.
-  try {
-    await execFile("gcloud", ["--version"], { timeout: 5_000 });
-  } catch (err) {
-    const e = err as { code?: string | number };
-    if (e.code === "ENOENT") {
-      return { status: "no-gcloud", detail: "gcloud not found in PATH" };
-    }
-    // Any other error at version check = treat as no-gcloud.
+  if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
     return {
-      status: "no-gcloud",
-      detail: `gcloud version check failed: ${err instanceof Error ? err.message : String(err)}`,
+      status: "no-credentials",
+      detail: "GOOGLE_APPLICATION_CREDENTIALS not set",
     };
   }
 
-  // 2. Check credentials by attempting a metadata fetch on the bucket.
-  //    `gcloud storage ls gs://bucket` returns 0 if the bucket is accessible.
   try {
-    await runGcloud(["storage", "ls", `gs://${GCS_CONFIG_BUCKET}/cameras/`]);
+    await getAccessToken();
+  } catch (err) {
+    if (err instanceof GcsConfigError && err.code === "no-credentials") {
+      return { status: "no-credentials", detail: err.message.slice(0, 300) };
+    }
+    return {
+      status: "error",
+      detail: err instanceof Error ? err.message.slice(0, 300) : String(err),
+    };
+  }
+
+  try {
+    await gcsHasPrefix(GCS_CONFIG_BUCKET, "cameras/");
     return { status: "ok" };
   } catch (err) {
     if (err instanceof GcsConfigError) {
-      // "AccessDeniedException" (legacy) / "PermissionDenied" (gcloud storage) = have gcloud but no valid creds.
-      const noAuth =
-        err.message.includes("AccessDeniedException") ||
-        err.message.includes("PermissionDenied") ||
-        err.message.includes("401") ||
-        err.message.includes("403") ||
-        err.message.includes("credentials");
-      if (noAuth) {
-        return {
-          status: "no-credentials",
-          detail: "GCS credentials missing or insufficient (check GOOGLE_APPLICATION_CREDENTIALS)",
-        };
+      if (err.code === "no-credentials") {
+        return { status: "no-credentials", detail: err.message.slice(0, 300) };
       }
-      // 404 on the path prefix is OK — bucket exists, no cameras yet.
       const notFound =
         err.message.includes("404") ||
-        err.message.includes("No URLs matched") ||
         err.message.includes("NotFound") ||
         err.message.includes("BucketNotFoundException");
       if (notFound) {
@@ -334,13 +436,15 @@ export async function gcsHealthCheck(): Promise<GcsHealthResult> {
 /** Returns the prompt config from GCS, or null if missing / schema mismatch / unreachable. */
 export async function gcsPromptGet(instance: string): Promise<PromptConfig | null> {
   try {
-    const { stdout } = await runGcloud(["storage", "cat", gsPromptUrl(instance)]);
-    const obj: unknown = JSON.parse(stdout);
+    const text = await gcsGet(GCS_CONFIG_BUCKET, promptObject(instance));
+    const obj: unknown = JSON.parse(text);
     if (!isValidPromptConfig(obj)) {
       console.warn(
         `[gcs-config] schema mismatch for prompt/${instance}: ` +
           `expected isv-labs.prompt.v1, got schema=${
-            obj && typeof obj === "object" ? (obj as Record<string, unknown>)["schema"] : "unknown"
+            obj && typeof obj === "object"
+              ? (obj as Record<string, unknown>)["schema"]
+              : "unknown"
           }`,
       );
       return null;
@@ -348,12 +452,7 @@ export async function gcsPromptGet(instance: string): Promise<PromptConfig | nul
     return obj;
   } catch (err) {
     if (err instanceof GcsConfigError) {
-      const isNotFound =
-        err.message.includes("No URLs matched") ||
-        err.message.includes("NotFound") ||
-        err.message.includes("404") ||
-        err.message.includes("does not exist");
-      if (!isNotFound) {
+      if (!isNotFoundError(err)) {
         console.warn(`[gcs-config] gcsPromptGet(${instance}): ${err.message}`);
       }
       return null;
@@ -371,19 +470,13 @@ export async function gcsPromptGet(instance: string): Promise<PromptConfig | nul
   }
 }
 
-/** Write the prompt config to GCS via a temp file. Stamps updatedAt. Throws GcsConfigError on failure. */
+/** Write the prompt config to GCS. Stamps updatedAt. Throws GcsConfigError on failure. */
 export async function gcsPromptPut(config: PromptConfig): Promise<void> {
   const stamped: PromptConfig = {
     ...config,
     updatedAt: new Date().toISOString(),
   };
-  const tmpFile = path.join(os.tmpdir(), `gcs-prompt-${Date.now()}.json`);
-  try {
-    await fs.writeFile(tmpFile, JSON.stringify(stamped, null, 2), "utf-8");
-    await runGcloud(["storage", "cp", tmpFile, gsPromptUrl(config.instance)]);
-  } finally {
-    await fs.unlink(tmpFile).catch(() => void 0);
-  }
+  await gcsPut(GCS_CONFIG_BUCKET, promptObject(config.instance), JSON.stringify(stamped, null, 2));
 }
 
 // ─── Scenarios helpers ────────────────────────────────────────────────────────
@@ -391,13 +484,15 @@ export async function gcsPromptPut(config: PromptConfig): Promise<void> {
 /** Returns the scenarios config from GCS, or null if missing / schema mismatch / unreachable. */
 export async function gcsScenariosGet(instance: string): Promise<ScenariosConfig | null> {
   try {
-    const { stdout } = await runGcloud(["storage", "cat", gsScenariosUrl(instance)]);
-    const obj: unknown = JSON.parse(stdout);
+    const text = await gcsGet(GCS_CONFIG_BUCKET, scenariosObject(instance));
+    const obj: unknown = JSON.parse(text);
     if (!isValidScenariosConfig(obj)) {
       console.warn(
         `[gcs-config] schema mismatch for scenarios/${instance}: ` +
           `expected isv-labs.scenarios.v1, got schema=${
-            obj && typeof obj === "object" ? (obj as Record<string, unknown>)["schema"] : "unknown"
+            obj && typeof obj === "object"
+              ? (obj as Record<string, unknown>)["schema"]
+              : "unknown"
           }`,
       );
       return null;
@@ -405,12 +500,7 @@ export async function gcsScenariosGet(instance: string): Promise<ScenariosConfig
     return obj;
   } catch (err) {
     if (err instanceof GcsConfigError) {
-      const isNotFound =
-        err.message.includes("No URLs matched") ||
-        err.message.includes("NotFound") ||
-        err.message.includes("404") ||
-        err.message.includes("does not exist");
-      if (!isNotFound) {
+      if (!isNotFoundError(err)) {
         console.warn(`[gcs-config] gcsScenariosGet(${instance}): ${err.message}`);
       }
       return null;
@@ -428,17 +518,16 @@ export async function gcsScenariosGet(instance: string): Promise<ScenariosConfig
   }
 }
 
-/** Write the scenarios config to GCS via a temp file. Stamps updatedAt. Throws GcsConfigError on failure. */
+/** Write the scenarios config to GCS. Stamps updatedAt. Throws GcsConfigError on failure. */
 export async function gcsScenariosPut(config: ScenariosConfig): Promise<void> {
   const stamped: ScenariosConfig = {
     ...config,
     updatedAt: new Date().toISOString(),
   };
-  const tmpFile = path.join(os.tmpdir(), `gcs-scenarios-${Date.now()}.json`);
-  try {
-    await fs.writeFile(tmpFile, JSON.stringify(stamped, null, 2), "utf-8");
-    await runGcloud(["storage", "cp", tmpFile, gsScenariosUrl(config.instance)]);
-  } finally {
-    await fs.unlink(tmpFile).catch(() => void 0);
-  }
+  await gcsPut(
+    GCS_CONFIG_BUCKET,
+    scenariosObject(config.instance),
+    JSON.stringify(stamped, null, 2),
+  );
 }
+
