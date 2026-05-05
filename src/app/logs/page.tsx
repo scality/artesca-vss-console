@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { useRef, useState } from "react";
 import { redirect } from "next/navigation";
 import { useKiosk } from "@/components/KioskProvider";
@@ -102,7 +103,9 @@ export default function LogsPage() {
   );
 }
 
-// Inline component — same LogStream pattern but for camera-sim SSE
+// Inline component — consumes /api/camera-sim/journal SSE directly.
+// That route streams journalctl over SSH from the camera-sim EC2;
+// it emits { ts, message, priority?, unit? } objects.
 function CameraSimJournal({
   filter,
   paused,
@@ -112,16 +115,52 @@ function CameraSimJournal({
   paused: boolean;
   tailN: number;
 }) {
-  // Reuse LogStream with a synthetic selection pointing to /api/camera-sim/journal
-  // Rendered as a simple scrollable SSE consumer
+  const [lines, setLines] = React.useState<string[]>([]);
+  const bufRef = React.useRef<string[]>([]);
+  const pausedRef = React.useRef(paused);
+  React.useEffect(() => { pausedRef.current = paused; }, [paused]);
+  const bottomRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    bufRef.current = [];
+    setLines([]);
+    const es = new EventSource("/api/camera-sim/journal");
+    es.addEventListener("message", (evt) => {
+      if (pausedRef.current) return;
+      try {
+        const data = JSON.parse(evt.data as string) as { ts: string; message: string };
+        bufRef.current.push(`${data.ts}  ${data.message}`);
+        if (bufRef.current.length > 5000) bufRef.current = bufRef.current.slice(-5000);
+        setLines([...bufRef.current]);
+      } catch {
+        bufRef.current.push(String(evt.data));
+        setLines([...bufRef.current]);
+      }
+    });
+    return () => es.close();
+  }, []);
+
+  React.useEffect(() => {
+    if (!paused) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [lines, paused]);
+
+  let filterRegex: RegExp | null = null;
+  if (filter) {
+    try { filterRegex = new RegExp(filter); } catch { filterRegex = null; }
+  }
+  const visible = lines.slice(-tailN).filter((l) => !filterRegex || filterRegex.test(l));
+
   return (
-    <LogStream
-      namespace="camera-sim"
-      pod="journal"
-      container="systemd"
-      filter={filter}
-      paused={paused}
-      tailN={tailN}
-    />
+    <div className="relative rounded-md border border-border bg-black/90 text-green-400 font-mono text-xs overflow-auto h-[520px]">
+      <div className="p-3 space-y-0.5">
+        {visible.length === 0 && (
+          <div className="text-muted-foreground">Waiting for journal — requires CAMERA_SIM_HOST and SSH key…</div>
+        )}
+        {visible.map((line, i) => (
+          <div key={i} className="whitespace-pre-wrap break-all leading-5">{line}</div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+    </div>
   );
 }

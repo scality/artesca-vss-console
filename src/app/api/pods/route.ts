@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { type V1Pod } from "@kubernetes/client-node";
 import { auth } from "@/lib/auth";
 import { coreV1, watchedNamespaces } from "@/lib/k8s";
+import { listComposeContainers } from "@/lib/helpers/docker-sock";
 import type { PodSummary } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -43,12 +44,37 @@ function summarisePod(pod: V1Pod, ns: string): PodSummary {
   };
 }
 
+const COMPOSE_PROJECT = process.env.COMPOSE_PROJECT_NAME ?? "mdx";
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  if (process.env.CONSOLE_RUNTIME === "docker") {
+    const containers = await listComposeContainers(COMPOSE_PROJECT);
+    const pods: PodSummary[] = containers.map((c) => {
+      const svc = c.Labels["com.docker.compose.service"] ?? c.Names[0]?.replace(/^\//, "") ?? "unknown";
+      const running = c.State === "running";
+      const status = (c.Status ?? "").toLowerCase();
+      const exitMatch = status.match(/exited \((\d+)\)/);
+      const exitCode = exitMatch ? parseInt(exitMatch[1], 10) : null;
+      const succeeded = c.State === "exited" && exitCode === 0;
+      const healthy = running && (status.includes("(healthy)") || !status.includes("("));
+      const phase: PodSummary["phase"] = running ? "Running" : succeeded ? "Succeeded" : "Failed";
+      return {
+        namespace: svc,
+        name: c.Names[0]?.replace(/^\//, "") ?? c.Id.slice(0, 12),
+        phase,
+        ready: running ? healthy : succeeded,
+        restarts: 0,
+        age: c.Status ?? "?",
+      };
+    });
+    return NextResponse.json({ pods, warnings: [] });
+  }
+
   const ns = req.nextUrl.searchParams.get("ns");
-  const namespaces = ns ? [ns] : watchedNamespaces();
+  const namespaces = !ns || ns === "all" ? watchedNamespaces() : [ns];
 
   const warnings: string[] = [];
   const pods: PodSummary[] = [];

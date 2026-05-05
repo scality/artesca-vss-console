@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { rolloutRestart } from "@/lib/k8s";
 import { auditLog } from "@/lib/helpers/audit";
+import { dockerSock, listComposeContainers } from "@/lib/helpers/docker-sock";
 import { CLUSTER } from "@/lib/cluster-refs";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,16 @@ export const dynamic = "force-dynamic";
 //   - "demo-producer" (not "demo-data-producer") — k8s/nvidia-vss/demo-data/20-producer.yaml
 //   - "cosmos-reason2-8b" as StatefulSet (not "nim-cosmos-reason2" Deployment)
 const { restartable: RESTARTABLE } = CLUSTER;
+const COMPOSE_PROJECT = process.env.COMPOSE_PROJECT_NAME ?? "mdx";
+
+// Maps console component keys → docker compose service names.
+// Only entries that differ from the component key need an override.
+const DOCKER_SERVICE_NAMES: Record<string, string> = {
+  "sensor-ms": "sensor-ms-dev",
+  "streamprocessing-ms": "streamprocessing-ms-dev",
+  "nvidia-vss-agent": "vss-agent",
+  "alert-worker": "vss-video-analytics-api-alerts",
+};
 
 export async function POST(
   _req: Request,
@@ -32,6 +43,29 @@ export async function POST(
     );
   }
 
+  const restartedAt = new Date().toISOString();
+
+  if (process.env.CONSOLE_RUNTIME === "docker") {
+    const serviceName = DOCKER_SERVICE_NAMES[component] ?? component;
+    const containers = await listComposeContainers(COMPOSE_PROJECT);
+    const target = containers.find(
+      (c) => c.Labels["com.docker.compose.service"] === serviceName,
+    );
+    if (!target) {
+      return NextResponse.json(
+        { error: `No running container found for compose service "${serviceName}"` },
+        { status: 404 },
+      );
+    }
+    try {
+      await dockerSock("POST", `/containers/${target.Id}/restart?t=10`);
+    } catch (err) {
+      return NextResponse.json({ error: String(err) }, { status: 502 });
+    }
+    await auditLog("restart", `docker/${serviceName}`, { component, serviceName, restartedAt });
+    return NextResponse.json({ ok: true, restartedAt });
+  }
+
   try {
     await rolloutRestart(spec.kind, spec.namespace, spec.name);
   } catch (err: unknown) {
@@ -42,8 +76,6 @@ export async function POST(
       { status }
     );
   }
-
-  const restartedAt = new Date().toISOString();
 
   await auditLog("restart", `${spec.namespace}/${spec.kind.toLowerCase()}/${spec.name}`, {
     component,

@@ -23,7 +23,9 @@ export function PodPicker({ onSelect }: PodPickerProps) {
   useEffect(() => {
     fetch("/api/pods?ns=all")
       .then((r) => r.json())
-      .then((data: PodSummary[]) => setPods(data))
+      .then((data: { pods?: PodSummary[] } | PodSummary[]) => {
+        setPods(Array.isArray(data) ? data : (data.pods ?? []));
+      })
       .catch(() => {});
   }, []);
 
