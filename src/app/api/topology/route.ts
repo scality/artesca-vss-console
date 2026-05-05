@@ -479,6 +479,15 @@ async function buildDockerTopology() {
     { id: "es-api", source: "vss-video-analytics-api-alerts", target: "mdx-elastic", protocol: "index" },
     { id: "kibana-es", source: "mdx-kibana", target: "mdx-elastic", protocol: "query" },
     { id: "stream-storage", source: "streamprocessing-ms-dev", target: "objectstore", protocol: "S3 PUT" },
+    // vst-mcp-dev: MCP gateway — agent tool-routing (see architecture.md port table)
+    { id: "agent-vst-mcp", source: "vss-agent", target: "vst-mcp-dev", protocol: "MCP" },
+    { id: "vst-mcp-sensor", source: "vst-mcp-dev", target: "sensor-ms-dev", protocol: "HTTP" },
+    // vst-ingress-dev: VST ingress — agent reaches sensor-ms through it
+    { id: "agent-vst-ingress", source: "vss-agent", target: "vst-ingress-dev", protocol: "HTTP" },
+    { id: "vst-ingress-sensor", source: "vst-ingress-dev", target: "sensor-ms-dev", protocol: "HTTP" },
+    // phoenix: distributed tracing sink
+    { id: "vlm-phoenix", source: "rtvi-vlm", target: "phoenix", protocol: "traces" },
+    { id: "agent-phoenix", source: "vss-agent", target: "phoenix", protocol: "traces" },
   ];
 
   return { nodes, edges, warnings };
