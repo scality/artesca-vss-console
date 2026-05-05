@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Loader2, Send, User, Video } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, Send, User, Video, XCircle } from "lucide-react";
 import { Shell } from "@/components/Shell";
 
 type Role = "user" | "assistant" | "system";
@@ -13,6 +13,15 @@ type Camera = { id: string; description?: string; feeds?: CameraFeed[] };
 const STORAGE_KEY = "nvidia-vss-chat-history";
 const SCOPE_KEY = "nvidia-vss-chat-scope";
 const SCOPE_ALL = "__all__";
+
+const G4A_PROBE_QUERY =
+  "What activity has been recorded most recently? Give a brief summary.";
+
+type G4aState =
+  | { phase: "idle" }
+  | { phase: "running" }
+  | { phase: "pass"; note: string }
+  | { phase: "fail"; reason: string };
 
 /**
  * Strip the upstream agent's <agent-think> reasoning blocks from rendered
@@ -50,6 +59,7 @@ export default function ChatPage() {
   const [showReasoning, setShowReasoning] = useState(false);
   const [cameras, setCameras] = useState<Camera[] | null>(null);
   const [scope, setScope] = useState<string>(SCOPE_ALL);
+  const [g4a, setG4a] = useState<G4aState>({ phase: "idle" });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Restore history + scope on mount.
@@ -117,6 +127,39 @@ export default function ChatPage() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
+
+  async function runG4aProbe() {
+    setG4a({ phase: "running" });
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: [{ role: "user", content: G4A_PROBE_QUERY }] }),
+      });
+      const j = await res.json();
+      if (!res.ok || j.error) throw new Error(j.error ?? `HTTP ${res.status}`);
+      const reply: string = j?.choices?.[0]?.message?.content ?? "";
+      const clean = stripReasoning(reply);
+      if (!clean || clean.length < 30 || isCannedFailure(reply)) {
+        setG4a({
+          phase: "fail",
+          reason: clean
+            ? `Response too short or indicates internal failure (${clean.length} chars)`
+            : "Empty response from agent",
+        });
+        return;
+      }
+      setG4a({ phase: "pass", note: clean.slice(0, 160).replace(/\n/g, " ") });
+      // Append probe exchange to chat history so the operator sees what was asked.
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", content: `[G4a probe] ${G4A_PROBE_QUERY}`, ts: new Date().toISOString() },
+        { role: "assistant", content: reply, ts: new Date().toISOString() },
+      ]);
+    } catch (e) {
+      setG4a({ phase: "fail", reason: (e as Error).message });
+    }
+  }
 
   async function send() {
     const text = input.trim();
@@ -204,6 +247,33 @@ export default function ChatPage() {
               show reasoning
             </label>
             <button
+              onClick={() => void runG4aProbe()}
+              disabled={loading || g4a.phase === "running"}
+              className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-mono transition-colors disabled:opacity-50 ${
+                g4a.phase === "pass"
+                  ? "border-emerald-700 bg-emerald-950/40 text-emerald-300"
+                  : g4a.phase === "fail"
+                  ? "border-rose-700 bg-rose-950/40 text-rose-300"
+                  : "border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100"
+              }`}
+              title="Fire a standard G4a probe query and check the agent responds coherently"
+            >
+              {g4a.phase === "running" ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : g4a.phase === "pass" ? (
+                <CheckCircle2 className="h-3 w-3" />
+              ) : g4a.phase === "fail" ? (
+                <XCircle className="h-3 w-3" />
+              ) : null}
+              {g4a.phase === "running"
+                ? "probing…"
+                : g4a.phase === "pass"
+                ? "G4a pass"
+                : g4a.phase === "fail"
+                ? "G4a fail"
+                : "verify G4a"}
+            </button>
+            <button
               onClick={clear}
               disabled={messages.length === 0}
               className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-400 hover:text-slate-100 disabled:opacity-50"
@@ -221,6 +291,27 @@ export default function ChatPage() {
             </a>
           </div>
         </header>
+
+        {g4a.phase === "pass" && (
+          <div className="flex items-start gap-2 rounded border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-[11px] text-emerald-300">
+            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <div>
+              <span className="font-semibold font-mono">G4a — agent answered coherently.</span>
+              <span className="ml-2 text-emerald-400/80">{g4a.note}…</span>
+            </div>
+            <button onClick={() => setG4a({ phase: "idle" })} className="ml-auto shrink-0 opacity-50 hover:opacity-100 text-xs">✕</button>
+          </div>
+        )}
+        {g4a.phase === "fail" && (
+          <div className="flex items-start gap-2 rounded border border-rose-800 bg-rose-950/30 px-3 py-2 text-[11px] text-rose-300">
+            <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <div>
+              <span className="font-semibold font-mono">G4a — probe failed.</span>
+              <span className="ml-2 font-mono">{g4a.reason}</span>
+            </div>
+            <button onClick={() => setG4a({ phase: "idle" })} className="ml-auto shrink-0 opacity-50 hover:opacity-100 text-xs">✕</button>
+          </div>
+        )}
 
         <div
           ref={scrollRef}
