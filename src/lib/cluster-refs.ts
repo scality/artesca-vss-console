@@ -59,6 +59,15 @@ const VST_SENSOR_ADD_URL =
   process.env.VST_SENSOR_ADD_URL ??
   "http://vst-ingress.vst.svc.cluster.local:30888/vst/api/v1/sensor/add";
 
+// VST streamprocessing-ms proxy endpoint (docker path only).
+// On k8s, recording starts automatically on sensor registration — proxy call not needed.
+// Empty string disables the call in vstStartStream.
+const VST_PROXY_STREAM_ADD_URL =
+  process.env.VST_PROXY_STREAM_ADD_URL ??
+  (process.env.CONSOLE_RUNTIME === "docker"
+    ? "http://127.0.0.1:30001/api/v1/proxy/stream/add"
+    : "");
+
 // VST ConfigMap + Deployment constants used by tuning/storage routes.
 const VST = {
   namespace: "vst",
@@ -282,6 +291,7 @@ export const CLUSTER = {
   vst: {
     sensorUrl: VST_SENSOR_URL,
     sensorAddUrl: VST_SENSOR_ADD_URL,
+    proxyStreamAddUrl: VST_PROXY_STREAM_ADD_URL,
     ...VST,
   },
   mediamtx: {

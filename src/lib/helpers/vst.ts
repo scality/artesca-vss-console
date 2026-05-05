@@ -119,6 +119,37 @@ export async function vstAddSensor(input: {
   }
 }
 
+/** Start recording a stream via the streamprocessing-ms proxy endpoint.
+ *  Docker-path only — returns ok:true immediately when proxyStreamAddUrl is empty (k8s path). */
+export async function vstStartStream(input: {
+  sensorId: string;
+  rtspUrl: string;
+}): Promise<{ ok: boolean; warning?: string }> {
+  const url = CLUSTER.vst.proxyStreamAddUrl;
+  if (!url) return { ok: true };
+
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: input.rtspUrl, id: input.sensorId, name: input.sensorId }),
+      next: { revalidate: 0 },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (resp.status === 409) return { ok: true };
+    if (!resp.ok) {
+      return {
+        ok: false,
+        warning: `proxy/stream/add HTTP ${resp.status} for ${input.sensorId}`,
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, warning: `proxy/stream/add failed for ${input.sensorId}: ${msg}` };
+  }
+}
+
 /** Delete a sensor from VST. */
 export async function vstDeleteSensor(
   sensorId: string
