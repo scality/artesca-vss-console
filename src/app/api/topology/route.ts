@@ -195,6 +195,12 @@ const STATIC_EDGES: TopologyEdge[] = [
   // RTVI inference loop
   { id: "edge:rtvi-vlm->nim-cosmos-reason2", source: "rtvi-vlm", target: "nim-cosmos-reason2", label: "HTTP", protocol: "http" },
   { id: "edge:nim-cosmos-reason2->rtvi-vlm", source: "nim-cosmos-reason2", target: "rtvi-vlm", label: "inference", protocol: "http" },
+  // rtvi-embed: VLM calls embed service; embed publishes embeddings to Kafka (EMBED -- embeddings --> RP in architecture.md)
+  { id: "edge:rtvi-vlm->rtvi-embed", source: "rtvi-vlm", target: "rtvi-embed", label: "embed", protocol: "http" },
+  { id: "edge:rtvi-embed->kafka", source: "rtvi-embed", target: "kafka", label: "embeddings", protocol: "kafka" },
+  // agent: AGENT --> NIM, AGENT --> SENSOR (architecture.md)
+  { id: "edge:agent->nim-cosmos-reason2", source: "agent", target: "nim-cosmos-reason2", label: "HTTP", protocol: "http" },
+  { id: "edge:agent->sensor-ms", source: "agent", target: "sensor-ms", label: "HTTP", protocol: "http" },
   // Kafka paths
   { id: "edge:rtvi-vlm->kafka", source: "rtvi-vlm", target: "kafka", label: "Kafka", protocol: "kafka" },
   { id: "edge:kafka->alert-worker", source: "kafka", target: "alert-worker", label: "Kafka", protocol: "kafka" },

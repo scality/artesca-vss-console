@@ -174,6 +174,15 @@ import { Loader2, AlertTriangle, LayoutGrid } from "lucide-react";
 
 const POSITIONS_LS_KEY = "topology:node-positions:v1";
 
+function readSavedPositions(): Record<string, { x: number; y: number }> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(localStorage.getItem(POSITIONS_LS_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Page
 // ─────────────────────────────────────────────────────────────────────────────
@@ -183,12 +192,8 @@ export default function TopologyPage() {
   const [edges, setEdges, onEdgesChange] = useEdgesState(BASE_EDGES);
 
   // Persist user-dragged positions in localStorage so they survive polls + reloads.
-  const savedPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
-  useEffect(() => {
-    try {
-      savedPositionsRef.current = JSON.parse(localStorage.getItem(POSITIONS_LS_KEY) ?? "{}");
-    } catch { savedPositionsRef.current = {}; }
-  }, []);
+  // Initialized synchronously at mount so the ref is populated before any poll fires.
+  const savedPositionsRef = useRef<Record<string, { x: number; y: number }>>(readSavedPositions());
 
   const handleNodesChange = useCallback((changes: NodeChange<Node<TopologyNodeData>>[]) => {
     onNodesChange(changes);
