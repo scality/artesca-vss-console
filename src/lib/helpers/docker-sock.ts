@@ -202,6 +202,60 @@ export async function runOneShotGpuContainer(
   }
 }
 
+/**
+ * Stream logs from a running container via the Docker Engine socket.
+ * Calls `onLine` for each line of log output (stdout + stderr combined).
+ * Returns a cleanup function that terminates the stream.
+ *
+ * Docker multiplexes stdout/stderr in 8-byte framed chunks:
+ *   [stream(1)] [pad(3)] [length(4 BE)] [data(length bytes)]
+ * We buffer across Node.js data events and emit complete lines.
+ */
+export function streamDockerLogs(
+  containerName: string,
+  opts: { tail?: number; timestamps?: boolean },
+  onLine: (line: string) => void,
+  signal?: AbortSignal,
+): () => void {
+  const tail = opts.tail ?? 100;
+  const path =
+    `/containers/${encodeURIComponent(containerName)}/logs` +
+    `?follow=1&stdout=1&stderr=1&tail=${tail}&timestamps=${opts.timestamps ? "1" : "0"}`;
+
+  let buf = Buffer.alloc(0);
+  let frameSize = -1; // -1 means we are reading a new 8-byte header
+
+  const req = http.request(
+    { socketPath: "/var/run/docker.sock", path, method: "GET" },
+    (res) => {
+      res.on("data", (chunk: Buffer) => {
+        buf = Buffer.concat([buf, chunk]);
+        while (true) {
+          if (frameSize < 0) {
+            if (buf.length < 8) break;
+            frameSize = buf.readUInt32BE(4);
+            buf = buf.subarray(8);
+          }
+          if (buf.length < frameSize) break;
+          const text = buf.subarray(0, frameSize).toString("utf8");
+          buf = buf.subarray(frameSize);
+          frameSize = -1;
+          for (const line of text.split("\n")) {
+            if (line.length > 0) onLine(line);
+          }
+        }
+      });
+    },
+  );
+
+  req.on("error", () => {}); // suppress on destroy
+  req.end();
+
+  const destroy = () => req.destroy();
+  signal?.addEventListener("abort", destroy, { once: true });
+  return destroy;
+}
+
 /** Run a command in a running container via the Exec API. Returns stdout
  *  on success (stderr is silently dropped — caller should design commands
  *  that emit the answer to stdout). Returns null on any failure. */

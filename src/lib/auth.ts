@@ -1,10 +1,20 @@
-import NextAuth from "next-auth";
+import NextAuth, { type Session } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 
 const DEV_USER = { id: "1", name: "console-operator", email: "console@local" };
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+const BYPASS_SESSION: Session = {
+  user: DEV_USER,
+  expires: "2099-01-01T00:00:00.000Z",
+};
+
+const {
+  handlers,
+  auth: _nextAuth,
+  signIn,
+  signOut,
+} = NextAuth({
   providers: [
     Credentials({
       name: "Console password",
@@ -46,3 +56,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     signIn: "/sign-in",
   },
 });
+
+// When CONSOLE_DISABLE_AUTH=true, the bypass must handle two call forms:
+//   auth()           — session accessor in API routes → returns BYPASS_SESSION
+//   auth(handler)    — middleware wrapper in proxy.ts → injects req.auth and calls handler
+const auth: typeof _nextAuth = process.env.CONSOLE_DISABLE_AUTH === "true"
+  ? ((callbackOrVoid?: unknown) => {
+      if (typeof callbackOrVoid === "function") {
+        return (req: Request) => {
+          (req as unknown as Record<string, unknown>).auth = BYPASS_SESSION;
+          return (callbackOrVoid as (req: Request) => unknown)(req);
+        };
+      }
+      return Promise.resolve(BYPASS_SESSION);
+    }) as unknown as typeof _nextAuth
+  : _nextAuth;
+
+export { handlers, auth, signIn, signOut };
