@@ -19,7 +19,7 @@ import { auth } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-const VSS_AGENT_URL = process.env.VSS_AGENT_URL ?? "http://172.27.16.237:8000";
+const VSS_AGENT_URL = process.env.VSS_AGENT_URL ?? "http://localhost:8000";
 
 type ChatRequest = {
   messages: { role: string; content: string }[];
