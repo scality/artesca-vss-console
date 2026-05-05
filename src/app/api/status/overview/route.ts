@@ -152,7 +152,12 @@ async function collectDockerOverview(
       const bucket = s3Bucket();
       if (!s3Configured) return { bucket: bucket || "", objectCount: 0, bytesTotal: 0, growth24h: 0 };
       try {
-        const stats = await s3Stats(bucket);
+        const stats = await Promise.race([
+          s3Stats(bucket),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(Object.assign(new Error("s3Stats timeout"), { code: "ETIMEOUT" })), 5_000)
+          ),
+        ]);
         return { ...stats, growth24h: 0 };
       } catch (err) {
         warnings.push(`S3 stats failed: ${String(err)}`);
