@@ -280,15 +280,19 @@ export default function ChatPage() {
             >
               clear
             </button>
-            <a
-              href="/chat/__upstream"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() =>
+                window.open(
+                  `${window.location.protocol}//${window.location.hostname}:3000`,
+                  "_blank",
+                  "noopener,noreferrer",
+                )
+              }
               className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-400 hover:text-slate-100"
-              title="Open the upstream NVIDIA VSS UI in a new tab (proxied via /chat/__upstream)"
+              title="Open the upstream NVIDIA VSS UI (metropolis-vss-ui on port 3000)"
             >
               open upstream UI →
-            </a>
+            </button>
           </div>
         </header>
 
