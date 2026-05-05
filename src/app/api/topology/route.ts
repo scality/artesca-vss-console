@@ -471,7 +471,7 @@ async function buildDockerTopology() {
     { id: "agent-db", source: "vss-agent", target: "centralizedb-dev", protocol: "SQL" },
     { id: "ui-agent", source: "metropolis-vss-ui", target: "vss-agent", protocol: "HTTP" },
     { id: "console-agent", source: "nvidia-vss-console", target: "vss-agent", protocol: "HTTP" },
-    { id: "console-jsonl", source: "rtvi-vlm", target: "nvidia-vss-console", protocol: "SSE→JSONL", dormant: true },
+    { id: "console-jsonl", source: "rtvi-vlm", target: "nvidia-vss-console", protocol: "SSE→JSONL" },
     { id: "sensor-db", source: "sensor-ms-dev", target: "centralizedb-dev", protocol: "SQL" },
     { id: "sensor-redis", source: "sensor-ms-dev", target: "mdx-redis", protocol: "events" },
     { id: "kafka-api", source: "mdx-kafka", target: "vss-video-analytics-api-alerts", protocol: "consume" },
