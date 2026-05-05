@@ -1,23 +1,31 @@
 /**
  * Next.js instrumentation — runs once when the server process starts.
  *
- * Starts a background camera-restore watcher: polls VST every 60 s and
- * re-registers cameras from GCS whenever VST reports 0 sensors (happens
- * after every docker-compose restart because VST's sensor list is in-memory).
+ * Starts background watchers:
  *
- * Only active in the Node.js runtime (not edge). Requires:
- *   VSS_INSTANCE_NAME — which GCS cameras/<instance>.json to read
- *   GOOGLE_APPLICATION_CREDENTIALS — service-account key for GCS reads
+ *  camera-restore: polls VST every 60 s and re-registers cameras from GCS
+ *  whenever VST reports 0 sensors (happens after every docker-compose restart
+ *  because VST's sensor list is in-memory).
+ *
+ *  caption-bridge: polls rtvi-vlm for registered streams and appends VLM
+ *  captions to the synthetic-events JSONL (CONSOLE_RUNTIME=docker only).
+ *
+ * Only active in the Node.js runtime (not edge).
  */
 
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
   const instance = process.env.VSS_INSTANCE_NAME;
-  if (!instance) return;
+  if (instance) {
+    const { startCameraRestoreWatcher } = await import(
+      "@/lib/camera-restore-watcher"
+    );
+    startCameraRestoreWatcher(instance);
+  }
 
-  const { startCameraRestoreWatcher } = await import(
-    "@/lib/camera-restore-watcher"
-  );
-  startCameraRestoreWatcher(instance);
+  if (process.env.CONSOLE_RUNTIME === "docker") {
+    const { startCaptionBridge } = await import("@/lib/caption-bridge");
+    startCaptionBridge();
+  }
 }
