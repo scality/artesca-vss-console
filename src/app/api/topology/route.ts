@@ -4,6 +4,8 @@ import { coreV1, watchedNamespaces } from "@/lib/k8s";
 import { CLUSTER } from "@/lib/cluster-refs";
 import type { Health } from "@/lib/types";
 import type { NodeType } from "@/lib/types/pipeline";
+import { HeadBucketCommand } from "@aws-sdk/client-s3";
+import { makeS3Client, s3Bucket, s3Endpoint } from "@/lib/s3";
 
 export const dynamic = "force-dynamic";
 
@@ -326,6 +328,37 @@ function dockerHealth(c: DockerContainer | undefined): Health {
   return "ok"; // running, no healthcheck → assume ok
 }
 
+/** Probe the configured S3 / ARTESCA endpoint and return a health status.
+ *  SSL verification failures (custom CA not yet trusted) are reported as
+ *  "warn" rather than "fail" because the endpoint IS reachable — the
+ *  operator just needs to pass NODE_EXTRA_CA_CERTS or OBJECTSTORE_CA_BUNDLE. */
+async function probeObjectStore(): Promise<Health> {
+  const bucket = s3Bucket();
+  if (!bucket) return "unknown";
+  if (!s3Endpoint() && !process.env.AWS_ACCESS_KEY_ID && !process.env.OBJECTSTORE_ACCESS_KEY_ID) {
+    return "unknown";
+  }
+  try {
+    const client = makeS3Client();
+    await Promise.race([
+      client.send(new HeadBucketCommand({ Bucket: bucket })),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(Object.assign(new Error("probe timeout"), { code: "ETIMEOUT" })),
+          3_000,
+        ),
+      ),
+    ]);
+    return "ok";
+  } catch (err) {
+    const msg = String((err as Error).message ?? err);
+    const code = String((err as NodeJS.ErrnoException).code ?? "");
+    if (/UNABLE_TO_VERIFY|CERT_UNTRUSTED|SELF_SIGNED|ERR_TLS/i.test(code + msg)) return "warn";
+    if (/AccessDenied|403|404|NoSuchBucket/i.test(msg)) return "warn";
+    return "fail";
+  }
+}
+
 /**
  * Build a docker-stack topology. Layout is layered left-to-right by data
  * flow: ingest → processing → inference → agent / UI on top, storage +
@@ -333,12 +366,13 @@ function dockerHealth(c: DockerContainer | undefined): Health {
  */
 async function buildDockerTopology() {
   const warnings: string[] = [];
-  let containers: DockerContainer[] = [];
-  try {
-    containers = await dockerListContainers();
-  } catch (e) {
-    warnings.push(`docker socket unreachable: ${(e as Error).message}`);
-  }
+  const [containers, s3Health] = await Promise.all([
+    dockerListContainers().catch((e: Error) => {
+      warnings.push(`docker socket unreachable: ${e.message}`);
+      return [] as DockerContainer[];
+    }),
+    probeObjectStore().catch(() => "unknown" as Health),
+  ]);
 
   // Lookup by container name (Docker prefixes a leading slash).
   const byName = new Map<string, DockerContainer>();
@@ -384,9 +418,9 @@ async function buildDockerTopology() {
     { id: "cosmos-reason2-8b", label: "cosmos VLM (NIM)", type: "service", position: { x: COL(2), y: ROW(1) } },
 
     // AGENT / UI col 3
-    { id: "nvidia-vss-agent", label: "nvidia-vss-agent", type: "service", position: { x: COL(3), y: ROW(0) } },
-    { id: "nvidia-vss-va-mcp", label: "nvidia-vss-va-mcp", type: "service", position: { x: COL(3), y: ROW(1) } },
-    { id: "metropolis-nvidia-vss-ui", label: "metropolis UI", type: "service", position: { x: COL(3), y: ROW(2) } },
+    { id: "vss-agent", label: "nvidia-vss-agent", type: "service", position: { x: COL(3), y: ROW(0) } },
+    { id: "vss-va-mcp", label: "nvidia-vss-va-mcp", type: "service", position: { x: COL(3), y: ROW(1) } },
+    { id: "metropolis-vss-ui", label: "metropolis UI", type: "service", position: { x: COL(3), y: ROW(2) } },
     { id: "nvidia-vss-console", label: "nvidia-vss-console (Scality)", type: "service", position: { x: COL(3), y: ROW(3) } },
 
     // STORAGE / MESSAGING (lower band)
@@ -395,7 +429,7 @@ async function buildDockerTopology() {
     { id: "mdx-kafka", label: "kafka", type: "service", position: { x: COL(3), y: ROW(6) } },
     { id: "mdx-elastic", label: "elasticsearch", type: "service", position: { x: COL(4), y: ROW(5) } },
     { id: "mdx-logstash", label: "logstash", type: "service", position: { x: COL(4), y: ROW(6) } },
-    { id: "nvidia-vss-video-analytics-api-alerts", label: "video-analytics-api", type: "service", position: { x: COL(4), y: ROW(2) } },
+    { id: "vss-video-analytics-api-alerts", label: "video-analytics-api", type: "service", position: { x: COL(4), y: ROW(2) } },
 
     // OBSERVABILITY col 4
     { id: "phoenix", label: "phoenix (traces)", type: "service", position: { x: COL(4), y: ROW(0) } },
@@ -415,13 +449,12 @@ async function buildDockerTopology() {
     };
   });
 
-  // Object-store sink as a virtual node (recordings target — not a
-  // container, but operationally part of the graph).
   nodes.push({
     id: "objectstore",
     type: "storage",
     label: "Object store (S3 / ARTESCA)",
-    health: "unknown",
+    health: s3Health,
+    details: { bucket: s3Bucket() || undefined, endpoint: s3Endpoint() || undefined },
     position: { x: COL(5), y: ROW(3) },
   });
 
@@ -433,17 +466,17 @@ async function buildDockerTopology() {
     { id: "stream-vlm", source: "envoy-streamprocessing", target: "rtvi-vlm", protocol: "HTTP" },
     { id: "vlm-nim", source: "rtvi-vlm", target: "cosmos-reason2-8b", protocol: "OpenAI/HTTP" },
     { id: "vlm-kafka", source: "rtvi-vlm", target: "mdx-kafka", protocol: "mdx-vlm" },
-    { id: "agent-vlm", source: "nvidia-vss-agent", target: "rtvi-vlm", protocol: "HTTP" },
-    { id: "agent-mcp", source: "nvidia-vss-agent", target: "nvidia-vss-va-mcp", protocol: "MCP" },
-    { id: "agent-db", source: "nvidia-vss-agent", target: "centralizedb-dev", protocol: "SQL" },
-    { id: "ui-agent", source: "metropolis-nvidia-vss-ui", target: "nvidia-vss-agent", protocol: "HTTP" },
-    { id: "console-agent", source: "nvidia-vss-console", target: "nvidia-vss-agent", protocol: "HTTP" },
+    { id: "agent-vlm", source: "vss-agent", target: "rtvi-vlm", protocol: "HTTP" },
+    { id: "agent-mcp", source: "vss-agent", target: "vss-va-mcp", protocol: "MCP" },
+    { id: "agent-db", source: "vss-agent", target: "centralizedb-dev", protocol: "SQL" },
+    { id: "ui-agent", source: "metropolis-vss-ui", target: "vss-agent", protocol: "HTTP" },
+    { id: "console-agent", source: "nvidia-vss-console", target: "vss-agent", protocol: "HTTP" },
     { id: "console-jsonl", source: "rtvi-vlm", target: "nvidia-vss-console", protocol: "SSE→JSONL", dormant: true },
     { id: "sensor-db", source: "sensor-ms-dev", target: "centralizedb-dev", protocol: "SQL" },
     { id: "sensor-redis", source: "sensor-ms-dev", target: "mdx-redis", protocol: "events" },
-    { id: "kafka-api", source: "mdx-kafka", target: "nvidia-vss-video-analytics-api-alerts", protocol: "consume" },
+    { id: "kafka-api", source: "mdx-kafka", target: "vss-video-analytics-api-alerts", protocol: "consume" },
     { id: "es-logs", source: "mdx-logstash", target: "mdx-elastic", protocol: "Beats" },
-    { id: "es-api", source: "nvidia-vss-video-analytics-api-alerts", target: "mdx-elastic", protocol: "index" },
+    { id: "es-api", source: "vss-video-analytics-api-alerts", target: "mdx-elastic", protocol: "index" },
     { id: "kibana-es", source: "mdx-kibana", target: "mdx-elastic", protocol: "query" },
     { id: "stream-storage", source: "streamprocessing-ms-dev", target: "objectstore", protocol: "S3 PUT" },
   ];

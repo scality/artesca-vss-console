@@ -22,6 +22,7 @@
 //   - Anything else (ARTESCA s3.<base-domain>, MinIO, BYO) → true
 
 import { S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 const AWS_HOST_PATTERN = /(^|\.)s3([.-][a-z0-9-]+)?\.amazonaws\.com$/i;
 
@@ -68,6 +69,10 @@ export function makeS3Client(): S3Client {
     region,
     endpoint,
     forcePathStyle,
+    requestHandler: new NodeHttpHandler({
+      connectionTimeout: 3_000,
+      requestTimeout: 8_000,
+    }),
   };
 
   // Prefer explicit OBJECTSTORE_* creds (mounted from objectstore-creds
