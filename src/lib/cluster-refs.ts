@@ -138,10 +138,8 @@ const RTVI = {
 } as const;
 
 // ─── NIM preview endpoint ─────────────────────────────────────────────────────
-// The k8s/console/11-configmap-env.yaml says "nvila-lite-preview" but
-// .env.example says "nim-preview".  The ConfigMap is the authoritative
-// deploy-time value; .env.example is for local dev only.
-// Flag: ASSUMED — no NIM preview Deployment found in k8s/nvidia-vss/rtvi/; confirm name at deploy.
+// Deployment "nvila-lite-preview" in namespace "rtvi"
+// (k8s/nvidia-vss/rtvi/50-nim-preview.yaml). Port 8000.
 const NIM_PREVIEW_ENDPOINT =
   process.env.NIM_PREVIEW_ENDPOINT ??
   "http://nvila-lite-preview.rtvi.svc.cluster.local:8000";
@@ -218,7 +216,7 @@ const S3 = {
 // ─── Restartable components ───────────────────────────────────────────────────
 // Maps console component IDs → { namespace, kind, name }.
 // cosmos-reason2-8b is a StatefulSet (not Deployment).
-// nim-preview has no Deployment in k8s/nvidia-vss/rtvi/ — flagged as ASSUMED.
+// nim-preview Deployment is "nvila-lite-preview" (k8s/nvidia-vss/rtvi/50-nim-preview.yaml).
 export type ComponentKind = "Deployment" | "StatefulSet";
 
 export interface ComponentSpec {
@@ -271,12 +269,10 @@ export const RESTARTABLE: Record<string, ComponentSpec> = {
     kind: "StatefulSet",
     name: "cosmos-reason2-8b",
   },
-  // ASSUMED: nim-preview deployment not found in k8s/nvidia-vss/rtvi/ manifests.
-  // Operators must confirm the name at deploy time.
   "nim-preview": {
     namespace: "rtvi",
     kind: "Deployment",
-    name: "nim-preview",
+    name: "nvila-lite-preview",
   },
 };
 

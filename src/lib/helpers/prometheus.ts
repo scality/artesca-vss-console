@@ -1,10 +1,9 @@
 import "server-only";
 import { CLUSTER } from "../cluster-refs";
 
-// ARTESCA's kube-prometheus-stack Prometheus.  The exact Service name is not
-// in this repo's k8s/ manifests (ARTESCA installs it).  The default follows
-// the kube-prometheus-stack convention.  Override via PROMETHEUS_URL if
-// ARTESCA uses a different name or namespace.  Flag: ASSUMED — confirm at deploy.
+// ARTESCA's kube-prometheus-stack Prometheus.  Service "prometheus-operated"
+// in namespace "artesca-monitoring" (confirmed on live cluster 2026-04-22).
+// Override via PROMETHEUS_URL env var if the service name or namespace differs.
 const PROMETHEUS_URL = CLUSTER.prometheus.url;
 
 export interface PromResult {
