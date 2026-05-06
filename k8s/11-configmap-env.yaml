@@ -72,3 +72,4 @@ data:
   # If the console is reached from a laptop via NodePort, set NEXTAUTH_URL to
   # http://<ARTESCA-public-IP>:8800 instead.
   NEXTAUTH_URL: "http://console.console.svc.cluster.local:8800"
+  CONSOLE_DISABLE_AUTH: "true"
