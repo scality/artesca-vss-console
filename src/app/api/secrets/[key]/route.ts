@@ -4,8 +4,56 @@ import { z } from "zod";
 import { coreV1, rolloutRestart } from "@/lib/k8s";
 import { markRotated, getRotationAge } from "@/lib/db";
 import { auditLog } from "@/lib/helpers/audit";
+import { inspectContainer, dockerSock } from "@/lib/helpers/docker-sock";
+import fs from "fs/promises";
+import path from "path";
 
 export const dynamic = "force-dynamic";
+
+const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
+const DOCKER_SECRETS_DIR = path.join(
+  process.env.CONSOLE_DATA_DIR ?? "/data",
+  ".docker-secrets",
+);
+
+// ─── Docker-mode secret checks ────────────────────────────────────────────────
+//
+// In docker mode there is no K8s cluster. Configured status comes from:
+//   "container" — inspect the named container's Env array
+//   "env"       — check process.env (value injected at compose startup)
+//   "multi-env" — all named process.env keys must be non-empty
+//   "file"      — check the file path stored in the named process.env key
+//
+// For PATCH, values are written to DOCKER_SECRETS_DIR/<key> and the target
+// container (if any) is restarted via the docker socket.
+
+type DockerCheck =
+  | { kind: "container"; containerName: string; envKey: string }
+  | { kind: "env"; envKey: string }
+  | { kind: "multi-env"; envKeys: string[] }
+  | { kind: "file"; envKey: string };
+
+// containerName must match the upstream VSS blueprint compose service names.
+// Verified from refs/video-search-and-summarization compose files:
+//   cosmos-reason2-8b  → NGC_API_KEY  (aliased from NGC_CLI_API_KEY at startup)
+//   rtvi-vlm           → NVIDIA_API_KEY
+//   rtvi-embed         → HF_TOKEN
+const DOCKER_CHECK: Record<string, DockerCheck> = {
+  "ngc-key":               { kind: "container", containerName: "cosmos-reason2-8b", envKey: "NGC_API_KEY" },
+  "nvidia-api-key":        { kind: "container", containerName: "rtvi-vlm",          envKey: "NVIDIA_API_KEY" },
+  "huggingface-token":     { kind: "container", containerName: "rtvi-embed",         envKey: "HF_TOKEN" },
+  "slack-webhook-url":     { kind: "env",       envKey: "SLACK_WEBHOOK_URL" },
+  "console-auth-password": { kind: "env",       envKey: "CONSOLE_PASSWORD" },
+  "camera-sim-ssh-key":    { kind: "file",      envKey: "CAMERA_SIM_SSH_KEY_PATH" },
+  "aws-creds":             { kind: "multi-env", envKeys: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"] },
+};
+
+// Container to restart after PATCH in docker mode (if applicable).
+const DOCKER_RESTART_CONTAINER: Record<string, string> = {
+  "ngc-key":           "cosmos-reason2-8b",
+  "nvidia-api-key":    "rtvi-vlm",
+  "huggingface-token": "rtvi-embed",
+};
 
 // ─── Secret registry ─────────────────────────────────────────────────────────
 //
@@ -124,18 +172,70 @@ export async function GET(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { key } = await params;
-  const spec = SECRET_REGISTRY[key];
 
-  if (!spec) {
+  if (!SECRET_REGISTRY[key] && !DOCKER_CHECK[key]) {
     return NextResponse.json(
-      {
-        error: `Unknown secret key: ${key}. Allowed keys: ${Object.keys(SECRET_REGISTRY).join(", ")}`,
-      },
+      { error: `Unknown secret key: ${key}. Allowed keys: ${Object.keys(SECRET_REGISTRY).join(", ")}` },
       { status: 400 }
     );
   }
 
+  const rotationAgeMs = getRotationAge(key);
   let configured = false;
+
+  if (DOCKER_MODE) {
+    const check = DOCKER_CHECK[key];
+    if (check) {
+      try {
+        if (check.kind === "container") {
+          const inspect = await inspectContainer(check.containerName);
+          const val = (inspect?.Config.Env ?? [])
+            .find((e) => e.startsWith(`${check.envKey}=`))
+            ?.slice(check.envKey.length + 1);
+          configured = Boolean(val && val.trim().length > 0 && val !== "NOAPIKEYSET");
+        } else if (check.kind === "env") {
+          configured = Boolean(process.env[check.envKey]?.trim());
+          // Also accept a file-based override written by PATCH
+          if (!configured) {
+            try {
+              const stored = await fs.readFile(path.join(DOCKER_SECRETS_DIR, key), "utf-8");
+              configured = stored.trim().length > 0;
+            } catch { /* no stored value */ }
+          }
+        } else if (check.kind === "multi-env") {
+          configured = check.envKeys.every((k) => Boolean(process.env[k]?.trim()));
+          if (!configured) {
+            try {
+              const stored = await fs.readFile(path.join(DOCKER_SECRETS_DIR, key), "utf-8");
+              configured = stored.trim().length > 0;
+            } catch { /* no stored value */ }
+          }
+        } else if (check.kind === "file") {
+          const filePath = process.env[check.envKey];
+          if (filePath) {
+            try { await fs.access(filePath); configured = true; } catch { /* not found */ }
+          }
+          if (!configured) {
+            try {
+              const stored = await fs.readFile(path.join(DOCKER_SECRETS_DIR, key), "utf-8");
+              configured = stored.trim().length > 0;
+            } catch { /* no stored value */ }
+          }
+        }
+      } catch { /* docker socket unavailable — leave configured=false */ }
+    }
+    return NextResponse.json({ key, configured, ageMs: rotationAgeMs });
+  }
+
+  // ─── K8s mode ─────────────────────────────────────────────────────────────
+  const spec = SECRET_REGISTRY[key];
+  if (!spec) {
+    return NextResponse.json(
+      { error: `Secret key ${key} is not supported in k8s mode` },
+      { status: 400 }
+    );
+  }
+
   let k8sCreatedAtMs: number | null = null;
 
   try {
@@ -144,8 +244,6 @@ export async function GET(
       namespace: spec.namespace,
     });
     const data = (secret.data ?? {}) as Record<string, string>;
-    // For multi-field secrets, "configured" = all REQUIRED fields non-empty.
-    // For single-field, "configured" = the single dataKey is non-empty.
     configured = spec.fields
       .filter((f) => !f.optional)
       .every((f) => typeof data[f.dataKey] === "string" && data[f.dataKey].length > 0);
@@ -157,8 +255,6 @@ export async function GET(
     }
   } catch (err: unknown) {
     const k8sErr = err as { statusCode?: number; body?: { message?: string } };
-    // 404 = secret not yet applied → not configured. Any other error is a
-    // genuine failure we want to surface.
     if (k8sErr.statusCode !== 404) {
       return NextResponse.json(
         { error: k8sErr.body?.message ?? String(err), k8sCode: k8sErr.statusCode },
@@ -167,10 +263,6 @@ export async function GET(
     }
   }
 
-  // Age: prefer the last rotation recorded in the console DB (set by PATCH);
-  // fall back to the K8s Secret's creationTimestamp so the UI still shows
-  // "last rotated N days ago" for a fresh install that hasn't been rotated.
-  const rotationAgeMs = getRotationAge(key);
   const ageMs =
     rotationAgeMs !== null
       ? rotationAgeMs
@@ -178,11 +270,7 @@ export async function GET(
       ? Date.now() - k8sCreatedAtMs
       : null;
 
-  return NextResponse.json({
-    key,
-    configured,
-    ageMs,
-  });
+  return NextResponse.json({ key, configured, ageMs });
 }
 
 // ─── PATCH — rotate value(s) ─────────────────────────────────────────────────
@@ -197,21 +285,81 @@ export async function PATCH(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { key } = await params;
-  const spec = SECRET_REGISTRY[key];
 
-  if (!spec) {
+  if (!SECRET_REGISTRY[key] && !DOCKER_CHECK[key]) {
     return NextResponse.json(
-      {
-        error: `Unknown secret key: ${key}. Allowed keys: ${Object.keys(SECRET_REGISTRY).join(", ")}`,
-      },
+      { error: `Unknown secret key: ${key}. Allowed keys: ${Object.keys(SECRET_REGISTRY).join(", ")}` },
       { status: 400 }
     );
   }
 
   const body: unknown = await req.json().catch(() => null);
-  const isMultiField = spec.fields.length > 1;
 
-  // Build { [dataKey]: <plaintext string> } for every field we're updating.
+  if (DOCKER_MODE) {
+    // In docker mode, values can't be injected into running containers — they
+    // are written to DOCKER_SECRETS_DIR and the target container is restarted
+    // so that it picks up the value on next compose-level recreation.
+    const spec = SECRET_REGISTRY[key];
+    const isMultiField = spec && spec.fields.length > 1;
+
+    let storeValue: string;
+    if (isMultiField) {
+      if (typeof body !== "object" || body === null) {
+        return NextResponse.json({ error: "Expected JSON object body" }, { status: 400 });
+      }
+      storeValue = JSON.stringify(body);
+    } else {
+      const parsed = SinglePatchSchema.safeParse(body);
+      if (!parsed.success) {
+        return NextResponse.json(
+          { error: "Validation failed", issues: parsed.error.issues },
+          { status: 400 }
+        );
+      }
+      storeValue = parsed.data.value;
+      if (spec?.bcryptHash) {
+        const bcryptLib = await import("bcryptjs");
+        storeValue = await bcryptLib.hash(storeValue, 12);
+      }
+    }
+
+    await fs.mkdir(DOCKER_SECRETS_DIR, { recursive: true });
+    await fs.writeFile(path.join(DOCKER_SECRETS_DIR, key), storeValue, { mode: 0o600 });
+
+    const restartWarnings: string[] = [];
+    const containerName = DOCKER_RESTART_CONTAINER[key];
+    if (containerName) {
+      try {
+        await dockerSock("POST", `/containers/${containerName}/restart?t=10`);
+      } catch (err) {
+        restartWarnings.push(`Container restart ${containerName} failed: ${String(err)}`);
+      }
+    }
+
+    markRotated(key);
+    await auditLog("secret-rotate", `docker/secret/${key}`, {
+      key,
+      container: containerName ?? null,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      rotatedAt: new Date().toISOString(),
+      note: "Value persisted. Recreate the compose stack to fully apply.",
+      warnings: restartWarnings.length ? restartWarnings : undefined,
+    });
+  }
+
+  // ─── K8s mode ─────────────────────────────────────────────────────────────
+  const spec = SECRET_REGISTRY[key];
+  if (!spec) {
+    return NextResponse.json(
+      { error: `Secret key ${key} is not supported in k8s mode` },
+      { status: 400 }
+    );
+  }
+
+  const isMultiField = spec.fields.length > 1;
   const toPatch: Record<string, string> = {};
 
   if (isMultiField) {
@@ -261,7 +409,6 @@ export async function PATCH(
     toPatch[spec.fields[0].dataKey] = storeValue;
   }
 
-  // K8s Secret `data` is base64-encoded.
   const encodedData: Record<string, string> = {};
   for (const [k, v] of Object.entries(toPatch)) {
     encodedData[k] = Buffer.from(v).toString("base64");
@@ -281,7 +428,6 @@ export async function PATCH(
     );
   }
 
-  // Rollout-restart consuming Deployments / StatefulSets.
   const restartWarnings: string[] = [];
   for (const target of spec.restartTargets ?? []) {
     try {
@@ -292,7 +438,6 @@ export async function PATCH(
   }
 
   markRotated(key);
-
   await auditLog("secret-rotate", `${spec.namespace}/secret/${spec.secretName}`, {
     key,
     dataKeys: Object.keys(toPatch),

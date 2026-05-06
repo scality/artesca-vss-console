@@ -1,8 +1,32 @@
 import NextAuth, { type Session } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
+import fs from "fs/promises";
+import path from "path";
 
 const DEV_USER = { id: "1", name: "console-operator", email: "console@local" };
+
+// In docker mode, PATCH /api/secrets/console-auth-password writes a bcrypt hash
+// to this file so the password can be rotated without restarting the container.
+async function getPasswordHash(): Promise<{ hash: string; isHashed: boolean } | null> {
+  const envHash = process.env.CONSOLE_PASSWORD_HASH;
+  if (envHash) return { hash: envHash, isHashed: true };
+
+  if (process.env.CONSOLE_RUNTIME === "docker") {
+    try {
+      const dir = process.env.CONSOLE_DATA_DIR ?? "/data";
+      const stored = await fs.readFile(
+        path.join(dir, ".docker-secrets", "console-auth-password"),
+        "utf-8",
+      );
+      const trimmed = stored.trim();
+      if (trimmed) return { hash: trimmed, isHashed: true };
+    } catch { /* no stored hash yet */ }
+  }
+
+  const plain = process.env.CONSOLE_PASSWORD ?? "scality";
+  return { hash: plain, isHashed: false };
+}
 
 const BYPASS_SESSION: Session = {
   user: DEV_USER,
@@ -25,15 +49,15 @@ const {
         const password = credentials?.password as string | undefined;
         if (!password) return null;
 
-        const envHash = process.env.CONSOLE_PASSWORD_HASH;
-        const envPlain = process.env.CONSOLE_PASSWORD ?? "scality";
+        const stored = await getPasswordHash();
+        if (!stored) return null;
 
-        if (envHash) {
-          const ok = await bcrypt.compare(password, envHash);
+        if (stored.isHashed) {
+          const ok = await bcrypt.compare(password, stored.hash);
           return ok ? DEV_USER : null;
         }
 
-        return password === envPlain ? DEV_USER : null;
+        return password === stored.hash ? DEV_USER : null;
       },
     }),
   ],
