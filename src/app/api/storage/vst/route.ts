@@ -9,6 +9,11 @@ import { runInPod } from "@/lib/k8s";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { getRedis } from "@/lib/redis";
 import { makeS3Client } from "@/lib/s3";
+import { execInContainer } from "@/lib/helpers/docker-sock";
+
+const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
+const DOCKER_SENSOR_CONTAINER = "sensor-ms-dev";
+const DOCKER_VST_CACHE_PATH = "/home/vst/vst_release/vst_video";
 
 export const dynamic = "force-dynamic";
 
@@ -240,6 +245,35 @@ function computeSegmentDurations(
 async function fetchLocalCacheFill(
   alerts: StorageAlert[]
 ): Promise<number | null> {
+  const parsePercent = (raw: string): number => {
+    const pct = parseFloat(raw.trim().replace("%", ""));
+    if (isNaN(pct)) throw new Error(`Unexpected df output: "${raw.trim()}"`);
+    return pct;
+  };
+
+  if (DOCKER_MODE) {
+    try {
+      const out = await execInContainer(DOCKER_SENSOR_CONTAINER, [
+        "sh",
+        "-c",
+        `df -P ${DOCKER_VST_CACHE_PATH} 2>/dev/null | awk 'NR==2 {print $5}'`,
+      ]);
+      if (!out) throw new Error("exec returned null");
+      const pct = parsePercent(out);
+      if (pct > 90) {
+        alerts.push({ severity: "crit", message: `Local cache at ${pct}%, recordings may drop` });
+      }
+      return pct;
+    } catch (err) {
+      console.warn("[storage/vst] localCacheFillPercent unavailable:", String(err));
+      alerts.push({
+        severity: "warn",
+        message: "Local cache fill unavailable — could not exec into sensor-ms-dev container",
+      });
+      return null;
+    }
+  }
+
   try {
     const result = await runInPod(
       CLUSTER.vst.namespace,
@@ -251,11 +285,7 @@ async function fetchLocalCacheFill(
       ],
       8_000
     );
-    const raw = result.stdout.trim().replace("%", "");
-    const pct = parseFloat(raw);
-    if (isNaN(pct)) {
-      throw new Error(`Unexpected df output: "${result.stdout.trim()}"`);
-    }
+    const pct = parsePercent(result.stdout);
     if (pct > 90) {
       alerts.push({
         severity: "crit",
@@ -283,6 +313,14 @@ interface FrameDropStats {
 async function fetchFrameDropStats(
   alerts: StorageAlert[]
 ): Promise<FrameDropStats> {
+  if (DOCKER_MODE && !process.env.PROMETHEUS_URL) {
+    alerts.push({
+      severity: "info",
+      message: "Frame drop metrics not available — Prometheus is not in the VSS compose stack",
+    });
+    return { count: null, ratePerMin: null };
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4_000);
 

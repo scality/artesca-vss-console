@@ -3,8 +3,11 @@ import { auth } from "@/lib/auth";
 import { coreV1 } from "@/lib/k8s";
 import { sshExec } from "@/lib/ssh";
 import { auditLog } from "@/lib/helpers/audit";
+import { dockerSock } from "@/lib/helpers/docker-sock";
 
 export const dynamic = "force-dynamic";
+
+const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
 
 type DiagnosticSpec =
   | { via: "k8s-api-events" }
@@ -79,49 +82,80 @@ export async function POST(
       stderr = result.stderr;
       exitCode = result.code;
     } else if (spec.via === "k8s-api-events") {
-      const namespaces = [
-        "vst",
-        "rtvi",
-        "agent",
-        "alerts",
-        "demo-data",
-        "pyramid-ingress",
-        "console",
-      ];
-      const eventLines: string[] = [];
-      for (const ns of namespaces) {
-        try {
-          const evList = await coreV1().listNamespacedEvent({ namespace: ns });
-          for (const ev of evList.items) {
-            const reason = ev.reason ?? "";
-            const msg = ev.message ?? "";
-            const component = ev.involvedObject?.name ?? "";
-            const count = ev.count ?? 1;
-            const time = ev.lastTimestamp ?? "";
-            eventLines.push(
-              `[${ns}] ${String(time).slice(0, 19)} ${component} ${reason} (x${count}): ${msg}`
-            );
+      if (DOCKER_MODE) {
+        stdout = "k8s events not available in docker mode";
+        exitCode = 0;
+      } else {
+        const namespaces = [
+          "vst",
+          "rtvi",
+          "agent",
+          "alerts",
+          "demo-data",
+          "pyramid-ingress",
+          "console",
+        ];
+        const eventLines: string[] = [];
+        for (const ns of namespaces) {
+          try {
+            const evList = await coreV1().listNamespacedEvent({ namespace: ns });
+            for (const ev of evList.items) {
+              const reason = ev.reason ?? "";
+              const msg = ev.message ?? "";
+              const component = ev.involvedObject?.name ?? "";
+              const count = ev.count ?? 1;
+              const time = ev.lastTimestamp ?? "";
+              eventLines.push(
+                `[${ns}] ${String(time).slice(0, 19)} ${component} ${reason} (x${count}): ${msg}`
+              );
+            }
+          } catch {
+            eventLines.push(`[${ns}] Failed to list events`);
           }
-        } catch {
-          eventLines.push(`[${ns}] Failed to list events`);
         }
+        stdout = eventLines.sort().join("\n");
+        exitCode = 0;
       }
-      stdout = eventLines.sort().join("\n");
-      exitCode = 0;
     } else if (spec.via === "k8s-api-nodes") {
-      const nodeList = await coreV1().listNode();
-      const lines = nodeList.items.map((n) => {
-        const name = n.metadata?.name ?? "?";
-        const capacity = n.status?.capacity ?? {};
-        const allocatable = n.status?.allocatable ?? {};
-        return (
-          `${name}  cpu=${allocatable["cpu"] ?? capacity["cpu"] ?? "?"}` +
-          `  memory=${allocatable["memory"] ?? capacity["memory"] ?? "?"}` +
-          `  gpu=${capacity["nvidia.com/gpu"] ?? "0"}`
-        );
-      });
-      stdout = ["NAME  CPU  MEMORY  GPU", ...lines].join("\n");
-      exitCode = 0;
+      if (DOCKER_MODE) {
+        const info = (await dockerSock("GET", "/info")) as {
+          KernelVersion?: string;
+          ServerVersion?: string;
+          NCPU?: number;
+          MemTotal?: number;
+          OperatingSystem?: string;
+          Containers?: number;
+          ContainersRunning?: number;
+          ContainersStopped?: number;
+          Runtimes?: Record<string, unknown>;
+        };
+        const memGiB = info.MemTotal ? (info.MemTotal / 1024 ** 3).toFixed(1) : "?";
+        const gpuRuntime = info.Runtimes?.nvidia ? "yes" : "no";
+        stdout = [
+          `OS:          ${info.OperatingSystem ?? "?"}`,
+          `Kernel:      ${info.KernelVersion ?? "?"}`,
+          `Docker:      ${info.ServerVersion ?? "?"}`,
+          `CPUs:        ${info.NCPU ?? "?"}`,
+          `Memory:      ${memGiB} GiB`,
+          `Containers:  ${info.Containers ?? "?"} total (${info.ContainersRunning ?? "?"} running, ${info.ContainersStopped ?? "?"} stopped)`,
+          `NVIDIA runtime: ${gpuRuntime}`,
+        ].join("\n");
+        exitCode = 0;
+      } else {
+        const nodeList = await coreV1().listNode();
+        const lines = nodeList.items.map((n) => {
+          const name = n.metadata?.name ?? "?";
+          const capacity = n.status?.capacity ?? {};
+          const allocatable = n.status?.allocatable ?? {};
+          return (
+            `${name}  cpu=${allocatable["cpu"] ?? capacity["cpu"] ?? "?"}` +
+            `  memory=${allocatable["memory"] ?? capacity["memory"] ?? "?"}` +
+            `  gpu=${capacity["nvidia.com/gpu"] ?? "0"}`
+          );
+        });
+        stdout = ["NAME  CPU  MEMORY  GPU", ...lines].join("\n");
+        exitCode = 0;
+      }
     }
   } catch (err) {
     stderr = String(err);
