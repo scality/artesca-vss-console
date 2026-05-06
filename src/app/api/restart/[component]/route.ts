@@ -22,6 +22,7 @@ const DOCKER_SERVICE_NAMES: Record<string, string> = {
   "streamprocessing-ms": "streamprocessing-ms-dev",
   "nvidia-vss-agent": "vss-agent",
   "alert-worker": "vss-video-analytics-api-alerts",
+  "demo-producer": CLUSTER.demoData.dockerContainer,
 };
 
 export async function POST(
