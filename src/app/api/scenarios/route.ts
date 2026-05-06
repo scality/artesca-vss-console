@@ -14,8 +14,18 @@ import {
   type ScenarioConfig,
 } from "@/lib/helpers/gcs-config";
 import { scenarioToGcsConfig } from "@/lib/helpers/scenarios-apply";
+import { dockerSock } from "@/lib/helpers/docker-sock";
+import fs from "fs/promises";
+import path from "path";
 
 export const dynamic = "force-dynamic";
+
+const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
+const DOCKER_TUNING_DIR = path.join(
+  process.env.CONSOLE_DATA_DIR ?? "/data",
+  ".docker-tuning",
+);
+const DOCKER_ALERT_CONTAINER = "vss-video-analytics-api-alerts";
 
 const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 
@@ -77,6 +87,38 @@ export async function GET() {
 
   const warnings: string[] = [];
 
+  if (DOCKER_MODE) {
+    let gcsCfg: ScenariosConfig | null = null;
+    let scenarios: Scenario[] = [];
+
+    if (VSS_INSTANCE_NAME) {
+      gcsCfg = await gcsScenariosGet(VSS_INSTANCE_NAME).catch(() => null);
+    }
+
+    if (gcsCfg) {
+      scenarios = parseRawScenarios({ scenarios: gcsCfg.scenarios });
+    } else {
+      try {
+        const raw = JSON.parse(
+          await fs.readFile(path.join(DOCKER_TUNING_DIR, "scenarios.json"), "utf-8"),
+        ) as ScenariosConfigRaw;
+        scenarios = parseRawScenarios(raw);
+        if (VSS_INSTANCE_NAME) {
+          warnings.push("GCS unavailable — serving from local fallback");
+        }
+      } catch {
+        warnings.push("No scenarios found — GCS unavailable and no local fallback");
+      }
+    }
+
+    return NextResponse.json({
+      scenarios,
+      resourceVersion: null,
+      gcs: buildGcsField(gcsCfg),
+      warnings,
+    });
+  }
+
   // GCS fetch runs in parallel with the ConfigMap read.
   const gcsPromise = VSS_INSTANCE_NAME
     ? gcsScenariosGet(VSS_INSTANCE_NAME)
@@ -136,6 +178,40 @@ export async function PATCH(req: NextRequest) {
 
   const { scenarios } = parsed.data;
   const ifMatch = req.headers.get("If-Match") ?? undefined;
+
+  if (DOCKER_MODE) {
+    await fs.mkdir(DOCKER_TUNING_DIR, { recursive: true });
+    await fs.writeFile(
+      path.join(DOCKER_TUNING_DIR, "scenarios.json"),
+      JSON.stringify(scenariosToConfigMap(scenarios), null, 2),
+      { mode: 0o600 },
+    );
+
+    const gcsWarnings: string[] = [];
+    if (VSS_INSTANCE_NAME) {
+      const warn = await persistScenarisoToGcs(scenarios, session.user?.email ?? "console");
+      if (warn) gcsWarnings.push(warn);
+    }
+
+    const restartWarnings: string[] = [];
+    try {
+      await dockerSock("POST", `/containers/${DOCKER_ALERT_CONTAINER}/restart?t=10`);
+    } catch (err) {
+      restartWarnings.push(`Container restart failed: ${String(err)}`);
+    }
+
+    await auditLog("scenarios-update", `docker/${DOCKER_ALERT_CONTAINER}`, {
+      count: scenarios.length,
+      ids: scenarios.map((s) => s.id),
+    });
+
+    return NextResponse.json({
+      ok: true,
+      count: scenarios.length,
+      ...(gcsWarnings.length ? { gcsWarnings } : {}),
+      ...(restartWarnings.length ? { warnings: restartWarnings } : {}),
+    });
+  }
 
   try {
     // Read current resourceVersion if If-Match not supplied

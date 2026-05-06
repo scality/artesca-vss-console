@@ -7,14 +7,22 @@ import {
 } from "@/lib/helpers/gcs-config";
 import { readConfigMapKey } from "@/lib/helpers/configmaps";
 import { CLUSTER } from "@/lib/cluster-refs";
+import fs from "fs/promises";
+import path from "path";
 
 export const dynamic = "force-dynamic";
+
+const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
+const DOCKER_TUNING_DIR = path.join(
+  process.env.CONSOLE_DATA_DIR ?? "/data",
+  ".docker-tuning",
+);
 
 const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 
 // ─── POST /api/scenarios/sync-gcs ────────────────────────────────────────────
 //
-// Snapshots the current live scenarios ConfigMap to GCS.
+// Snapshots the current live scenarios to GCS.
 // Used by the "Save all to GCS" button on the scenarios page.
 
 type ScenariosConfigRaw = {
@@ -45,21 +53,35 @@ export async function POST() {
   }
 
   let raw: ScenariosConfigRaw;
-  try {
-    const { value } = await readConfigMapKey<ScenariosConfigRaw>(
-      CLUSTER.scenarios.namespace,
-      CLUSTER.scenarios.configMap,
-      CLUSTER.scenarios.yamlKey,
-    );
-    raw = value ?? {};
-  } catch (err) {
-    return NextResponse.json(
-      { error: `Failed to read scenarios ConfigMap: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 502 },
-    );
+
+  if (DOCKER_MODE) {
+    try {
+      raw = JSON.parse(
+        await fs.readFile(path.join(DOCKER_TUNING_DIR, "scenarios.json"), "utf-8"),
+      ) as ScenariosConfigRaw;
+    } catch {
+      return NextResponse.json(
+        { error: "No local scenarios found — save scenarios first before syncing to GCS" },
+        { status: 404 },
+      );
+    }
+  } else {
+    try {
+      const { value } = await readConfigMapKey<ScenariosConfigRaw>(
+        CLUSTER.scenarios.namespace,
+        CLUSTER.scenarios.configMap,
+        CLUSTER.scenarios.yamlKey,
+      );
+      raw = value ?? {};
+    } catch (err) {
+      return NextResponse.json(
+        { error: `Failed to read scenarios ConfigMap: ${err instanceof Error ? err.message : String(err)}` },
+        { status: 502 },
+      );
+    }
   }
 
-  // Convert raw ConfigMap entries to GCS wire format.
+  // Convert raw entries to GCS wire format.
   const scenarios: ScenarioConfig[] = (raw.scenarios ?? []).map((s, i) => ({
     id: s.id ?? String(i),
     name: s.name ?? `scenario-${i}`,
