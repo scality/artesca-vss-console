@@ -7,49 +7,7 @@ import { KafkaLagTable } from "@/components/overview/KafkaLagTable";
 import { PodSummaryList } from "@/components/overview/PodSummaryList";
 import { OverviewAutoRefresh } from "@/components/overview/OverviewAutoRefresh";
 import { isKioskFromHeaders } from "@/lib/kiosk";
-import { OverviewSnapshotSchema } from "@/lib/schemas";
-import type { OverviewSnapshot, PodSummary } from "@/lib/types";
-
-type OverviewFetchResult =
-  | { kind: "ok"; snapshot: OverviewSnapshot; mode?: string }
-  | { kind: "unauthorized" }
-  | { kind: "unreachable"; status?: number };
-
-async function fetchOverview(): Promise<OverviewFetchResult> {
-  const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:8800";
-  try {
-    const hdrs = await headers();
-    const cookie = hdrs.get("cookie") ?? "";
-    const res = await fetch(`${baseUrl}/api/status/overview`, {
-      cache: "no-store",
-      headers: cookie ? { cookie } : {},
-    });
-    if (res.status === 401) return { kind: "unauthorized" };
-    if (!res.ok) return { kind: "unreachable", status: res.status };
-    const raw = (await res.json()) as { mode?: string } & Record<string, unknown>;
-    const snapshot = OverviewSnapshotSchema.parse(raw);
-    return { kind: "ok", snapshot, mode: typeof raw.mode === "string" ? raw.mode : undefined };
-  } catch {
-    return { kind: "unreachable" };
-  }
-}
-
-async function fetchPods(): Promise<PodSummary[]> {
-  const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:8800";
-  try {
-    const hdrs = await headers();
-    const cookie = hdrs.get("cookie") ?? "";
-    const res = await fetch(`${baseUrl}/api/pods`, {
-      cache: "no-store",
-      headers: cookie ? { cookie } : {},
-    });
-    if (!res.ok) return [];
-    const body = (await res.json()) as { pods?: PodSummary[] };
-    return body.pods ?? [];
-  } catch {
-    return [];
-  }
-}
+import { collectOverviewSnapshot, collectPodSummaries } from "@/lib/overview-collector";
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(2)} TB`;
@@ -62,12 +20,16 @@ export default async function OverviewPage() {
   const hdrs = await headers();
   const kiosk = isKioskFromHeaders(hdrs);
 
-  const [overviewResult, pods] = await Promise.all([fetchOverview(), fetchPods()]);
-  const overview = overviewResult.kind === "ok" ? overviewResult.snapshot : null;
-  const dockerMode = overviewResult.kind === "ok" && overviewResult.mode === "docker";
+  const [overviewResult, podsResult] = await Promise.all([
+    collectOverviewSnapshot(),
+    collectPodSummaries(),
+  ]);
+  const { snapshot: overview, mode, warnings } = overviewResult;
+  const dockerMode = mode === "docker";
+  const pods = podsResult.pods;
 
   // Group pods by namespace
-  const nsByName = new Map<string, PodSummary[]>();
+  const nsByName = new Map<string, typeof pods>();
   for (const pod of pods) {
     if (!nsByName.has(pod.namespace)) nsByName.set(pod.namespace, []);
     nsByName.get(pod.namespace)!.push(pod);
@@ -79,6 +41,9 @@ export default async function OverviewPage() {
     total: nsPods.length,
     ready: nsPods.filter((p) => p.ready).length,
   }));
+
+  const hasOverviewData =
+    overview.gpus.length > 0 || Object.keys(overview.namespaces).length > 0;
 
   return (
     <Shell>
@@ -107,32 +72,14 @@ export default async function OverviewPage() {
                 COMPOSE
               </span>
             )}
-            {overview && (
-              <p className="text-xs text-muted-foreground tabular-nums">
-                {new Date(overview.takenAt).toLocaleTimeString()}
-              </p>
-            )}
+            <p className="text-xs text-muted-foreground tabular-nums">
+              {new Date(overview.takenAt).toLocaleTimeString()}
+            </p>
           </div>
         </div>
 
-        {/* No data / mode fallbacks */}
-        {overviewResult.kind === "unauthorized" && (
-          <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4">
-            <p className="text-sm text-rose-300">
-              Not signed in. <a href="/api/auth/signin" className="underline hover:text-rose-200">Sign in</a> to load operator views.
-            </p>
-          </div>
-        )}
-        {overviewResult.kind === "unreachable" && (
-          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
-            <p className="text-sm text-yellow-400">
-              Could not reach <code>/api/status/overview</code>
-              {overviewResult.status ? <> (HTTP {overviewResult.status})</> : null}
-              {" "}— the console pod may still be starting up. Data will appear automatically once available.
-            </p>
-          </div>
-        )}
-        {dockerMode && Object.keys(overview?.namespaces ?? {}).length === 0 && (
+        {/* Compose-mode empty hint */}
+        {dockerMode && Object.keys(overview.namespaces).length === 0 && (
           <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-300">
             <p className="font-medium">Compose-mode runtime — no compose containers detected.</p>
             <p className="mt-1 text-sky-300/80">
@@ -142,9 +89,30 @@ export default async function OverviewPage() {
           </div>
         )}
 
+        {/* Degraded-collector hint: shown only when probes failed AND we
+            have nothing to render. Healthy probes that produce partial
+            data don't trigger this — warnings stay in pod logs. */}
+        {!hasOverviewData && warnings.length > 0 && (
+          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 space-y-2">
+            <p className="text-sm font-medium text-yellow-300">
+              Overview probes failed — no data to show yet.
+            </p>
+            <ul className="text-xs text-yellow-400/80 font-mono space-y-0.5 max-h-32 overflow-y-auto">
+              {warnings.slice(0, 8).map((w, i) => (
+                <li key={i} className="break-all">{w}</li>
+              ))}
+            </ul>
+            <p className="text-xs text-yellow-400/80">
+              The page polls every 5 s and recovers automatically once probes succeed.
+              For deeper diagnosis: <code>kubectl logs -n console -l app=console --tail=100</code>{" "}
+              (k8s) or <code>docker logs vss-console</code> (compose).
+            </p>
+          </div>
+        )}
+
         {/* Row 1 — KPI cards. Docker path populates the same OverviewSnapshot
             shape from docker.sock + nvidia-smi exec, so the grid renders unchanged. */}
-        {overview && (overview.gpus.length > 0 || Object.keys(overview.namespaces).length > 0) && (
+        {hasOverviewData && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {dockerMode ? "Compose Stack Overview" : "System Overview"}
@@ -154,12 +122,12 @@ export default async function OverviewPage() {
         )}
 
         {/* Row 2 — Per-namespace summary (compose services on docker mode). */}
-        {(nsGroups.length > 0 || (overview && Object.keys(overview.namespaces).length > 0)) && (
+        {(nsGroups.length > 0 || Object.keys(overview.namespaces).length > 0) && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {dockerMode ? "Compose Services" : "Namespaces"}
             </h2>
-            {dockerMode && overview ? (
+            {dockerMode ? (
               <PodSummaryList
                 groups={Object.entries(overview.namespaces).map(([namespace, n]) => ({
                   namespace,
@@ -175,7 +143,7 @@ export default async function OverviewPage() {
         )}
 
         {/* Row 3 — GPU card grid */}
-        {overview && overview.gpus.length > 0 && (
+        {overview.gpus.length > 0 && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               GPUs
@@ -189,7 +157,7 @@ export default async function OverviewPage() {
         )}
 
         {/* Row 4 — Kafka lag table */}
-        {overview && Object.keys(overview.kafka).length > 0 && (
+        {Object.keys(overview.kafka).length > 0 && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Kafka Consumer Lag
@@ -201,7 +169,7 @@ export default async function OverviewPage() {
         )}
 
         {/* Row 5 — S3 bucket stats. Shown when bucket is configured in either mode. */}
-        {overview && overview.s3.bucket && (
+        {overview.s3.bucket && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               S3 Bucket
@@ -243,7 +211,7 @@ export default async function OverviewPage() {
         )}
 
         {/* Row 6 — Camera-sim card (k8s mode only — compose path doesn't yet wire camera-sim probes) */}
-        {overview && !dockerMode && (
+        {!dockerMode && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Camera Simulator
