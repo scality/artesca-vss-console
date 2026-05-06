@@ -51,6 +51,46 @@ function hasReasoning(content: string): boolean {
   return content.length !== stripReasoning(content).length;
 }
 
+type ReasoningStep = { title: string; body: string };
+
+function parseReasoning(content: string): { steps: ReasoningStep[]; answer: string } {
+  const steps: ReasoningStep[] = [];
+  const re = /<agent-think-step[^>]*title="([^"]*)"[^>]*>([\s\S]*?)<\/agent-think-step>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    steps.push({ title: m[1], body: m[2].trim() });
+  }
+  return { steps, answer: stripReasoning(content) };
+}
+
+function ReasoningBlock({ steps }: { steps: ReasoningStep[] }) {
+  return (
+    <div className="mb-2 rounded border border-slate-700 bg-slate-900/60 text-[11px]">
+      <div className="border-b border-slate-700 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-slate-500">
+        agent reasoning · {steps.length} step{steps.length !== 1 ? "s" : ""}
+      </div>
+      {steps.map((s, i) => {
+        const isToolCall = /tool call/i.test(s.title);
+        return (
+          <div
+            key={i}
+            className={`border-b border-slate-800 px-2 py-1.5 last:border-0 ${isToolCall ? "bg-indigo-950/20" : ""}`}
+          >
+            <div
+              className={`mb-0.5 font-mono text-[10px] uppercase tracking-wide ${
+                isToolCall ? "text-indigo-400" : "text-slate-500"
+              }`}
+            >
+              {s.title}
+            </div>
+            <div className="whitespace-pre-wrap break-words text-slate-400">{s.body}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -334,7 +374,10 @@ export default function ChatPage() {
             </div>
           )}
           {messages.map((m, i) => {
-            const display = showReasoning ? m.content : stripReasoning(m.content);
+            const { steps, answer } = m.role === "assistant"
+              ? parseReasoning(m.content)
+              : { steps: [], answer: m.content };
+            const display = showReasoning ? answer : stripReasoning(m.content);
             const cannedFailure = m.role === "assistant" && isCannedFailure(m.content);
             const hasReasoningBlocks = m.role === "assistant" && hasReasoning(m.content);
             return (
@@ -350,6 +393,7 @@ export default function ChatPage() {
                   <div className="text-[10px] uppercase tracking-wider text-slate-500">
                     {m.role}
                   </div>
+                  {showReasoning && steps.length > 0 && <ReasoningBlock steps={steps} />}
                   <div className="mt-0.5 whitespace-pre-wrap break-words text-slate-100">
                     {display || (
                       <span className="italic text-slate-500">(empty after stripping reasoning)</span>
