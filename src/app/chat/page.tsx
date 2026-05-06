@@ -181,9 +181,9 @@ export default function ChatPage() {
               {
                 role: "system" as const,
                 content:
-                  `Focus subsequent answers on the camera "${scopedCamera.id}"` +
+                  `The user has scoped this session to camera "${scopedCamera.id}"` +
                   (scopedCamera.description ? ` (${scopedCamera.description})` : "") +
-                  ". Prefer events and recordings from that sensor; fall back to the full fleet only when explicitly asked.",
+                  `. When the user asks to describe the video, check what is happening, get a snapshot, or any similar query without naming a sensor, use "${scopedCamera.id}" automatically — do not list available sensors and do not ask the user to choose one. Fetch recordings and run visual analysis on "${scopedCamera.id}" directly. Fall back to the full fleet only when the user explicitly asks about other cameras.`,
               },
               ...next.map(({ role, content }) => ({ role, content })),
             ]
