@@ -5,8 +5,12 @@ import { coreV1, rolloutRestart } from "@/lib/k8s";
 import { patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
+import { inspectContainer, dockerRecreateWithEnv } from "@/lib/helpers/docker-sock";
 
 export const dynamic = "force-dynamic";
+
+const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
+const NIM_CONTAINER = "cosmos-reason2-8b";
 
 const RtviTuningSchema = z.object({
   maxNumSeqs: z.number().int().positive().optional(),
@@ -43,6 +47,31 @@ export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  if (DOCKER_MODE) {
+    const inspect = await inspectContainer(NIM_CONTAINER);
+    if (!inspect) {
+      return NextResponse.json(
+        {
+          ...RTVI_TUNING_DEFAULTS,
+          kvCachePct: RTVI_TUNING_DEFAULTS.kvCachePct,
+          runtime: "docker",
+          warnings: ["cosmos-reason2-8b container not running — showing defaults"],
+        },
+      );
+    }
+    const env: Record<string, string> = {};
+    for (const line of inspect.Config.Env ?? []) {
+      const eq = line.indexOf("=");
+      if (eq > 0) env[line.slice(0, eq)] = line.slice(eq + 1);
+    }
+    return NextResponse.json({
+      maxNumSeqs: parseIntOrDefault(env[CLUSTER.rtvi.nimMaxNumSeqsKey], RTVI_TUNING_DEFAULTS.maxNumSeqs),
+      kvCachePct: parseFloatOrDefault(env[CLUSTER.rtvi.nimKvCacheKey], RTVI_TUNING_DEFAULTS.kvCachePct),
+      maxModelLen: parseIntOrDefault(env[CLUSTER.rtvi.nimMaxModelLenKey], RTVI_TUNING_DEFAULTS.maxModelLen),
+      runtime: "docker",
+    });
+  }
+
   let data: Record<string, string> | undefined;
   try {
     const cm = await coreV1().readNamespacedConfigMap({
@@ -76,6 +105,40 @@ export async function PATCH(req: NextRequest) {
   }
 
   const tuning = parsed.data;
+
+  if (DOCKER_MODE) {
+    const envPatch: Record<string, string> = {};
+    if (tuning.maxNumSeqs !== undefined) {
+      envPatch[CLUSTER.rtvi.nimMaxNumSeqsKey] = String(tuning.maxNumSeqs);
+    }
+    if (tuning.kvCachePercent !== undefined) {
+      envPatch[CLUSTER.rtvi.nimKvCacheKey] = String(tuning.kvCachePercent);
+    }
+    if (tuning.maxModelLen !== undefined) {
+      envPatch[CLUSTER.rtvi.nimMaxModelLenKey] = String(tuning.maxModelLen);
+    }
+    try {
+      const { id } = await dockerRecreateWithEnv(NIM_CONTAINER, envPatch);
+      await auditLog("tuning-rtvi", `docker/${NIM_CONTAINER}`, { patches: envPatch });
+      return NextResponse.json({
+        ok: true,
+        applied: envPatch,
+        runtime: "docker",
+        containerId: id.slice(0, 12),
+        note: "NIM container recreating — expect 5–10 min downtime.",
+      });
+    } catch (err) {
+      return NextResponse.json(
+        {
+          error: `cosmos-reason2-8b recreate failed: ${String(err)}`,
+          hint: "Old container restored automatically.",
+          runtime: "docker",
+        },
+        { status: 502 },
+      );
+    }
+  }
+
   const patches: Array<[string, string]> = [];
 
   if (tuning.maxNumSeqs !== undefined) {
