@@ -4,8 +4,11 @@ import { z } from "zod";
 import { appsV1 } from "@/lib/k8s";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
+import { dockerSock, dockerRecreateWithEnv } from "@/lib/helpers/docker-sock";
 
 export const dynamic = "force-dynamic";
+
+const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
 
 const DemoDataSchema = z.object({
   enabled: z.boolean().optional(),
@@ -27,6 +30,38 @@ export async function PATCH(req: NextRequest) {
   }
 
   const { enabled, tickRate, matchProbability } = parsed.data;
+
+  if (DOCKER_MODE) {
+    const container = CLUSTER.demoData.dockerContainer;
+    try {
+      if (tickRate !== undefined || matchProbability !== undefined) {
+        const envOverrides: Record<string, string> = {};
+        if (tickRate !== undefined) {
+          envOverrides[CLUSTER.demoData.tickSecondsEnv] = String(Math.round(tickRate));
+        }
+        if (matchProbability !== undefined) {
+          envOverrides[CLUSTER.demoData.matchProbabilityEnv] = String(matchProbability);
+        }
+        await dockerRecreateWithEnv(container, envOverrides);
+        // If disabled requested after recreate, stop the container
+        if (enabled === false) {
+          await dockerSock("POST", `/containers/${encodeURIComponent(container)}/stop?t=10`);
+        }
+      } else if (enabled !== undefined) {
+        if (enabled) {
+          await dockerSock("POST", `/containers/${encodeURIComponent(container)}/start`);
+        } else {
+          await dockerSock("POST", `/containers/${encodeURIComponent(container)}/stop?t=10`);
+        }
+      }
+    } catch (err) {
+      return NextResponse.json({ error: String(err), runtime: "docker" }, { status: 502 });
+    }
+
+    await auditLog("demo-data-update", `docker/${container}`, { enabled, tickRate, matchProbability });
+    return NextResponse.json({ ok: true, enabled, tickRate, matchProbability, runtime: "docker" });
+  }
+
   const apps = appsV1();
 
   // Scale the deployment if enabled flag is specified

@@ -200,6 +200,7 @@ const DEMO_DATA = {
   envConfigMap: "demo-producer-env",
   tickSecondsEnv: "TICK_SECONDS",
   matchProbabilityEnv: "MATCH_PROBABILITY",
+  dockerContainer: process.env.DEMO_PRODUCER_CONTAINER ?? "demo-producer",
 } as const;
 
 // ─── S3 ──────────────────────────────────────────────────────────────────────

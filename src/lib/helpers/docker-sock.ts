@@ -8,6 +8,12 @@
  */
 import "server-only";
 import http from "node:http";
+import nodePath from "node:path";
+
+export const DOCKER_TUNING_DIR = nodePath.join(
+  process.env.CONSOLE_DATA_DIR ?? "/data",
+  ".docker-tuning",
+);
 
 export async function dockerSock(
   method: "GET" | "POST" | "DELETE",
@@ -266,6 +272,106 @@ export function streamDockerLogs(
   const destroy = () => req.destroy();
   signal?.addEventListener("abort", destroy, { once: true });
   return destroy;
+}
+
+/** Recreate the named container with patched env vars, preserving image,
+ *  entrypoint, mounts, network mode, GPU device requests, restart policy,
+ *  exposed ports, and compose labels.
+ *
+ *  Strategy: stop → rename old to <name>-bak-<ts> → create new from patched
+ *  config → start new. If start fails, the new container is removed and the
+ *  old one is renamed back + started. */
+export async function dockerRecreateWithEnv(
+  name: string,
+  envOverrides: Record<string, string>,
+): Promise<{ id: string }> {
+  const inspect = (await dockerSock("GET", `/containers/${encodeURIComponent(name)}/json`)) as {
+    Config: {
+      Image: string;
+      Env: string[];
+      Cmd: string[] | null;
+      Entrypoint: string[] | null;
+      ExposedPorts?: Record<string, unknown>;
+      Labels?: Record<string, string>;
+      WorkingDir?: string;
+      User?: string;
+    };
+    HostConfig: Record<string, unknown>;
+    NetworkSettings: { Networks: Record<string, unknown> };
+  };
+
+  const seen = new Set<string>();
+  const newEnv: string[] = [];
+  for (const line of inspect.Config.Env ?? []) {
+    const eq = line.indexOf("=");
+    const k = eq > 0 ? line.slice(0, eq) : line;
+    if (k in envOverrides) {
+      newEnv.push(`${k}=${envOverrides[k]}`);
+      seen.add(k);
+    } else {
+      newEnv.push(line);
+    }
+  }
+  for (const [k, v] of Object.entries(envOverrides)) {
+    if (!seen.has(k)) newEnv.push(`${k}=${v}`);
+  }
+
+  const networks = Object.keys(inspect.NetworkSettings?.Networks ?? {});
+  const networkingConfig =
+    networks.length > 0
+      ? { EndpointsConfig: Object.fromEntries(networks.map((n) => [n, {}])) }
+      : undefined;
+
+  const createBody: Record<string, unknown> = {
+    Image: inspect.Config.Image,
+    Env: newEnv,
+    Cmd: inspect.Config.Cmd,
+    Entrypoint: inspect.Config.Entrypoint,
+    ExposedPorts: inspect.Config.ExposedPorts,
+    Labels: inspect.Config.Labels,
+    WorkingDir: inspect.Config.WorkingDir,
+    User: inspect.Config.User,
+    HostConfig: inspect.HostConfig,
+    ...(networkingConfig ? { NetworkingConfig: networkingConfig } : {}),
+  };
+
+  const ts = Date.now();
+  const backupName = `${name}-bak-${ts}`;
+
+  try {
+    await dockerSock("POST", `/containers/${encodeURIComponent(name)}/stop?t=10`, undefined, 30_000);
+  } catch {
+    // best-effort — container may already be stopped
+  }
+  await dockerSock(
+    "POST",
+    `/containers/${encodeURIComponent(name)}/rename?name=${encodeURIComponent(backupName)}`,
+  );
+
+  try {
+    const created = (await dockerSock(
+      "POST",
+      `/containers/create?name=${encodeURIComponent(name)}`,
+      createBody,
+      20_000,
+    )) as { Id: string };
+    await dockerSock("POST", `/containers/${created.Id}/start`, undefined, 20_000);
+    await dockerSock("DELETE", `/containers/${encodeURIComponent(backupName)}?force=1`).catch(
+      () => undefined,
+    );
+    return { id: created.Id };
+  } catch (err) {
+    await dockerSock(
+      "DELETE",
+      `/containers/${encodeURIComponent(name)}?force=1`,
+    ).catch(() => undefined);
+    await dockerSock(
+      "POST",
+      `/containers/${encodeURIComponent(backupName)}/rename?name=${encodeURIComponent(name)}`,
+    ).catch(() => undefined);
+    await dockerSock("POST", `/containers/${encodeURIComponent(name)}/start`).catch(() => undefined);
+    throw err;
+  }
 }
 
 /** Run a command in a running container via the Exec API. Returns stdout

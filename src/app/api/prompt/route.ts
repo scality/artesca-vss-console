@@ -12,6 +12,7 @@ import {
   gcsPromptPut,
   type PromptConfig,
 } from "@/lib/helpers/gcs-config";
+import { inspectContainer, dockerRecreateWithEnv } from "@/lib/helpers/docker-sock";
 
 export const dynamic = "force-dynamic";
 
@@ -45,173 +46,15 @@ function readDefaultPrompt(): string {
   }
 }
 
-/** Generic docker.sock request helper. Returns parsed JSON (or empty object
- *  for 204/empty bodies). Throws on >=400 with the response body in the
- *  error message. Bounded timeout — callers shouldn't block the dashboard
- *  on a hung daemon. */
-async function dockerSock(
-  method: "GET" | "POST" | "DELETE",
-  path: string,
-  body?: unknown,
-  timeoutMs = 8_000,
-): Promise<Record<string, unknown>> {
-  const http = await import("node:http");
-  return new Promise((resolve, reject) => {
-    const payload = body === undefined ? undefined : JSON.stringify(body);
-    const req = http.request(
-      {
-        socketPath: "/var/run/docker.sock",
-        path,
-        method,
-        timeout: timeoutMs,
-        headers: payload
-          ? { "content-type": "application/json", "content-length": Buffer.byteLength(payload).toString() }
-          : undefined,
-      },
-      (res) => {
-        let buf = "";
-        res.on("data", (c) => (buf += c));
-        res.on("end", () => {
-          if (res.statusCode && res.statusCode >= 400) {
-            reject(
-              new Error(`docker.sock ${method} ${path}: ${res.statusCode} ${buf.slice(0, 300)}`),
-            );
-            return;
-          }
-          if (!buf.trim()) {
-            resolve({});
-            return;
-          }
-          try {
-            resolve(JSON.parse(buf));
-          } catch (e) {
-            reject(e);
-          }
-        });
-      },
-    );
-    req.on("error", reject);
-    req.on("timeout", () => req.destroy(new Error(`docker.sock timeout (${path})`)));
-    if (payload) req.write(payload);
-    req.end();
-  });
-}
-
 async function dockerInspectEnv(name: string): Promise<Record<string, string>> {
-  const json = (await dockerSock("GET", `/containers/${encodeURIComponent(name)}/json`)) as {
-    Config?: { Env?: string[] };
-  };
+  const inspect = await inspectContainer(name);
+  if (!inspect) throw new Error(`container ${name} not found or docker.sock unavailable`);
   const env: Record<string, string> = {};
-  for (const line of json.Config?.Env ?? []) {
+  for (const line of inspect.Config.Env ?? []) {
     const eq = line.indexOf("=");
     if (eq > 0) env[line.slice(0, eq)] = line.slice(eq + 1);
   }
   return env;
-}
-
-/** Recreate the named container with patched env vars, preserving image,
- *  entrypoint, mounts, network mode, GPU device requests, restart policy,
- *  exposed ports, and compose labels (so docker-compose still recognises
- *  the container as managed by the same project).
- *
- *  Strategy: stop → rename old to <name>-bak-<ts> → create new from patched
- *  config → start new. If start fails, the new container is removed and the
- *  old one is renamed back + started, so the operator never ends up with
- *  the service permanently down. */
-async function dockerRecreateWithEnv(
-  name: string,
-  envPatch: Record<string, string>,
-): Promise<{ id: string }> {
-  const inspect = (await dockerSock("GET", `/containers/${encodeURIComponent(name)}/json`)) as {
-    Config: {
-      Image: string;
-      Env: string[];
-      Cmd: string[] | null;
-      Entrypoint: string[] | null;
-      ExposedPorts?: Record<string, unknown>;
-      Labels?: Record<string, string>;
-      WorkingDir?: string;
-      User?: string;
-    };
-    HostConfig: Record<string, unknown>;
-    NetworkSettings: { Networks: Record<string, unknown> };
-  };
-
-  // Build new env list: replace patched keys, preserve the rest in order.
-  const seen = new Set<string>();
-  const newEnv: string[] = [];
-  for (const line of inspect.Config.Env ?? []) {
-    const eq = line.indexOf("=");
-    const k = eq > 0 ? line.slice(0, eq) : line;
-    if (k in envPatch) {
-      newEnv.push(`${k}=${envPatch[k]}`);
-      seen.add(k);
-    } else {
-      newEnv.push(line);
-    }
-  }
-  for (const [k, v] of Object.entries(envPatch)) {
-    if (!seen.has(k)) newEnv.push(`${k}=${v}`);
-  }
-
-  // Single-network case — preserve the network connection. Multi-network
-  // recreate would need POST /networks/<id>/connect after start; not
-  // supported here because rtvi-vlm and friends are single-network.
-  const networks = Object.keys(inspect.NetworkSettings?.Networks ?? {});
-  const networkingConfig =
-    networks.length > 0
-      ? { EndpointsConfig: Object.fromEntries(networks.map((n) => [n, {}])) }
-      : undefined;
-
-  const createBody: Record<string, unknown> = {
-    Image: inspect.Config.Image,
-    Env: newEnv,
-    Cmd: inspect.Config.Cmd,
-    Entrypoint: inspect.Config.Entrypoint,
-    ExposedPorts: inspect.Config.ExposedPorts,
-    Labels: inspect.Config.Labels,
-    WorkingDir: inspect.Config.WorkingDir,
-    User: inspect.Config.User,
-    HostConfig: inspect.HostConfig,
-    ...(networkingConfig ? { NetworkingConfig: networkingConfig } : {}),
-  };
-
-  const ts = Date.now();
-  const backupName = `${name}-bak-${ts}`;
-
-  // Stop + rename old
-  try {
-    await dockerSock("POST", `/containers/${encodeURIComponent(name)}/stop?t=10`, undefined, 30_000);
-  } catch {
-    // best-effort — container may already be stopped
-  }
-  await dockerSock("POST", `/containers/${encodeURIComponent(name)}/rename?name=${encodeURIComponent(backupName)}`);
-
-  // Create + start new
-  try {
-    const created = (await dockerSock(
-      "POST",
-      `/containers/create?name=${encodeURIComponent(name)}`,
-      createBody,
-      20_000,
-    )) as { Id: string };
-    await dockerSock("POST", `/containers/${created.Id}/start`, undefined, 20_000);
-
-    // Success — remove backup
-    await dockerSock("DELETE", `/containers/${encodeURIComponent(backupName)}?force=1`).catch(
-      () => undefined, // best-effort cleanup
-    );
-    return { id: created.Id };
-  } catch (err) {
-    // Rollback: clean up partial new container, restore old by name+start.
-    await dockerSock("DELETE", `/containers/${encodeURIComponent(name)}?force=1`).catch(() => undefined);
-    await dockerSock(
-      "POST",
-      `/containers/${encodeURIComponent(backupName)}/rename?name=${encodeURIComponent(name)}`,
-    ).catch(() => undefined);
-    await dockerSock("POST", `/containers/${encodeURIComponent(name)}/start`).catch(() => undefined);
-    throw err;
-  }
 }
 
 // ─── GET ───────────────────────────────────────────────────────────────────────
