@@ -171,23 +171,24 @@ export default function ChatPage() {
     setLoading(true);
     setError(null);
     try {
-      // Build the request payload. When the operator scopes the chat to a
-      // specific camera, prepend a system message so the agent's RAG /
-      // tool-calling layer focuses on that sensor's events + recordings
-      // without leaking the scoping into the visible transcript.
-      const wirePayload =
-        scopedCamera != null
-          ? [
-              {
-                role: "system" as const,
-                content:
-                  `The user has scoped this session to camera "${scopedCamera.id}"` +
-                  (scopedCamera.description ? ` (${scopedCamera.description})` : "") +
-                  `. When the user asks to describe the video, check what is happening, get a snapshot, or any similar query without naming a sensor, use "${scopedCamera.id}" automatically — do not list available sensors and do not ask the user to choose one. Fetch recordings and run visual analysis on "${scopedCamera.id}" directly. Fall back to the full fleet only when the user explicitly asks about other cameras.`,
-              },
-              ...next.map(({ role, content }) => ({ role, content })),
-            ]
-          : next.map(({ role, content }) => ({ role, content }));
+      // Build the request payload. When scoped to a specific camera, inject
+      // the sensor name directly into the last user message so the agent's
+      // tool router acts on it immediately (system messages alone are ignored
+      // by the agent's top_agent pipeline which calls get_sensor_names first).
+      // The displayed transcript uses the original text; only the wire payload
+      // carries the camera suffix.
+      const wireMessages = next.map(({ role, content }, idx) => {
+        if (
+          scopedCamera != null &&
+          role === "user" &&
+          idx === next.length - 1 &&
+          !content.toLowerCase().includes(scopedCamera.id.toLowerCase())
+        ) {
+          return { role, content: `${content} (sensor: ${scopedCamera.id})` };
+        }
+        return { role, content };
+      });
+      const wirePayload = wireMessages;
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
