@@ -218,6 +218,13 @@ EOF
   echo "    wrote $SECRETS_FILE (password=$CONSOLE_PASSWORD_VAL, iam=$CONSOLE_IAM_USER)"
 fi
 
+# Mirror the secrets YAML into the per-instance dir so backup-state.sh can
+# include it in GCS state backups (k8s/console/10-secrets.yaml is gitignored).
+if [[ -n "${VSS_INSTANCE_DIR:-}" && -d "$VSS_INSTANCE_DIR" ]]; then
+  cp -f "$SECRETS_FILE" "$VSS_INSTANCE_DIR/console-secrets.yaml"
+  chmod 600 "$VSS_INSTANCE_DIR/console-secrets.yaml"
+fi
+
 # Catch placeholder-only inputs from a partial hand-edit.
 if grep -q '<change-me>\|<openssl rand\|<AKIA\|<secret>\|<base64-encoded-key-body>\|<camera-sim-public-ip>\|<id>' "$SECRETS_FILE" 2>/dev/null; then
   echo "ERROR: $SECRETS_FILE still contains placeholder values."
