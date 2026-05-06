@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { coreV1 } from "@/lib/k8s";
+import { inspectContainer } from "@/lib/helpers/docker-sock";
 
 export const dynamic = "force-dynamic";
 
@@ -13,10 +14,46 @@ export async function GET(
 
   const { ns, name } = await params;
 
+  if (process.env.CONSOLE_RUNTIME === "docker") {
+    const inspect = await inspectContainer(name);
+    if (!inspect) {
+      return NextResponse.json(
+        { error: `Container "${name}" not found` },
+        { status: 404 }
+      );
+    }
+    const containerName = inspect.Name.replace(/^\//, "");
+    return NextResponse.json({
+      namespace: "docker",
+      name: containerName,
+      phase: inspect.State.Running ? "Running" : inspect.State.Status,
+      conditions: [],
+      containers: [
+        {
+          name: containerName,
+          ready: inspect.State.Running,
+          restartCount: inspect.RestartCount ?? 0,
+          image: inspect.Config.Image,
+          state: {
+            running: inspect.State.Running
+              ? { startedAt: inspect.State.StartedAt }
+              : undefined,
+          },
+        },
+      ],
+      initContainers: [],
+      node: null,
+      startTime: inspect.State.StartedAt,
+      podIP: inspect.NetworkSettings?.IPAddress ?? null,
+      labels: inspect.Config.Labels ?? {},
+      annotations: {},
+      resourceRequests: [],
+    });
+  }
+
   try {
     const pod = await coreV1().readNamespacedPod({ name, namespace: ns });
 
-    // Return rich detail: full status, conditions, container states
     const containers = pod.status?.containerStatuses ?? [];
     const initContainers = pod.status?.initContainerStatuses ?? [];
 
