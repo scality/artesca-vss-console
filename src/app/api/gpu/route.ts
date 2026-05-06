@@ -1,13 +1,54 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { promQuery } from "@/lib/helpers/prometheus";
+import { inspectContainer, runOneShotGpuContainer } from "@/lib/helpers/docker-sock";
 import type { GpuState } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+function parseNvidiaSmiCsv(out: string): GpuState[] {
+  const gpus: GpuState[] = [];
+  for (const line of out.split("\n")) {
+    const cols = line.split(",").map((s) => s.trim());
+    if (cols.length < 7 || !cols[0] || isNaN(parseInt(cols[0], 10))) continue;
+    const index = parseInt(cols[0], 10);
+    const memTotal = parseFloat(cols[2]) || 0;
+    const memUsed = parseFloat(cols[3]) || 0;
+    gpus.push({
+      index,
+      name: cols[1] || `GPU ${index}`,
+      memoryUsedMiB: memUsed,
+      memoryTotalMiB: memTotal || 1,
+      utilGpu: parseFloat(cols[4]) || 0,
+      utilMem: memTotal > 0 ? (memUsed / memTotal) * 100 : 0,
+      tempC: parseFloat(cols[5]) || 0,
+      powerW: parseFloat(cols[6]) || 0,
+      processes: [],
+    });
+  }
+  return gpus;
+}
+
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  if (process.env.CONSOLE_RUNTIME === "docker") {
+    const rtviInspect = await inspectContainer("rtvi-vlm");
+    const image = rtviInspect?.Config.Image ?? "nvcr.io/nvidia/vss-core/vss-rt-vlm:3.1.0";
+    const gpuOut = await runOneShotGpuContainer(image, [
+      "nvidia-smi",
+      "--query-gpu=index,name,memory.total,memory.used,utilization.gpu,temperature.gpu,power.draw",
+      "--format=csv,noheader,nounits",
+    ]);
+    if (!gpuOut) {
+      return NextResponse.json({
+        gpus: [],
+        warnings: ["nvidia-smi unavailable in docker mode"],
+      });
+    }
+    return NextResponse.json({ gpus: parseNvidiaSmiCsv(gpuOut), warnings: [] });
+  }
 
   const warnings: string[] = [];
 
@@ -23,7 +64,6 @@ export async function GET() {
     if (r.warning) warnings.push(r.warning);
   }
 
-  // Collect all distinct GPU indices across all metrics
   const gpuIndexSet = new Set<string>();
   const nameMap = new Map<string, string>();
 
@@ -38,7 +78,6 @@ export async function GET() {
   }
 
   if (gpuIndexSet.size === 0) {
-    // Prometheus unreachable or no DCGM metrics — return empty with warnings
     return NextResponse.json({ gpus: [], warnings });
   }
 
@@ -68,7 +107,6 @@ export async function GET() {
     });
   }
 
-  // Sort by GPU index
   gpus.sort((a, b) => a.index - b.index);
 
   return NextResponse.json({ gpus, warnings });

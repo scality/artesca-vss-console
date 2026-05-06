@@ -90,8 +90,20 @@ export async function listComposeContainers(
 
 export interface ContainerInspect {
   Id: string;
-  State: { Status: string; Running: boolean; Health?: { Status: string } };
-  Config: { Image: string; Env: string[] };
+  Name: string;
+  RestartCount: number;
+  State: {
+    Status: string;
+    Running: boolean;
+    StartedAt: string;
+    Health?: { Status: string };
+  };
+  Config: {
+    Image: string;
+    Env: string[];
+    Labels: Record<string, string>;
+  };
+  NetworkSettings?: { IPAddress: string };
 }
 
 export async function inspectContainer(
