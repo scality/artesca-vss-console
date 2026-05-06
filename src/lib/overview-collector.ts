@@ -187,11 +187,15 @@ async function collectDockerOverview(
 
   const gpus = gpuOut ? parseNvidiaSmiCsv(gpuOut) : [];
   if (mtxResult.warning) warnings.push(mtxResult.warning);
-  const pathsReady = mtxResult.paths.filter((p) => p.ready).length;
+  // Camera-sim mediamtx publishes two paths per camera: <name> (H.265 — what
+  // VSS consumes) and <name>-h264 (transcode for browser HLS preview). The
+  // dashboard counts cameras, not raw paths, so filter the transcode variants.
+  const cameraPaths = mtxResult.paths.filter((p) => !p.name.endsWith("-h264"));
+  const pathsReady = cameraPaths.filter((p) => p.ready).length;
   const cameraSim: OverviewSnapshot["cameraSim"] = {
-    instanceState: cameraSimConfigured && mtxResult.paths.length > 0 ? "running" : cameraSimConfigured ? "unreachable" : "stopped",
+    instanceState: cameraSimConfigured && cameraPaths.length > 0 ? "running" : cameraSimConfigured ? "unreachable" : "stopped",
     pathsReady,
-    pathsTotal: mtxResult.paths.length,
+    pathsTotal: cameraPaths.length,
   };
 
   return {
@@ -369,11 +373,16 @@ async function collectK8sOverview(
   try {
     const { paths, warning } = await mediamtxListPaths();
     if (warning) warnings.push(warning);
-    const pathsReady = paths.filter((p) => p.ready).length;
+    // Filter out -h264 transcodes (browser HLS preview duplicates) so the
+    // count reflects cameras, not raw mediamtx paths. Standalone camera-sim
+    // publishes two paths per camera; in-cluster pyramid-ingress publishes
+    // one — filter is a no-op there.
+    const cameraPaths = paths.filter((p) => !p.name.endsWith("-h264"));
+    const pathsReady = cameraPaths.filter((p) => p.ready).length;
     cameraSim = {
-      instanceState: paths.length > 0 || !warning ? "running" : "unreachable",
+      instanceState: cameraPaths.length > 0 || !warning ? "running" : "unreachable",
       pathsReady,
-      pathsTotal: paths.length,
+      pathsTotal: cameraPaths.length,
     };
   } catch (err) {
     warnings.push(`Camera-sim ping failed: ${String(err)}`);
