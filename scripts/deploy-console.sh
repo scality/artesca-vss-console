@@ -168,7 +168,7 @@ if [ ! -f "$SECRETS_FILE" ]; then
 
   # Camera-sim SSH key — reuse the EC2 key-pair file (same pem authorizes
   # artesca-os on both hosts per repo convention).
-  SSH_KEY_FILE="${CAMERA_SIM_KEY_FILE:-$HOME/.ssh/${KEY_NAME:-isv-nvidia-nvidia-vss}.pem}"
+  SSH_KEY_FILE="${CAMERA_SIM_KEY_FILE:-$HOME/.ssh/${KEY_NAME:-isv-labs-ec2}.pem}"
   [ -f "$SSH_KEY_FILE" ] || {
     echo "ERROR: $SSH_KEY_FILE missing — cannot embed camera-sim SSH key" >&2
     exit 1
@@ -263,7 +263,7 @@ echo "==> creating host directory for console PV (/srv/scality/console-data)"
 # Same salt-call pattern as bootstrap-rtvi.sh + bootstrap-vst.sh —
 # artesca-os sudoers blocks mkdir/chmod but permits salt-call, which
 # runs as root on the node.
-KEY_PATH_HOST="${KEY_PATH:-$HOME/.ssh/${KEY_NAME:-isv-nvidia-nvidia-vss}.pem}"
+KEY_PATH_HOST="${KEY_PATH:-$HOME/.ssh/${KEY_NAME:-isv-labs-ec2}.pem}"
 ssh -i "$KEY_PATH_HOST" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
   -o ConnectTimeout=10 "${SSH_USER:-artesca-os}@$PUB_IP" \
   "sudo -n salt-call --local --out=quiet cmd.run '
