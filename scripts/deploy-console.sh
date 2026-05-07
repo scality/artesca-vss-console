@@ -19,6 +19,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-paths.sh
 source "$SCRIPT_DIR/lib-paths.sh" "$@"
+
+# Mirror to canonical action log so the deployer log viewer can stream
+# this run when invoked from the CLI (no spawnDetached capture).
+vss_init_action_log "console-deploy"
 set -- "${VSS_ARGS[@]:-}"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 CONSOLE_DIR="$REPO_ROOT/k8s/console"
