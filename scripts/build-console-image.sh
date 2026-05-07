@@ -43,7 +43,7 @@ REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 # shellcheck source=/dev/null
 source "$VSS_STATE_FILE"
 : "${PUB_IP:?PUB_IP missing from $VSS_STATE_FILE}"
-KEY_NAME="${KEY_NAME:-isv-nvidia-nvidia-vss}"
+KEY_NAME="${KEY_NAME:-isv-labs-ec2}"
 KEY_PATH="${CAMERA_SIM_KEY_FILE:-$HOME/.ssh/${KEY_NAME}.pem}"
 [[ -f "$KEY_PATH" ]] || { echo "ERROR: SSH key $KEY_PATH missing" >&2; exit 1; }
 : "${SSH_USER:=artesca-os}"
