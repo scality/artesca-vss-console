@@ -71,6 +71,10 @@ function subLabel(subtype: StorageNodeData["subtype"], runtime?: NodeRuntimeStat
       if (!r) return "—";
       return r.connectedClients !== null ? `${r.connectedClients} clients` : "—";
     }
+    default: {
+      const _exhaustive: never = subtype;
+      return _exhaustive;
+    }
   }
 }
 
@@ -92,6 +96,11 @@ function SubtypeIcon({ subtype }: { subtype: StorageNodeData["subtype"] }) {
       return <Database className={cls} />;
     case "redis":
       return <Zap className={`${cls} text-yellow-400`} />;
+    default: {
+      const _exhaustive: never = subtype;
+      void _exhaustive;
+      return null;
+    }
   }
 }
 

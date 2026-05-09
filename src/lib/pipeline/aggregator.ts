@@ -1,6 +1,6 @@
 import "server-only";
 
-import { coreV1, runInPod, watchedNamespaces } from "@/lib/k8s";
+import { coreV1, listAllPodsInNs, runInPod, watchedNamespaces } from "@/lib/k8s";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { promQuery } from "@/lib/helpers/prometheus";
 import { getKafka } from "@/lib/kafka";
@@ -102,9 +102,9 @@ async function collectPods(warnings: string[]): Promise<PodSnapshot[]> {
   const settled = await Promise.allSettled(
     namespaces.map((ns) =>
       withTimeout(
-        coreV1().listNamespacedPod({ namespace: ns }),
+        listAllPodsInNs(coreV1(), ns),
         CALL_TIMEOUT_MS
-      ).then((list) => ({ ns, list }))
+      ).then((items) => ({ ns, items }))
     )
   );
 
@@ -113,8 +113,8 @@ async function collectPods(warnings: string[]): Promise<PodSnapshot[]> {
       warnings.push(`Pod list failed: ${String(s.reason)}`);
       continue;
     }
-    const { ns, list } = s.value;
-    for (const pod of list.items) {
+    const { ns, items } = s.value;
+    for (const pod of items) {
       const podName = pod.metadata?.name ?? "";
       const ready =
         pod.status?.conditions?.some(

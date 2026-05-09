@@ -94,11 +94,9 @@ function walkCacheEntries(): DirEntry[] {
   return entries.sort((a, b) => a.mtimeMs - b.mtimeMs);
 }
 
-/**
- * Evict oldest cache entries until total usage drops below MAX_CACHE_BYTES.
- * Called after each transcoding job completes.
- */
-export function evictLru(): void {
+let _evictChain: Promise<void> = Promise.resolve();
+
+function doEvictLru(): void {
   const entries = walkCacheEntries();
   let total = entries.reduce((s, e) => s + e.sizeBytes, 0);
 
@@ -111,6 +109,20 @@ export function evictLru(): void {
       // Best-effort.
     }
   }
+}
+
+/**
+ * Evict oldest cache entries until total usage drops below MAX_CACHE_BYTES.
+ * Called after each transcoding job completes. Serialised via a Promise chain
+ * so concurrent callers don't walk and delete the same entries simultaneously.
+ */
+export function evictLru(): Promise<void> {
+  _evictChain = _evictChain
+    .then(() => doEvictLru())
+    .catch((err) => {
+      console.error("[clip-cache] eviction failed", err);
+    });
+  return _evictChain;
 }
 
 /** Resolve the canonical ISO timestamp rounded to the nearest 10-second boundary. */

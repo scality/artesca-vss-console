@@ -1,4 +1,4 @@
-import { KubeConfig, CoreV1Api, AppsV1Api, BatchV1Api, Exec } from "@kubernetes/client-node";
+import { KubeConfig, CoreV1Api, AppsV1Api, BatchV1Api, Exec, type V1Pod } from "@kubernetes/client-node";
 import { Writable } from "node:stream";
 
 let _kc: KubeConfig | null = null;
@@ -177,4 +177,40 @@ export async function rolloutRestart(
       { name, namespace, body: patch },
     );
   }
+}
+
+const LIST_PODS_PAGE_SIZE = 500;
+const LIST_PODS_MAX_PAGES = 10;
+
+/**
+ * Paginate listNamespacedPod and return all pods in one array.
+ * Caps at LIST_PODS_MAX_PAGES * limit items and logs a warning if hit.
+ */
+export async function listAllPodsInNs(
+  coreApi: CoreV1Api,
+  namespace: string,
+  opts: { labelSelector?: string; limit?: number } = {}
+): Promise<V1Pod[]> {
+  const limit = opts.limit ?? LIST_PODS_PAGE_SIZE;
+  const all: V1Pod[] = [];
+  let _continue: string | undefined;
+  let pages = 0;
+  do {
+    const resp = await coreApi.listNamespacedPod({
+      namespace,
+      labelSelector: opts.labelSelector,
+      limit,
+      _continue,
+    });
+    all.push(...(resp.items ?? []));
+    _continue = resp.metadata?._continue || undefined;
+    pages += 1;
+    if (pages >= LIST_PODS_MAX_PAGES) {
+      console.warn(
+        `[k8s] listAllPodsInNs: more than ${pages * limit} pods in ${namespace}, stopping`
+      );
+      break;
+    }
+  } while (_continue);
+  return all;
 }

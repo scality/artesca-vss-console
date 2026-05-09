@@ -81,13 +81,20 @@ spec:
           # readOnlyRootFilesystem is false — Next.js writes to .next/cache
           # at runtime and next-auth uses /tmp for session scratch files.
           readOnlyRootFilesystem: false
-        readinessProbe:
+        startupProbe:
           httpGet:
             path: /api/health/self
             port: 8800
+          failureThreshold: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/health/ready
+            port: 8800
           initialDelaySeconds: 10
           periodSeconds: 10
-          failureThreshold: 6
+          failureThreshold: 3
+          timeoutSeconds: 5
         livenessProbe:
           httpGet:
             path: /api/health/self
@@ -95,6 +102,7 @@ spec:
           initialDelaySeconds: 10
           periodSeconds: 10
           failureThreshold: 5
+          timeoutSeconds: 3
       volumes:
       - name: console-data
         persistentVolumeClaim:

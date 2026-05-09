@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { coreV1, watchedNamespaces } from "@/lib/k8s";
+import { coreV1, listAllPodsInNs, watchedNamespaces } from "@/lib/k8s";
 import { CLUSTER } from "@/lib/cluster-refs";
 import type { Health } from "@/lib/types";
 import type { NodeType } from "@/lib/types/pipeline";
@@ -516,8 +516,8 @@ export async function GET() {
 
   for (const ns of watchedNamespaces()) {
     try {
-      const podList = await coreV1().listNamespacedPod({ namespace: ns });
-      for (const pod of podList.items) {
+      const podItems = await listAllPodsInNs(coreV1(), ns);
+      for (const pod of podItems) {
         const name = pod.metadata?.name ?? "";
         for (const comp of COMPONENTS) {
           if (
