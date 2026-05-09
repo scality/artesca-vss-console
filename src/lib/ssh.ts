@@ -1,5 +1,6 @@
 import { Client, type ConnectConfig } from "ssh2";
 import * as fs from "fs";
+import * as crypto from "crypto";
 import { appendAuditLog } from "./db";
 
 export interface SshExecResult {
@@ -8,15 +9,42 @@ export interface SshExecResult {
   code: number;
 }
 
+// Cached SSH private key buffer — loaded once on first use.
+let cachedKey: Buffer | null = null;
+
+// Emit the no-host-key-verification warning at most once per process.
+let hostKeyWarnEmitted = false;
+
 function getConnectConfig(): ConnectConfig {
-  return {
+  if (cachedKey === null) {
+    cachedKey = fs.readFileSync(
+      process.env.CAMERA_SIM_SSH_KEY_PATH ?? "/run/secrets/camera-sim-ssh-key"
+    );
+  }
+
+  const cfg: ConnectConfig = {
     host: process.env.CAMERA_SIM_HOST ?? "",
     username: process.env.CAMERA_SIM_SSH_USER ?? "ubuntu",
-    privateKey: fs.readFileSync(
-      process.env.CAMERA_SIM_SSH_KEY_PATH ?? "/run/secrets/camera-sim-ssh-key"
-    ),
+    privateKey: cachedKey,
     readyTimeout: 10_000,
   };
+
+  const expectedFingerprint = process.env.CAMERA_SIM_HOST_PUBKEY_SHA256;
+  if (expectedFingerprint) {
+    cfg.hostVerifier = (key: Buffer): boolean => {
+      const actual = crypto.createHash("sha256").update(key).digest("hex");
+      return actual.toLowerCase() === expectedFingerprint.toLowerCase();
+    };
+  } else {
+    if (!hostKeyWarnEmitted) {
+      hostKeyWarnEmitted = true;
+      console.warn(
+        "[ssh] CAMERA_SIM_HOST_PUBKEY_SHA256 is not set — SSH host key verification is disabled"
+      );
+    }
+  }
+
+  return cfg;
 }
 
 /** Execute a command on the camera-sim EC2 instance via SSH. */

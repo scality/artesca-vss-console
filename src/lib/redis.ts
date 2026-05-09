@@ -1,6 +1,6 @@
 import Redis from "ioredis";
 
-let _redis: Redis | null = null;
+const globalForRedis = globalThis as unknown as { __redis?: Redis | null };
 
 export type RedisStatus = "connected" | "disconnected";
 
@@ -15,18 +15,18 @@ export function getRedis(): RedisShape {
     return { status: "disconnected", client: null };
   }
 
-  if (!_redis) {
-    _redis = new Redis(url, {
+  if (!globalForRedis.__redis) {
+    globalForRedis.__redis = new Redis(url, {
       lazyConnect: true,
       maxRetriesPerRequest: 3,
       enableOfflineQueue: false,
     });
 
-    _redis.on("error", (err) => {
+    globalForRedis.__redis.on("error", (err) => {
       // Log but do not crash — banner on the UI indicates disconnection.
       console.warn("[redis] connection error:", err.message);
     });
   }
 
-  return { status: "connected", client: _redis };
+  return { status: "connected", client: globalForRedis.__redis };
 }

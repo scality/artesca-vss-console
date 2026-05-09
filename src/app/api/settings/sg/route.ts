@@ -2,11 +2,21 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { listSgEntries, upsertSgEntry } from "@/lib/db";
 import { authorizeSgIngress } from "@/lib/aws";
 import { auditLog } from "@/lib/helpers/audit";
 
 export const dynamic = "force-dynamic";
+
+function isValidCidr(cidr: string): boolean {
+  const m = cidr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:\/(\d{1,2}))?$/);
+  if (!m) return false;
+  const [, a, b, c, d, prefix] = m;
+  for (const o of [a, b, c, d]) if (Number(o) > 255) return false;
+  if (prefix !== undefined && Number(prefix) > 32) return false;
+  return true;
+}
 
 // ─── GET — list whitelist entries ──────────────────────────────────────────────
 
@@ -24,16 +34,16 @@ const AddSgEntrySchema = z.object({
   cidr: z
     .string()
     .min(1)
-    .regex(
-      /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/,
-      "Must be a valid IPv4 CIDR (e.g., 1.2.3.4/32)"
-    ),
+    .refine(isValidCidr, "Must be a valid IPv4 CIDR (e.g., 1.2.3.4/32)"),
   label: z.string().min(1).max(100),
 });
 
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const blocked = await rejectIfKiosk();
+  if (blocked) return blocked;
 
   const body = await req.json().catch(() => null);
   const parsed = AddSgEntrySchema.safeParse(body);
@@ -56,8 +66,9 @@ export async function POST(req: NextRequest) {
     const awsErr = err as { name?: string; message?: string };
     // Ignore "already exists" errors
     if (awsErr.name !== "InvalidPermission.Duplicate") {
+      console.error("[sg-write] aws error", err);
       return NextResponse.json(
-        { error: `AWS SG authorize failed: ${awsErr.message ?? String(err)}` },
+        { error: "AWS rejected the rule (check IAM and SG state)" },
         { status: 502 }
       );
     }

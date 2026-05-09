@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
+import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { listProfiles, saveProfile } from "@/lib/db";
 import { DemoProfileSchema } from "@/lib/schemas";
 import { auditLog } from "@/lib/helpers/audit";
@@ -24,6 +25,9 @@ const SaveProfileSchema = DemoProfileSchema.omit({ savedAt: true, savedBy: true 
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const blocked = await rejectIfKiosk();
+  if (blocked) return blocked;
 
   const body = await req.json().catch(() => null);
   const parsed = SaveProfileSchema.safeParse(body);

@@ -27,6 +27,7 @@ export default auth((req) => {
       httpOnly: true,
       sameSite: "strict",
       path: "/",
+      maxAge: 8 * 60 * 60,
     });
     return response;
   }

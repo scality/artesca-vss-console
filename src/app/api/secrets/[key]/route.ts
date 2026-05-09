@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { coreV1, rolloutRestart } from "@/lib/k8s";
+import { extractK8sError } from "@/lib/errors";
+import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { markRotated, getRotationAge } from "@/lib/db";
 import { auditLog } from "@/lib/helpers/audit";
 import { inspectContainer, dockerSock } from "@/lib/helpers/docker-sock";
@@ -254,10 +256,10 @@ export async function GET(
       if (!Number.isNaN(t)) k8sCreatedAtMs = t;
     }
   } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
-    if (k8sErr.statusCode !== 404) {
+    const { status, message } = extractK8sError(err);
+    if (status !== 404) {
       return NextResponse.json(
-        { error: k8sErr.body?.message ?? String(err), k8sCode: k8sErr.statusCode },
+        { error: message, k8sCode: status },
         { status: 502 }
       );
     }
@@ -283,6 +285,9 @@ export async function PATCH(
 ) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const blocked = await rejectIfKiosk();
+  if (blocked) return blocked;
 
   const { key } = await params;
 
@@ -421,10 +426,10 @@ export async function PATCH(
       body: { data: encodedData },
     });
   } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
+    const { status, message } = extractK8sError(err);
     return NextResponse.json(
-      { error: k8sErr.body?.message ?? String(err), k8sCode: k8sErr.statusCode },
-      { status: k8sErr.statusCode ?? 502 }
+      { error: message, k8sCode: status },
+      { status }
     );
   }
 

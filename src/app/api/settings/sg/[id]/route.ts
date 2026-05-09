@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { listSgEntries, deleteSgEntry } from "@/lib/db";
+import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { revokeSgIngress } from "@/lib/aws";
 import { auditLog } from "@/lib/helpers/audit";
 
@@ -12,6 +13,9 @@ export async function DELETE(
 ) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const blocked = await rejectIfKiosk();
+  if (blocked) return blocked;
 
   const { id } = await params;
 
@@ -35,8 +39,9 @@ export async function DELETE(
     const awsErr = err as { name?: string; message?: string };
     // Ignore "not found" errors — rule may already be gone
     if (awsErr.name !== "InvalidPermission.NotFound") {
+      console.error("[sg-write] aws error", err);
       return NextResponse.json(
-        { error: `AWS SG revoke failed: ${awsErr.message ?? String(err)}` },
+        { error: "AWS rejected the rule (check IAM and SG state)" },
         { status: 502 }
       );
     }

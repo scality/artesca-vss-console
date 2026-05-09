@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { appsV1 } from "@/lib/k8s";
+import { extractK8sError } from "@/lib/errors";
+import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { inspectContainer, dockerRecreateWithEnv } from "@/lib/helpers/docker-sock";
@@ -15,6 +17,9 @@ const RESTORE_MATCH_PROBABILITY = "0.1";
 export async function POST() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const blocked = await rejectIfKiosk();
+  if (blocked) return blocked;
 
   if (DOCKER_MODE) {
     const container = CLUSTER.demoData.dockerContainer;
@@ -103,10 +108,10 @@ export async function POST() {
       },
     });
   } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
+    const { status, message } = extractK8sError(err);
     return NextResponse.json(
-      { error: k8sErr.body?.message ?? String(err), k8sCode: k8sErr.statusCode },
-      { status: k8sErr.statusCode ?? 502 }
+      { error: message, k8sCode: status },
+      { status }
     );
   }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ReactFlow,
@@ -15,6 +15,7 @@ import {
   type EdgeTypes,
   type NodeMouseHandler,
   type NodeChange,
+  type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -72,11 +73,10 @@ function reactFlowTypeFor(nodeType: NodeType | undefined): "service" | "storage"
   return "service";
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const NODE_TYPES: NodeTypes = {
-  service: ServiceNode as any,
-  storage: StorageNode as any,
-  feed: FeedNode as any,
+const NODE_TYPES: Record<string, ComponentType<NodeProps>> = {
+  service: ServiceNode as ComponentType<NodeProps>,
+  storage: StorageNode as ComponentType<NodeProps>,
+  feed: FeedNode as ComponentType<NodeProps>,
 };
 
 const EDGE_TYPES: EdgeTypes = { connection: ConnectionEdge };

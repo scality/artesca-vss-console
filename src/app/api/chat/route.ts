@@ -16,29 +16,29 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
+import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
 const VSS_AGENT_URL = process.env.VSS_AGENT_URL ?? "http://localhost:8000";
 
-type ChatRequest = {
-  messages: { role: string; content: string }[];
-  model?: string;
-};
+const ChatRequestSchema = z.object({
+  messages: z.array(z.object({
+    role: z.enum(["user", "assistant", "system"]),
+    content: z.string(),
+  })).min(1),
+  model: z.string().optional(),
+});
 
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  let body: ChatRequest;
-  try {
-    body = (await req.json()) as ChatRequest;
-  } catch {
-    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
+  const parsed = ChatRequestSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.message }, { status: 400 });
   }
-  if (!Array.isArray(body.messages) || body.messages.length === 0) {
-    return NextResponse.json({ error: "messages must be a non-empty array" }, { status: 400 });
-  }
+  const body = parsed.data;
 
   try {
     const resp = await fetch(`${VSS_AGENT_URL}/chat`, {

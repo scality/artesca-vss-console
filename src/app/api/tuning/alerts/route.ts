@@ -10,6 +10,8 @@ import {
   dockerRecreateWithEnv,
   DOCKER_TUNING_DIR,
 } from "@/lib/helpers/docker-sock";
+import { extractK8sError } from "@/lib/errors";
+import { rejectIfKiosk } from "@/lib/kiosk-server";
 import fs from "fs/promises";
 import path from "node:path";
 
@@ -95,10 +97,10 @@ export async function GET() {
     });
     data = cm.data;
   } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
+    const { status, message } = extractK8sError(err);
     return NextResponse.json(
-      { error: k8sErr.body?.message ?? String(err), k8sCode: k8sErr.statusCode },
-      { status: k8sErr.statusCode ?? 502 }
+      { error: message, k8sCode: status },
+      { status }
     );
   }
 
@@ -118,6 +120,9 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const blocked = await rejectIfKiosk();
+  if (blocked) return blocked;
 
   const body = await req.json().catch(() => null);
   const parsed = AlertsTuningSchema.safeParse(body);
@@ -159,7 +164,7 @@ export async function PATCH(req: NextRequest) {
       cooldownSeconds: tuning.cooldownSeconds ?? (Number.isFinite(parsedCooldown) ? parsedCooldown : ALERTS_TUNING_DEFAULTS.cooldownSeconds),
       slackWebhookConfigured: tuning.slackWebhookConfigured ?? (existingEnv[CLUSTER.alertsTuning.slackConfiguredKey] === "true" ? true : ALERTS_TUNING_DEFAULTS.slackWebhookConfigured),
     };
-    await persistAlertsTuning(newState).catch(() => undefined);
+    await persistAlertsTuning(newState).catch((err) => console.error("[alerts-tuning] persist failed", err));
 
     await auditLog("tuning-alerts", `docker/${ALERTS_CONTAINER}`, { patches: envPatch });
     return NextResponse.json({ ok: true, applied: envPatch, runtime: "docker" });
@@ -181,10 +186,10 @@ export async function PATCH(req: NextRequest) {
       await patchConfigMapRawKey(CLUSTER.alertsTuning.namespace, CLUSTER.alertsTuning.configMap, key, val);
     }
   } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
+    const { status, message } = extractK8sError(err);
     return NextResponse.json(
-      { error: k8sErr.body?.message ?? String(err), k8sCode: k8sErr.statusCode },
-      { status: k8sErr.statusCode ?? 502 }
+      { error: message, k8sCode: status },
+      { status }
     );
   }
 
