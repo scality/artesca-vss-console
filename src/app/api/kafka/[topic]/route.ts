@@ -13,6 +13,9 @@ import {
   startKafkaSseConsumer,
 } from "@/lib/streams/kafka-sse";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 interface RouteParams {
   params: Promise<{ topic: string }>;
 }

@@ -12,6 +12,22 @@ import { streamDockerLogs } from "@/lib/helpers/docker-sock";
 import { KubeConfig, Log } from "@kubernetes/client-node";
 import { PassThrough } from "stream";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const DEFAULT_NAMESPACES = ["vst", "rtvi", "agent", "alerts", "demo-data", "pyramid-ingress", "console"];
+
+function getAllowedNamespaces(): Set<string> {
+  const raw = process.env.KUBE_NAMESPACES;
+  if (!raw || raw.trim() === "") return new Set(DEFAULT_NAMESPACES);
+  return new Set(
+    raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+}
+
 interface RouteParams {
   params: Promise<{ ns: string; pod: string; container: string }>;
 }
@@ -23,6 +39,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   }
 
   const { ns, pod, container } = await params;
+
+  if (!getAllowedNamespaces().has(ns)) {
+    return NextResponse.json({ error: "namespace not in allowlist" }, { status: 403 });
+  }
 
   const sp = req.nextUrl.searchParams;
   const tailLines = Math.min(

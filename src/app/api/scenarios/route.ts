@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { coreV1, rolloutRestart } from "@/lib/k8s";
+import { extractK8sError } from "@/lib/errors";
+import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { ScenarioSchema } from "@/lib/schemas";
 import { patchConfigMapKey, readConfigMapKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
@@ -32,7 +34,7 @@ const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 // Mutex for GCS writes.
 let _gcsWriteChain: Promise<void> = Promise.resolve();
 function chainGcsWrite(fn: () => Promise<void>): Promise<void> {
-  _gcsWriteChain = _gcsWriteChain.then(fn).catch(() => void 0);
+  _gcsWriteChain = _gcsWriteChain.then(fn).catch((err) => console.error("[gcs-write] failed", err));
   return _gcsWriteChain;
 }
 
@@ -170,6 +172,9 @@ export async function PATCH(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const blocked = await rejectIfKiosk();
+  if (blocked) return blocked;
+
   const body = await req.json().catch(() => null);
   const parsed = PatchScenariosSchema.safeParse(body);
   if (!parsed.success) {
@@ -232,8 +237,8 @@ export async function PATCH(req: NextRequest) {
       resourceVersion
     );
   } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
-    if (k8sErr.statusCode === 409) {
+    const { status } = extractK8sError(err);
+    if (status === 409) {
       return NextResponse.json(
         { error: "Config modified by another operator — reload and retry" },
         { status: 409 }

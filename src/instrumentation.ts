@@ -13,8 +13,19 @@
  * Only active in the Node.js runtime (not edge).
  */
 
+const globalForInstrumentation = globalThis as unknown as {
+  __started?: boolean;
+};
+
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+
+  if (globalForInstrumentation.__started) return;
+  globalForInstrumentation.__started = true;
+
+  const required = ["AUTH_SECRET"];
+  const missing = required.filter((k) => !process.env[k]);
+  if (missing.length) console.warn(`[instrumentation] missing env vars: ${missing.join(", ")}`);
 
   const instance = process.env.VSS_INSTANCE_NAME;
   if (instance) {

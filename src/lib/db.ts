@@ -10,6 +10,7 @@ import {
 import type { DemoProfile, SgWhitelistEntry, AuditLogEntry } from "./types";
 
 let _db: Database.Database | null = null;
+let _signalHandlersRegistered = false;
 
 function dbPath(): string {
   const dir = process.env.CONSOLE_DATA_DIR ?? "/data";
@@ -22,6 +23,9 @@ export function getDb(): Database.Database {
 
   _db = new Database(dbPath());
   _db.pragma("journal_mode = WAL");
+  _db.pragma("synchronous = NORMAL");
+  _db.pragma("busy_timeout = 5000");
+  _db.pragma("foreign_keys = ON");
 
   _db.exec(`
     CREATE TABLE IF NOT EXISTS profiles (
@@ -64,6 +68,16 @@ export function getDb(): Database.Database {
       updated_by               TEXT NOT NULL
     );
   `);
+
+  if (!_signalHandlersRegistered) {
+    _signalHandlersRegistered = true;
+    const closeAndExit = () => {
+      _db?.close();
+      process.exit(0);
+    };
+    process.once("SIGTERM", closeAndExit);
+    process.once("SIGINT", closeAndExit);
+  }
 
   return _db;
 }

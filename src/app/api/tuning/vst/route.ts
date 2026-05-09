@@ -10,6 +10,8 @@ import {
   dockerSock,
   DOCKER_TUNING_DIR,
 } from "@/lib/helpers/docker-sock";
+import { extractK8sError } from "@/lib/errors";
+import { rejectIfKiosk } from "@/lib/kiosk-server";
 import fs from "fs/promises";
 import path from "node:path";
 
@@ -54,6 +56,34 @@ interface VstConfigJson {
   };
   [key: string]: unknown;
 }
+
+// ─── Zod schema for VstConfigJson — used to validate JSON.parse results ───────
+
+const VstConfigJsonSchema = z.object({
+  onvif: z.object({
+    default_gov_length: z.number().optional(),
+  }).passthrough().optional(),
+  data: z.object({
+    always_recording: z.boolean().optional(),
+    event_recording: z.boolean().optional(),
+    event_record_length_secs: z.number().optional(),
+    record_buffer_length_secs: z.number().optional(),
+    supported_video_codecs: z.array(z.string()).optional(),
+    storage_threshold_percentage: z.number().optional(),
+    storage_monitoring_frequency_secs: z.number().optional(),
+    default_file_expiry_minutes: z.number().optional(),
+    enable_aging_policy: z.boolean().optional(),
+    recorder_enable_frame_drop: z.boolean().optional(),
+    cloud_storage_type: z.string().optional(),
+    cloud_storage_endpoint: z.string().optional(),
+    cloud_storage_access_key: z.string().optional(),
+    cloud_storage_secret_key: z.string().optional(),
+    cloud_storage_bucket: z.string().optional(),
+    cloud_storage_region: z.string().optional(),
+    cloud_storage_use_ssl: z.boolean().optional(),
+    enable_cloud_storage: z.boolean().optional(),
+  }).passthrough().optional(),
+}).passthrough();
 
 // ─── Sensor list response shape (best-effort) ─────────────────────────────────
 
@@ -189,7 +219,12 @@ async function readVstConfigDocker(): Promise<VstConfigJson | null> {
   const raw = await execInContainer(VST_SENSOR_CONTAINER, ["cat", VST_DOCKER_CONFIG_PATH]);
   if (raw === null) return null;
   try {
-    return JSON.parse(raw.trim()) as VstConfigJson;
+    const result = VstConfigJsonSchema.safeParse(JSON.parse(raw.trim()));
+    if (!result.success) {
+      console.error("[tuning/vst] readVstConfigDocker: ConfigMap shape unexpected", result.error);
+      return null;
+    }
+    return result.data as VstConfigJson;
   } catch {
     return null;
   }
@@ -212,7 +247,12 @@ async function writeVstConfigDocker(cfg: VstConfigJson): Promise<void> {
 async function readPersistedVstConfig(): Promise<VstConfigJson | null> {
   try {
     const raw = await fs.readFile(VST_PERSIST_FILE, "utf-8");
-    return JSON.parse(raw) as VstConfigJson;
+    const result = VstConfigJsonSchema.safeParse(JSON.parse(raw));
+    if (!result.success) {
+      console.error("[tuning/vst] readPersistedVstConfig: ConfigMap shape unexpected", result.error);
+      return null;
+    }
+    return result.data as VstConfigJson;
   } catch {
     return null;
   }
@@ -261,10 +301,10 @@ export async function GET() {
     );
     cfg = value;
   } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
+    const { status, message } = extractK8sError(err);
     return NextResponse.json(
-      { error: k8sErr.body?.message ?? String(err), k8sCode: k8sErr.statusCode },
-      { status: k8sErr.statusCode ?? 502 }
+      { error: message, k8sCode: status },
+      { status }
     );
   }
 
@@ -302,6 +342,9 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const blocked = await rejectIfKiosk();
+  if (blocked) return blocked;
 
   const body: unknown = await req.json().catch(() => null);
 
@@ -388,10 +431,10 @@ export async function PATCH(req: NextRequest) {
     cfg = result.value;
     resourceVersion = result.resourceVersion;
   } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
+    const { status, message } = extractK8sError(err);
     return NextResponse.json(
-      { error: k8sErr.body?.message ?? String(err), k8sCode: k8sErr.statusCode },
-      { status: k8sErr.statusCode ?? 502 }
+      { error: message, k8sCode: status },
+      { status }
     );
   }
 
@@ -444,10 +487,10 @@ export async function PATCH(req: NextRequest) {
       resourceVersion
     );
   } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
+    const { status, message } = extractK8sError(err);
     return NextResponse.json(
-      { error: k8sErr.body?.message ?? String(err), k8sCode: k8sErr.statusCode },
-      { status: k8sErr.statusCode ?? 502 }
+      { error: message, k8sCode: status },
+      { status }
     );
   }
 

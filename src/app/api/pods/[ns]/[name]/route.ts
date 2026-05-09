@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { coreV1 } from "@/lib/k8s";
+import { extractK8sError } from "@/lib/errors";
 import { inspectContainer } from "@/lib/helpers/docker-sock";
 
 export const dynamic = "force-dynamic";
@@ -89,10 +90,9 @@ export async function GET(
       })),
     });
   } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
-    const status = k8sErr.statusCode ?? 500;
+    const { status, message } = extractK8sError(err);
     return NextResponse.json(
-      { error: k8sErr.body?.message ?? String(err), k8sCode: status },
+      { error: message, k8sCode: status },
       { status }
     );
   }

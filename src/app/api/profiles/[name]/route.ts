@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
+import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { loadProfile, saveProfile, getDb } from "@/lib/db";
 import { DemoProfileSchema } from "@/lib/schemas";
 import { auditLog } from "@/lib/helpers/audit";
@@ -55,6 +56,9 @@ export async function PUT(
 ) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const blocked = await rejectIfKiosk();
+  if (blocked) return blocked;
 
   const { name } = await params;
   const profile = loadProfile(name);
@@ -244,6 +248,9 @@ export async function DELETE(
 ) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const blocked = await rejectIfKiosk();
+  if (blocked) return blocked;
 
   const { name } = await params;
   const db = getDb();

@@ -45,6 +45,13 @@ export async function startKafkaSseConsumer(
 
   await consumer.connect();
 
+  consumer.on(consumer.events.CRASH, (event) => {
+    console.error("[kafka-sse] consumer crash", event.payload.error, {
+      groupId: event.payload.groupId,
+      restart: event.payload.restart,
+    });
+  });
+
   const fromBeginning =
     opts.fromOffset === "latest" ? false : true;
 

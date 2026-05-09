@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { rolloutRestart } from "@/lib/k8s";
+import { extractK8sError } from "@/lib/errors";
+import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { auditLog } from "@/lib/helpers/audit";
 import { dockerSock, listComposeContainers } from "@/lib/helpers/docker-sock";
 import { CLUSTER } from "@/lib/cluster-refs";
@@ -31,6 +33,9 @@ export async function POST(
 ) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const blocked = await rejectIfKiosk();
+  if (blocked) return blocked;
 
   const { component } = await params;
   const spec = RESTARTABLE[component];
@@ -70,10 +75,9 @@ export async function POST(
   try {
     await rolloutRestart(spec.kind, spec.namespace, spec.name);
   } catch (err: unknown) {
-    const k8sErr = err as { statusCode?: number; body?: { message?: string } };
-    const status = k8sErr.statusCode ?? 502;
+    const { status, message } = extractK8sError(err);
     return NextResponse.json(
-      { error: k8sErr.body?.message ?? String(err), k8sCode: status },
+      { error: message, k8sCode: status },
       { status }
     );
   }

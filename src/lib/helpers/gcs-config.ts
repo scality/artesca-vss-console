@@ -1,6 +1,7 @@
 import "server-only";
 import { createSign } from "crypto";
 import { readFileSync } from "fs";
+import { z } from "zod";
 
 const GCS_TIMEOUT_MS = 15_000;
 
@@ -65,6 +66,18 @@ interface ServiceAccountKey {
   token_uri?: string;
 }
 
+const ServiceAccountKeySchema = z.object({
+  private_key: z.string().min(1),
+  client_email: z.string().min(1),
+  token_uri: z.string().optional(),
+  private_key_id: z.string().optional(),
+});
+
+const TokenExchangeSchema = z.object({
+  access_token: z.string(),
+  expires_in: z.number(),
+});
+
 interface TokenCache {
   token: string;
   expiresAt: number; // epoch ms
@@ -76,8 +89,13 @@ function loadKey(): ServiceAccountKey | null {
   const credFile = process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (!credFile) return null;
   try {
-    return JSON.parse(readFileSync(credFile, "utf-8")) as ServiceAccountKey;
-  } catch {
+    const parsed = ServiceAccountKeySchema.safeParse(JSON.parse(readFileSync(credFile, "utf-8")));
+    if (!parsed.success) {
+      throw new Error("invalid service-account key: " + parsed.error.message);
+    }
+    return parsed.data as ServiceAccountKey;
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("invalid service-account key:")) throw err;
     return null;
   }
 }
@@ -138,10 +156,14 @@ async function getAccessToken(): Promise<string> {
     );
   }
 
-  const data = (await resp.json()) as { access_token: string; expires_in?: number };
-  const ttlMs = (data.expires_in ?? 3600) * 1000;
-  _tokenCache = { token: data.access_token, expiresAt: Date.now() + ttlMs };
-  return data.access_token;
+  const rawData: unknown = await resp.json();
+  const tokenResult = TokenExchangeSchema.safeParse(rawData);
+  if (!tokenResult.success) {
+    throw new Error("token exchange returned unexpected shape");
+  }
+  const ttlMs = tokenResult.data.expires_in * 1000;
+  _tokenCache = { token: tokenResult.data.access_token, expiresAt: Date.now() + ttlMs };
+  return tokenResult.data.access_token;
 }
 
 // ─── Internal GCS REST helpers ────────────────────────────────────────────────

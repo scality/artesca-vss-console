@@ -1,6 +1,6 @@
 import { Kafka, type Consumer, type EachMessagePayload } from "kafkajs";
 
-let _kafka: Kafka | null = null;
+const globalForKafka = globalThis as unknown as { __kafka?: Kafka | null };
 
 export type KafkaStatus = "connected" | "disconnected";
 
@@ -15,21 +15,21 @@ export function getKafka(): KafkaShape {
     return { status: "disconnected", instance: null };
   }
 
-  if (!_kafka) {
-    _kafka = new Kafka({
+  if (!globalForKafka.__kafka) {
+    globalForKafka.__kafka = new Kafka({
       clientId: "console",
       brokers: brokers.split(",").map((b) => b.trim()),
       retry: { retries: 3 },
     });
   }
 
-  return { status: "connected", instance: _kafka };
+  return { status: "connected", instance: globalForKafka.__kafka };
 }
 
 /**
  * Consume messages from a Kafka topic until the AbortSignal fires.
  * Each invocation gets its own consumer group so parallel connections
- * each receive all messages (design doc decision A).
+ * each receive all messages.
  */
 export async function consumeTopic(
   topic: string,
@@ -45,10 +45,15 @@ export async function consumeTopic(
   const consumer: Consumer = instance.consumer({ groupId });
 
   await consumer.connect();
+
+  consumer.on(consumer.events.CRASH, (event) => {
+    console.error("[kafka] consumer crashed", event.payload?.error);
+  });
+
   await consumer.subscribe({ topic, fromBeginning: false });
 
   signal.addEventListener("abort", () => {
-    consumer.disconnect().catch(() => undefined);
+    consumer.disconnect().catch((err) => console.warn("[kafka] disconnect failed", err));
   });
 
   await consumer.run({ eachMessage: onMessage });

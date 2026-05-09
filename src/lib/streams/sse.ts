@@ -25,8 +25,13 @@ export function createSseResponse<T>(
       let heartbeat: ReturnType<typeof setInterval> | undefined;
       let cleanup: (() => void) | void;
 
-      const encode = (chunk: string) =>
-        controller.enqueue(new TextEncoder().encode(chunk));
+      const encode = (chunk: string) => {
+        try {
+          controller.enqueue(new TextEncoder().encode(chunk));
+        } catch {
+          // Already closed — ignore.
+        }
+      };
 
       const write = (event: T, eventName?: string) => {
         if (signal.aborted) return;
@@ -51,7 +56,11 @@ export function createSseResponse<T>(
           stop();
           return;
         }
-        encode(": heartbeat\n\n");
+        try {
+          encode(": heartbeat\n\n");
+        } catch {
+          // Controller closed between check and enqueue — ignore.
+        }
       }, HEARTBEAT_INTERVAL_MS);
 
       try {

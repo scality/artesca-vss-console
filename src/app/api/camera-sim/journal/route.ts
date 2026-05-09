@@ -9,6 +9,9 @@ import { createSseResponse } from "@/lib/streams/sse";
 import { Client, type ConnectConfig } from "ssh2";
 import * as fs from "fs";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 interface JournalEntry {
   ts: string;
   message: string;

@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * cluster-refs.ts — single source of truth for all in-cluster service names,
  * ConfigMap names, Deployment names, env-var keys, and topic names used by

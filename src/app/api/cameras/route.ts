@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
+import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { vstListSensors } from "@/lib/helpers/vst";
 import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
 import { auditLog } from "@/lib/helpers/audit";
@@ -41,7 +42,7 @@ const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 let _gcsWriteChain: Promise<void> = Promise.resolve();
 
 function chainGcsWrite(fn: () => Promise<void>): Promise<void> {
-  _gcsWriteChain = _gcsWriteChain.then(fn).catch(() => void 0);
+  _gcsWriteChain = _gcsWriteChain.then(fn).catch((err) => console.error("[gcs-write] failed", err));
   return _gcsWriteChain;
 }
 
@@ -247,6 +248,9 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const blocked = await rejectIfKiosk();
+  if (blocked) return blocked;
 
   const body = await req.json().catch(() => null);
   const parsed = AddCameraSchema.safeParse(body);
