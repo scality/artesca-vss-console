@@ -23,7 +23,9 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "npm run dev",
+    // In CI: `next build` already ran — boot the production server.
+    // Locally: reuse whatever server is already running on :8800.
+    command: process.env.CI ? "npm run start" : "npm run dev",
     url: "http://localhost:8800",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
