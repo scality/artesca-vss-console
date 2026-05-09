@@ -8,7 +8,7 @@ const DEV_USER = { id: "1", name: "console-operator", email: "console@local" };
 
 // In docker mode, PATCH /api/secrets/console-auth-password writes a bcrypt hash
 // to this file so the password can be rotated without restarting the container.
-async function getPasswordHash(): Promise<{ hash: string; isHashed: boolean } | null> {
+export async function getPasswordHash(): Promise<{ hash: string; isHashed: boolean } | null> {
   const envHash = process.env.CONSOLE_PASSWORD_HASH;
   if (envHash) return { hash: envHash, isHashed: true };
 
@@ -33,6 +33,22 @@ const BYPASS_SESSION: Session = {
   expires: "2099-01-01T00:00:00.000Z",
 };
 
+export async function _authorize(
+  password: string | undefined,
+): Promise<typeof DEV_USER | null> {
+  if (!password) return null;
+
+  const stored = await getPasswordHash();
+  if (!stored) return null;
+
+  if (stored.isHashed) {
+    const ok = await bcrypt.compare(password, stored.hash);
+    return ok ? DEV_USER : null;
+  }
+
+  return password === stored.hash ? DEV_USER : null;
+}
+
 const {
   handlers,
   auth: _nextAuth,
@@ -46,18 +62,7 @@ const {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        const password = credentials?.password as string | undefined;
-        if (!password) return null;
-
-        const stored = await getPasswordHash();
-        if (!stored) return null;
-
-        if (stored.isHashed) {
-          const ok = await bcrypt.compare(password, stored.hash);
-          return ok ? DEV_USER : null;
-        }
-
-        return password === stored.hash ? DEV_USER : null;
+        return _authorize(credentials?.password as string | undefined);
       },
     }),
   ],

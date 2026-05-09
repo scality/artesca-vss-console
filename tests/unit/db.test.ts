@@ -1,166 +1,318 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Database from "better-sqlite3";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  vi,
+} from "vitest";
+import * as os from "os";
+import * as fs from "fs";
+import * as path from "path";
 import { randomUUID } from "crypto";
+import type { DemoProfile, SgWhitelistEntry } from "@/lib/types";
+import type {
+  CameraOverrideRow,
+  AuditLogRow,
+} from "@/lib/db";
 
-// In-memory SQLite — mirrors db.ts schema but does not import server-only
-function createTestDb() {
-  const db = new Database(":memory:");
-  db.pragma("journal_mode = WAL");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS profiles (
-      name         TEXT PRIMARY KEY,
-      saved_at     TEXT NOT NULL,
-      saved_by     TEXT NOT NULL,
-      payload_json TEXT NOT NULL
-    );
+// db.ts registers process.once("SIGTERM"/"SIGINT") on every fresh module instance.
+// With ~19 tests each resetting modules, 19 × 2 listeners accumulate. Raise the
+// limit so Node doesn't emit the MaxListenersExceeded warning.
+process.setMaxListeners(Math.max(process.getMaxListeners(), 50));
 
-    CREATE TABLE IF NOT EXISTS audit_log (
-      id           TEXT PRIMARY KEY,
-      ts           TEXT NOT NULL,
-      operator     TEXT NOT NULL,
-      action       TEXT NOT NULL,
-      target       TEXT NOT NULL,
-      details_json TEXT NOT NULL
-    );
+// ─── Module isolation helpers ────────────────────────────────────────────────
+//
+// db.ts holds module-level singletons (_db, _signalHandlersRegistered).
+// To get a fresh getDb() per test we must vi.resetModules() + re-import.
+// After resetModules the global vi.mock("server-only") from setup.ts no longer
+// applies to newly resolved modules, so we re-mock it with vi.doMock() first.
 
-    CREATE TABLE IF NOT EXISTS sg_whitelist (
-      id        TEXT PRIMARY KEY,
-      cidr      TEXT NOT NULL,
-      label     TEXT NOT NULL,
-      added_by  TEXT NOT NULL,
-      added_at  TEXT NOT NULL,
-      port      INTEGER NOT NULL DEFAULT 8800
-    );
+let tmpDir: string;
 
-    CREATE TABLE IF NOT EXISTS rotations (
-      key        TEXT PRIMARY KEY,
-      rotated_at TEXT NOT NULL
-    );
-  `);
-  return db;
+// Typed shorthands — filled by beforeEach dynamic import
+let getDb: () => import("better-sqlite3").Database;
+let appendAuditLog: (e: { operator: string; action: string; target: string; detailsJson: string }) => Promise<void>;
+let readLastAuditLog: (action: string) => AuditLogRow | null;
+let saveProfile: (p: DemoProfile, savedBy: string) => void;
+let listProfiles: () => Array<{ name: string; savedAt: string; savedBy: string }>;
+let loadProfile: (name: string) => DemoProfile | null;
+let upsertSgEntry: (e: SgWhitelistEntry) => void;
+let listSgEntries: () => SgWhitelistEntry[];
+let deleteSgEntry: (id: string) => void;
+let upsertCameraOverride: (r: CameraOverrideRow) => void;
+let getCameraOverride: (cameraId: string) => CameraOverrideRow | null;
+let listCameraOverrides: () => CameraOverrideRow[];
+let deleteCameraOverride: (cameraId: string) => void;
+let markRotated: (key: string) => void;
+let getRotationAge: (key: string) => number | null;
+
+beforeEach(async () => {
+  tmpDir = path.join(os.tmpdir(), `console-test-${randomUUID()}`);
+  vi.stubEnv("CONSOLE_DATA_DIR", tmpDir);
+  vi.resetModules();
+  // Re-stub server-only after module reset so the freshly resolved db.ts
+  // doesn't throw "This module cannot be imported from a Client Component".
+  vi.doMock("server-only", () => ({}));
+
+  const mod = await import("@/lib/db");
+  getDb = mod.getDb;
+  appendAuditLog = mod.appendAuditLog;
+  readLastAuditLog = mod.readLastAuditLog;
+  saveProfile = mod.saveProfile;
+  listProfiles = mod.listProfiles;
+  loadProfile = mod.loadProfile;
+  upsertSgEntry = mod.upsertSgEntry;
+  listSgEntries = mod.listSgEntries;
+  deleteSgEntry = mod.deleteSgEntry;
+  upsertCameraOverride = mod.upsertCameraOverride;
+  getCameraOverride = mod.getCameraOverride;
+  listCameraOverrides = mod.listCameraOverrides;
+  deleteCameraOverride = mod.deleteCameraOverride;
+  markRotated = mod.markRotated;
+  getRotationAge = mod.getRotationAge;
+});
+
+afterEach(() => {
+  // Close the connection held by the module singleton before removing the file.
+  try {
+    getDb().close();
+  } catch {
+    // already closed or never opened — ignore
+  }
+  vi.unstubAllEnvs();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+// ─── Minimal valid DemoProfile fixture ───────────────────────────────────────
+
+function makeProfile(name = "test-profile"): DemoProfile {
+  return {
+    name,
+    savedAt: new Date().toISOString(),
+    savedBy: "test-operator",
+    scenarios: [],
+    vlmPrompt: "Describe what you see.",
+    cameras: [],
+    rtviTuning: {},
+    alertTuning: {},
+    nimModel: "cosmos-reason2-8b",
+  };
 }
 
-describe("db schema — profiles", () => {
-  let db: Database.Database;
-  beforeEach(() => { db = createTestDb(); });
-  afterEach(() => { db.close(); });
+// ─── Migrations + pragmas ─────────────────────────────────────────────────────
 
-  it("saves and loads a profile", () => {
-    const payload = JSON.stringify({ name: "test-profile", scenarios: [] });
-    db.prepare("INSERT INTO profiles (name, saved_at, saved_by, payload_json) VALUES (?, ?, ?, ?)")
-      .run("test-profile", new Date().toISOString(), "op", payload);
-
-    const row = db.prepare("SELECT payload_json FROM profiles WHERE name = ?").get("test-profile") as { payload_json: string };
-    expect(row).toBeTruthy();
-    expect(JSON.parse(row.payload_json).name).toBe("test-profile");
+describe("migrations + pragmas", () => {
+  it("creates the database file on first getDb() call", () => {
+    getDb();
+    const dbFile = path.join(tmpDir, "console-data.db");
+    expect(fs.existsSync(dbFile)).toBe(true);
   });
 
-  it("lists profiles ordered by saved_at desc", () => {
-    db.prepare("INSERT INTO profiles (name, saved_at, saved_by, payload_json) VALUES (?, ?, ?, ?)")
-      .run("older", "2026-04-01T00:00:00.000Z", "op", "{}");
-    db.prepare("INSERT INTO profiles (name, saved_at, saved_by, payload_json) VALUES (?, ?, ?, ?)")
-      .run("newer", "2026-04-22T00:00:00.000Z", "op", "{}");
-
-    const rows = db.prepare("SELECT name FROM profiles ORDER BY saved_at DESC").all() as Array<{ name: string }>;
-    expect(rows[0].name).toBe("newer");
-    expect(rows[1].name).toBe("older");
+  it("all 5 tables exist after first call", () => {
+    const db = getDb();
+    const tables = (
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+    expect(tables).toContain("profiles");
+    expect(tables).toContain("audit_log");
+    expect(tables).toContain("sg_whitelist");
+    expect(tables).toContain("rotations");
+    expect(tables).toContain("camera_overrides");
   });
 
-  it("INSERT OR REPLACE updates existing profile", () => {
-    db.prepare("INSERT INTO profiles (name, saved_at, saved_by, payload_json) VALUES (?, ?, ?, ?)")
-      .run("dup", "2026-04-01T00:00:00.000Z", "op", '{"v":1}');
-    db.prepare("INSERT OR REPLACE INTO profiles (name, saved_at, saved_by, payload_json) VALUES (?, ?, ?, ?)")
-      .run("dup", "2026-04-22T00:00:00.000Z", "op", '{"v":2}');
-
-    const row = db.prepare("SELECT payload_json FROM profiles WHERE name = ?").get("dup") as { payload_json: string };
-    expect(JSON.parse(row.payload_json).v).toBe(2);
-  });
-});
-
-describe("db schema — audit_log", () => {
-  let db: Database.Database;
-  beforeEach(() => { db = createTestDb(); });
-  afterEach(() => { db.close(); });
-
-  it("appends and reads audit log entries", () => {
-    const id = randomUUID();
-    db.prepare("INSERT INTO audit_log (id, ts, operator, action, target, details_json) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(id, new Date().toISOString(), "op", "sg.add", "203.0.113.0/29", "{}");
-
-    const row = db.prepare("SELECT * FROM audit_log WHERE id = ?").get(id) as Record<string, unknown>;
-    expect(row).toBeTruthy();
-    expect(row.action).toBe("sg.add");
-    expect(row.target).toBe("203.0.113.0/29");
+  it("journal_mode=WAL is applied", () => {
+    const db = getDb();
+    const mode = db.pragma("journal_mode", { simple: true });
+    expect(mode).toBe("wal");
   });
 
-  it("multiple entries accumulate", () => {
-    for (let i = 0; i < 5; i++) {
-      db.prepare("INSERT INTO audit_log (id, ts, operator, action, target, details_json) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(randomUUID(), new Date().toISOString(), "op", `action.${i}`, "target", "{}");
-    }
-    const count = (db.prepare("SELECT COUNT(*) as c FROM audit_log").get() as { c: number }).c;
-    expect(count).toBe(5);
+  it("synchronous=NORMAL is applied", () => {
+    const db = getDb();
+    // SQLite returns 1 for NORMAL
+    const sync = db.pragma("synchronous", { simple: true });
+    expect(sync).toBe(1);
+  });
+
+  it("foreign_keys=ON is applied", () => {
+    const db = getDb();
+    const fk = db.pragma("foreign_keys", { simple: true });
+    expect(fk).toBe(1);
+  });
+
+  it("getDb() is a singleton — two calls return the same instance", () => {
+    const a = getDb();
+    const b = getDb();
+    expect(a).toBe(b);
   });
 });
 
-describe("db schema — sg_whitelist CRUD", () => {
-  let db: Database.Database;
-  beforeEach(() => { db = createTestDb(); });
-  afterEach(() => { db.close(); });
+// ─── Audit log ────────────────────────────────────────────────────────────────
 
-  const entry = {
-    id: "550e8400-e29b-41d4-a716-446655440001",
+describe("audit log", () => {
+  it("appendAuditLog + readLastAuditLog round-trips and computes non-negative agoSecs", async () => {
+    await appendAuditLog({
+      operator: "alice",
+      action: "sg.add",
+      target: "10.0.0.0/8",
+      detailsJson: JSON.stringify({ note: "test" }),
+    });
+
+    const row = readLastAuditLog("sg.add");
+    expect(row).not.toBeNull();
+    expect(row!.action).toBe("sg.add");
+    expect(row!.target).toBe("10.0.0.0/8");
+    expect(row!.operator).toBe("alice");
+    expect(row!.agoSecs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("readLastAuditLog returns null when no rows match the action", () => {
+    const row = readLastAuditLog("nonexistent.action");
+    expect(row).toBeNull();
+  });
+});
+
+// ─── Profiles ─────────────────────────────────────────────────────────────────
+
+describe("profiles", () => {
+  it("saveProfile + loadProfile round-trips a valid DemoProfile", () => {
+    const p = makeProfile("my-scene");
+    saveProfile(p, "alice");
+    const loaded = loadProfile("my-scene");
+    expect(loaded).not.toBeNull();
+    expect(loaded!.name).toBe("my-scene");
+    expect(loaded!.nimModel).toBe("cosmos-reason2-8b");
+    expect(loaded!.vlmPrompt).toBe("Describe what you see.");
+  });
+
+  it("listProfiles returns entries in saved-at DESC order", () => {
+    // saveProfile() always stamps saved_at = new Date().toISOString() internally,
+    // so two back-to-back calls can land on the same millisecond.
+    // Insert via getDb() directly to control saved_at values precisely.
+    const db = getDb();
+    const older = "2026-04-01T00:00:00.000Z";
+    const newer = "2026-04-22T00:00:00.000Z";
+    db.prepare(
+      "INSERT OR REPLACE INTO profiles (name, saved_at, saved_by, payload_json) VALUES (?, ?, ?, ?)"
+    ).run("first", older, "alice", JSON.stringify(makeProfile("first")));
+    db.prepare(
+      "INSERT OR REPLACE INTO profiles (name, saved_at, saved_by, payload_json) VALUES (?, ?, ?, ?)"
+    ).run("second", newer, "alice", JSON.stringify(makeProfile("second")));
+
+    const list = listProfiles();
+    expect(list.length).toBe(2);
+    // DESC order: "second" (newer timestamp) should come first
+    expect(list[0].name).toBe("second");
+    expect(list[1].name).toBe("first");
+  });
+
+  it("loadProfile returns null for a nonexistent name", () => {
+    const result = loadProfile("does-not-exist");
+    expect(result).toBeNull();
+  });
+});
+
+// ─── SG whitelist ─────────────────────────────────────────────────────────────
+
+describe("sg whitelist", () => {
+  const base: SgWhitelistEntry = {
+    id: randomUUID(),
     cidr: "203.0.113.0/29",
     label: "Head office",
-    added_by: "op",
-    added_at: "2026-04-01T09:00:00.000Z",
+    addedBy: "alice",
+    addedAt: new Date().toISOString(),
     port: 8800,
   };
 
-  it("inserts and reads an SG entry", () => {
-    db.prepare("INSERT INTO sg_whitelist (id, cidr, label, added_by, added_at, port) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(entry.id, entry.cidr, entry.label, entry.added_by, entry.added_at, entry.port);
-
-    const row = db.prepare("SELECT * FROM sg_whitelist WHERE id = ?").get(entry.id) as typeof entry;
-    expect(row.cidr).toBe("203.0.113.0/29");
-    expect(row.port).toBe(8800);
+  it("upsertSgEntry + listSgEntries returns the inserted entry", () => {
+    upsertSgEntry(base);
+    const entries = listSgEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].cidr).toBe("203.0.113.0/29");
+    expect(entries[0].id).toBe(base.id);
   });
 
-  it("deletes an SG entry", () => {
-    db.prepare("INSERT INTO sg_whitelist (id, cidr, label, added_by, added_at, port) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(entry.id, entry.cidr, entry.label, entry.added_by, entry.added_at, entry.port);
-    db.prepare("DELETE FROM sg_whitelist WHERE id = ?").run(entry.id);
+  it("upsertSgEntry with same id replaces the row (updated cidr visible)", () => {
+    upsertSgEntry(base);
+    const updated: SgWhitelistEntry = { ...base, cidr: "192.168.1.0/24" };
+    upsertSgEntry(updated);
+    const entries = listSgEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].cidr).toBe("192.168.1.0/24");
+  });
 
-    const row = db.prepare("SELECT * FROM sg_whitelist WHERE id = ?").get(entry.id);
-    expect(row).toBeUndefined();
+  it("deleteSgEntry removes the row", () => {
+    upsertSgEntry(base);
+    deleteSgEntry(base.id);
+    const entries = listSgEntries();
+    expect(entries).toHaveLength(0);
   });
 });
 
-describe("db schema — rotation age", () => {
-  let db: Database.Database;
-  beforeEach(() => { db = createTestDb(); });
-  afterEach(() => { db.close(); });
+// ─── Camera overrides ─────────────────────────────────────────────────────────
 
-  it("returns undefined for never-rotated key", () => {
-    const row = db.prepare("SELECT rotated_at FROM rotations WHERE key = ?").get("ngc-key");
-    expect(row).toBeUndefined();
+describe("camera overrides", () => {
+  function makeOverride(cameraId: string, scenarioIds: string[] | null = ["s1", "s2"]): CameraOverrideRow {
+    return {
+      cameraId,
+      scenarioIds,
+      recordingEnabled: true,
+      recordingPolicy: "event-only",
+      recordingRetentionDays: 7,
+      updatedAt: new Date().toISOString(),
+      updatedBy: "alice",
+    };
+  }
+
+  it("upsertCameraOverride + getCameraOverride round-trips including JSON-encoded scenarioIds", () => {
+    upsertCameraOverride(makeOverride("cam-1", ["s1", "s2"]));
+    const row = getCameraOverride("cam-1");
+    expect(row).not.toBeNull();
+    expect(row!.cameraId).toBe("cam-1");
+    expect(row!.scenarioIds).toEqual(["s1", "s2"]);
+    expect(row!.recordingEnabled).toBe(true);
+    expect(row!.recordingPolicy).toBe("event-only");
+    expect(row!.recordingRetentionDays).toBe(7);
   });
 
-  it("stores rotation timestamp and computes age", () => {
-    const now = new Date().toISOString();
-    db.prepare("INSERT OR REPLACE INTO rotations (key, rotated_at) VALUES (?, ?)").run("ngc-key", now);
+  it("scenarioIds: null and scenarioIds: [] are stored and retrieved distinctly", () => {
+    upsertCameraOverride(makeOverride("cam-null", null));
+    upsertCameraOverride(makeOverride("cam-empty", []));
 
-    const row = db.prepare("SELECT rotated_at FROM rotations WHERE key = ?").get("ngc-key") as { rotated_at: string };
-    const age = Date.now() - new Date(row.rotated_at).getTime();
-    expect(age).toBeGreaterThanOrEqual(0);
-    expect(age).toBeLessThan(5000);
+    const nullRow = getCameraOverride("cam-null");
+    const emptyRow = getCameraOverride("cam-empty");
+
+    expect(nullRow!.scenarioIds).toBeNull();
+    expect(emptyRow!.scenarioIds).toEqual([]);
   });
 
-  it("INSERT OR REPLACE updates rotation timestamp", () => {
-    db.prepare("INSERT OR REPLACE INTO rotations (key, rotated_at) VALUES (?, ?)").run("key", "2026-01-01T00:00:00.000Z");
-    db.prepare("INSERT OR REPLACE INTO rotations (key, rotated_at) VALUES (?, ?)").run("key", "2026-04-22T00:00:00.000Z");
+  it("listCameraOverrides returns all rows; deleteCameraOverride removes one", () => {
+    upsertCameraOverride(makeOverride("cam-a"));
+    upsertCameraOverride(makeOverride("cam-b"));
+    expect(listCameraOverrides()).toHaveLength(2);
 
-    const row = db.prepare("SELECT rotated_at FROM rotations WHERE key = ?").get("key") as { rotated_at: string };
-    expect(row.rotated_at).toBe("2026-04-22T00:00:00.000Z");
+    deleteCameraOverride("cam-a");
+    const remaining = listCameraOverrides();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].cameraId).toBe("cam-b");
+  });
+});
+
+// ─── Rotation tracking ────────────────────────────────────────────────────────
+
+describe("rotation tracking", () => {
+  it("markRotated + getRotationAge returns a non-negative number of milliseconds", () => {
+    markRotated("ngc-api-key");
+    const age = getRotationAge("ngc-api-key");
+    expect(age).not.toBeNull();
+    expect(age!).toBeGreaterThanOrEqual(0);
+    expect(age!).toBeLessThan(5000); // test runs in under 5 s
+  });
+
+  it("getRotationAge returns null for an unknown key", () => {
+    const age = getRotationAge("never-rotated-key");
+    expect(age).toBeNull();
   });
 });
