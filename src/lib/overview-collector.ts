@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type V1Pod } from "@kubernetes/client-node";
-import { coreV1, watchedNamespaces } from "@/lib/k8s";
+import { coreV1, listAllPodsInNs, watchedNamespaces } from "@/lib/k8s";
 import {
   inspectContainer,
   listComposeContainers,
@@ -217,8 +217,8 @@ async function collectK8sOverview(
   const namespaces: OverviewSnapshot["namespaces"] = {};
   const nsListResults = await Promise.allSettled(
     watchedNamespaces().map(async (ns) => {
-      const podList = await coreV1().listNamespacedPod({ namespace: ns });
-      return { ns, pods: podList.items };
+      const pods = await listAllPodsInNs(coreV1(), ns);
+      return { ns, pods };
     })
   );
 
@@ -247,8 +247,8 @@ async function collectK8sOverview(
 
   let nim: OverviewSnapshot["nim"] = { ready: false, warmupPct: 0, queueDepth: 0 };
   try {
-    const rtviPodList = await coreV1().listNamespacedPod({ namespace: "rtvi" });
-    const nimPods = rtviPodList.items.filter((p) =>
+    const rtviPods = await listAllPodsInNs(coreV1(), "rtvi");
+    const nimPods = rtviPods.filter((p) =>
       p.metadata?.name?.includes("nim")
     );
     const anyReady = nimPods.some((p) =>
@@ -492,8 +492,8 @@ export async function collectPodSummaries(nsFilter?: string): Promise<PodsResult
     await Promise.allSettled(
       namespaces.map(async (namespace) => {
         try {
-          const podList = await coreV1().listNamespacedPod({ namespace });
-          for (const pod of podList.items) {
+          const podItems = await listAllPodsInNs(coreV1(), namespace);
+          for (const pod of podItems) {
             pods.push(summarisePod(pod, namespace));
           }
         } catch (err) {

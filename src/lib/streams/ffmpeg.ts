@@ -10,23 +10,29 @@ import * as fs from "fs";
 /** Maximum simultaneous ffmpeg processes. */
 const MAX_CONCURRENT = 2;
 
-let activeCount = 0;
-const queue: Array<() => void> = [];
+interface FfmpegPool {
+  activeCount: number;
+  queue: Array<() => void>;
+}
+
+const g = globalThis as unknown as { __consoleFfmpegQueue?: FfmpegPool };
+g.__consoleFfmpegQueue ??= { activeCount: 0, queue: [] };
+const pool = g.__consoleFfmpegQueue;
 
 function acquire(): Promise<void> {
-  if (activeCount < MAX_CONCURRENT) {
-    activeCount++;
+  if (pool.activeCount < MAX_CONCURRENT) {
+    pool.activeCount++;
     return Promise.resolve();
   }
-  return new Promise<void>((resolve) => queue.push(resolve));
+  return new Promise<void>((resolve) => pool.queue.push(resolve));
 }
 
 function release(): void {
-  const next = queue.shift();
+  const next = pool.queue.shift();
   if (next) {
     next();
   } else {
-    activeCount--;
+    pool.activeCount--;
   }
 }
 

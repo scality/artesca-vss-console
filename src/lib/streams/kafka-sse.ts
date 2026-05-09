@@ -52,20 +52,15 @@ export async function startKafkaSseConsumer(
     });
   });
 
-  const fromBeginning =
-    opts.fromOffset === "latest" ? false : true;
+  // "replay N" requires reading from earliest so old messages are visible;
+  // fromOffset is ignored when replayCount > 0.
+  const replayTarget = opts.replayCount ?? 0;
+  const fromBeginning = replayTarget > 0 ? true : opts.fromOffset !== "latest";
 
   await consumer.subscribe({ topic: opts.topic, fromBeginning });
 
-  // For "replay N then live" semantics we collect the last N in a ring buffer.
-  // KafkaJS doesn't expose a trivial "seek to offset-N" without admin, so we
-  // approximate: if replayCount is set we subscribe from beginning and discard
-  // after replayCount messages have been forwarded.  For large topics in prod
-  // an offset-seek approach would be preferable; for this demo context the
-  // simple approach is acceptable.
   let replayed = 0;
-  const replayTarget = opts.replayCount ?? 0;
-  let replayPhase = replayTarget > 0 && !fromBeginning ? false : true;
+  let replayPhase = replayTarget > 0; // true = in replay window, forward up to N then switch to live
 
   await consumer.run({
     eachMessage: async ({ message }) => {
@@ -81,12 +76,12 @@ export async function startKafkaSseConsumer(
         parsed = { raw };
       }
 
-      if (!replayPhase) {
+      if (replayPhase) {
         if (replayed < replayTarget) {
           replayed++;
           opts.onMessage(parsed);
           if (replayed >= replayTarget) {
-            replayPhase = true;
+            replayPhase = false;
           }
         }
       } else {

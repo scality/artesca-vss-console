@@ -5,7 +5,8 @@ import { makeS3Client } from "@/lib/s3";
 const _ec2Clients = new Map<string, EC2Client>();
 
 function ec2Client(): EC2Client {
-  const region = process.env.AWS_REGION ?? "us-west-2";
+  const region =
+    process.env.OBJECTSTORE_REGION ?? process.env.AWS_REGION ?? "us-west-2";
   if (!_ec2Clients.has(region)) {
     _ec2Clients.set(region, new EC2Client({ region }));
   }
