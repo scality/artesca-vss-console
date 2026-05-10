@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { createLogger } from "@/lib/logger";
+import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/prompt");
 import { z } from "zod";
@@ -150,7 +151,7 @@ const PatchPromptSchema = z.object({
   model: z.string().optional(),
 });
 
-export async function PATCH(req: NextRequest) {
+export const PATCH = withRequestContext(async (req: NextRequest) => {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -274,7 +275,7 @@ export async function PATCH(req: NextRequest) {
     restartErrors: restartErrors.length ? restartErrors : undefined,
     ...(gcsWarnings.length ? { gcsWarnings } : {}),
   });
-}
+});
 
 // ─── GCS write helper ─────────────────────────────────────────────────────────
 

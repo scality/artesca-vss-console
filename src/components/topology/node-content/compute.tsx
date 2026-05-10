@@ -665,15 +665,13 @@ function DemoDataProducerConfig() {
     staleTime: 5_000,
   });
 
-  React.useEffect(() => {
-    if (data && !state) {
-      setState(data);
-    }
-  }, [data, state]);
+  // Derive the effective value: prefer local editable state, fall back to
+  // the fresh query result before the first user interaction.
+  const effective = state ?? data ?? null;
 
   async function patch(partial: Partial<DemoDataState>) {
-    if (!state) return;
-    const next = { ...state, ...partial };
+    if (!effective) return;
+    const next = { ...effective, ...partial };
     setState(next);
     setSaving(true);
     try {
@@ -688,13 +686,13 @@ function DemoDataProducerConfig() {
   }
 
   function debouncedPatch(partial: Partial<DemoDataState>) {
-    if (!state) return;
-    setState((s) => (s ? { ...s, ...partial } : s));
+    if (!effective) return;
+    setState({ ...effective, ...partial });
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => patch(partial), 600);
   }
 
-  if (isLoading || !state) {
+  if (isLoading || !effective) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
 
@@ -704,26 +702,26 @@ function DemoDataProducerConfig() {
       <div className="flex items-center gap-3">
         <Switch
           id="demo-enabled"
-          checked={state.enabled}
+          checked={effective.enabled}
           onCheckedChange={(checked) => patch({ enabled: checked })}
           disabled={saving}
         />
         <Label htmlFor="demo-enabled" className="text-sm">
-          {state.enabled ? "Running" : "Stopped"} ({state.replicas} replica{state.replicas !== 1 ? "s" : ""})
+          {effective.enabled ? "Running" : "Stopped"} ({effective.replicas} replica{effective.replicas !== 1 ? "s" : ""})
         </Label>
       </div>
 
       {/* Tick rate slider */}
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">
-          Tick rate: {state.tickRate.toFixed(1)} / sec
+          Tick rate: {effective.tickRate.toFixed(1)} / sec
         </Label>
         <input
           type="range"
           min={0.1}
           max={10}
           step={0.1}
-          value={state.tickRate}
+          value={effective.tickRate}
           onChange={(e) => debouncedPatch({ tickRate: parseFloat(e.target.value) })}
           className="w-full accent-primary"
           disabled={saving}
@@ -737,14 +735,14 @@ function DemoDataProducerConfig() {
       {/* Match probability slider */}
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">
-          Match probability: {(state.matchProbability * 100).toFixed(0)}%
+          Match probability: {(effective.matchProbability * 100).toFixed(0)}%
         </Label>
         <input
           type="range"
           min={0}
           max={1}
           step={0.01}
-          value={state.matchProbability}
+          value={effective.matchProbability}
           onChange={(e) => debouncedPatch({ matchProbability: parseFloat(e.target.value) })}
           className="w-full accent-primary"
           disabled={saving}

@@ -149,6 +149,56 @@ describe("logger", () => {
     });
   });
 
+  describe("request context integration", () => {
+    it("includes reqId in JSON record when inside runWithRequestContext", async () => {
+      vi.stubEnv("LOG_PRETTY", "0");
+      vi.stubEnv("LOG_LEVEL", "info");
+      const { log } = await import("@/lib/logger");
+      const { runWithRequestContext } = await import("@/lib/request-context");
+      runWithRequestContext({ reqId: "test-123" }, () => {
+        log.info("hello");
+      });
+      expect(writes).toHaveLength(1);
+      const rec = JSON.parse(writes[0].chunk);
+      expect(rec.reqId).toBe("test-123");
+    });
+
+    it("omits reqId from JSON record when no ALS context is active", async () => {
+      vi.stubEnv("LOG_PRETTY", "0");
+      vi.stubEnv("LOG_LEVEL", "info");
+      const { log } = await import("@/lib/logger");
+      log.info("no context");
+      expect(writes).toHaveLength(1);
+      const rec = JSON.parse(writes[0].chunk);
+      expect(rec.reqId).toBeUndefined();
+    });
+
+    it("call-site ctx reqId overrides ALS reqId", async () => {
+      vi.stubEnv("LOG_PRETTY", "0");
+      vi.stubEnv("LOG_LEVEL", "info");
+      const { log } = await import("@/lib/logger");
+      const { runWithRequestContext } = await import("@/lib/request-context");
+      runWithRequestContext({ reqId: "als-id" }, () => {
+        log.info("explicit", { reqId: "explicit-id" });
+      });
+      expect(writes).toHaveLength(1);
+      const rec = JSON.parse(writes[0].chunk);
+      expect(rec.reqId).toBe("explicit-id");
+    });
+
+    it("includes reqId in pretty output when inside runWithRequestContext", async () => {
+      vi.stubEnv("LOG_PRETTY", "1");
+      vi.stubEnv("LOG_LEVEL", "info");
+      const { log } = await import("@/lib/logger");
+      const { runWithRequestContext } = await import("@/lib/request-context");
+      runWithRequestContext({ reqId: "pretty-123" }, () => {
+        log.info("pretty msg");
+      });
+      expect(writes).toHaveLength(1);
+      expect(writes[0].chunk).toBe("[info] [console] reqId=pretty-123 pretty msg\n");
+    });
+  });
+
   describe("error serialization", () => {
     it("serializes Error instances with name + message + stack", async () => {
       vi.stubEnv("LOG_PRETTY", "0");

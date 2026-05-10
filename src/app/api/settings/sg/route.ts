@@ -7,6 +7,7 @@ import { listSgEntries, upsertSgEntry } from "@/lib/db";
 import { authorizeSgIngress } from "@/lib/aws";
 import { auditLog } from "@/lib/helpers/audit";
 import { createLogger } from "@/lib/logger";
+import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/settings/sg");
 
@@ -41,7 +42,7 @@ const AddSgEntrySchema = z.object({
   label: z.string().min(1).max(100),
 });
 
-export async function POST(req: NextRequest) {
+export const POST = withRequestContext(async (req: NextRequest) => {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -92,4 +93,4 @@ export async function POST(req: NextRequest) {
   await auditLog("sg-add", `sg/${sgId}/ingress`, { cidr, label, port: 8800 });
 
   return NextResponse.json({ ok: true, entry });
-}
+});

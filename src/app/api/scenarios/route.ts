@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { createLogger } from "@/lib/logger";
+import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/scenarios");
 import { z } from "zod";
@@ -171,7 +172,7 @@ const PatchScenariosSchema = z.object({
   scenarios: z.array(ScenarioSchema).min(1),
 });
 
-export async function PATCH(req: NextRequest) {
+export const PATCH = withRequestContext(async (req: NextRequest) => {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -280,7 +281,7 @@ export async function PATCH(req: NextRequest) {
     count: scenarios.length,
     ...(gcsWarnings.length ? { gcsWarnings } : {}),
   });
-}
+});
 
 // ─── GCS write helper ─────────────────────────────────────────────────────────
 

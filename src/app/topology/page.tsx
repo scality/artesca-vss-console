@@ -296,10 +296,7 @@ export default function TopologyPage() {
 
   // Track whether we've ever received a non-empty topology response.
   // Used to distinguish "first load in progress" from "confirmed failure".
-  const everReceivedNodes = useRef(false);
-  if ((topologyPayload?.nodes?.length ?? 0) > 0) {
-    everReceivedNodes.current = true;
-  }
+  const [everReceivedNodes, setEverReceivedNodes] = useState(false);
 
   // Merge structure + live runtime into React Flow nodes + edges.
   // Track the previous node-id set so we can release sparkline buffers for
@@ -314,6 +311,13 @@ export default function TopologyPage() {
     prevNodeIdsRef.current = mergedIds;
     setNodes(merged);
     setEdges(mergeTopologyEdges(topologyPayload ?? null, snapshot));
+    if ((topologyPayload?.nodes?.length ?? 0) > 0) {
+      // reason: monotonic boolean latch (false→true only); depends on async
+      // query data so lazy initializer is not an option. No cascading risk
+      // because setEverReceivedNodes(true) is guarded and called at most once.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setEverReceivedNodes(true);
+    }
   }, [topologyPayload, snapshot, setNodes, setEdges]);
 
   const onNodeClick: NodeMouseHandler<Node<TopologyNodeData>> = useCallback((_evt, node) => {
@@ -402,7 +406,7 @@ export default function TopologyPage() {
                   the full retry window (~30 s). Showing the error as soon
                   as one attempt has failed + no prior data is the honest
                   signal. */}
-              {topologyError && !everReceivedNodes.current ? (
+              {topologyError && !everReceivedNodes ? (
                 <div className="flex flex-col items-center gap-2 text-muted-foreground">
                   <AlertTriangle className="h-5 w-5 text-amber-500/70" />
                   <span className="text-sm">Topology unavailable — retrying</span>

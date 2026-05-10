@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { createLogger } from "@/lib/logger";
+import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/cameras");
 import { vstListSensors } from "@/lib/helpers/vst";
@@ -247,7 +248,7 @@ const AddCameraSchema = z.object({
   feeds: z.array(AddFeedSchema).min(1),
 });
 
-export async function POST(req: NextRequest) {
+export const POST = withRequestContext(async (req: NextRequest) => {
   const session = await auth();
   if (!session)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -329,7 +330,7 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ ok: true, cameraId, warnings });
-}
+});
 
 // ─── GCS write helper (shared by POST and [id]/route DELETE) ──────────────────
 

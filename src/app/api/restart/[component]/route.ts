@@ -6,6 +6,7 @@ import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { auditLog } from "@/lib/helpers/audit";
 import { dockerSock, listComposeContainers } from "@/lib/helpers/docker-sock";
 import { CLUSTER } from "@/lib/cluster-refs";
+import { withRequestContext } from "@/lib/with-request-context";
 
 export const dynamic = "force-dynamic";
 
@@ -27,10 +28,10 @@ const DOCKER_SERVICE_NAMES: Record<string, string> = {
   "demo-producer": CLUSTER.demoData.dockerContainer,
 };
 
-export async function POST(
+export const POST = withRequestContext(async (
   _req: Request,
   { params }: { params: Promise<{ component: string }> }
-) {
+) => {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -89,4 +90,4 @@ export async function POST(
   });
 
   return NextResponse.json({ ok: true, restartedAt });
-}
+});

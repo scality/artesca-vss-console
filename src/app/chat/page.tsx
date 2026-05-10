@@ -92,27 +92,30 @@ function ReasoningBlock({ steps }: { steps: ReasoningStep[] }) {
 }
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? (JSON.parse(raw) as Message[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showReasoning, setShowReasoning] = useState(false);
   const [cameras, setCameras] = useState<Camera[] | null>(null);
-  const [scope, setScope] = useState<string>(SCOPE_ALL);
+  const [scope, setScope] = useState<string>(() => {
+    if (typeof window === "undefined") return SCOPE_ALL;
+    try {
+      return localStorage.getItem(SCOPE_KEY) ?? SCOPE_ALL;
+    } catch {
+      return SCOPE_ALL;
+    }
+  });
   const [g4a, setG4a] = useState<G4aState>({ phase: "idle" });
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  // Restore history + scope on mount.
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setMessages(JSON.parse(raw) as Message[]);
-      const savedScope = localStorage.getItem(SCOPE_KEY);
-      if (savedScope) setScope(savedScope);
-    } catch {
-      /* ignore */
-    }
-  }, []);
 
   // Load cameras list — refresh every 30s so newly-registered streams show up.
   useEffect(() => {
