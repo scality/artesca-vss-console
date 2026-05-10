@@ -4,6 +4,7 @@ import { coreV1 } from "@/lib/k8s";
 import { sshExec } from "@/lib/ssh";
 import { auditLog } from "@/lib/helpers/audit";
 import { dockerSock } from "@/lib/helpers/docker-sock";
+import { withRequestContext } from "@/lib/with-request-context";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +46,7 @@ const DIAGNOSTICS: Record<string, DiagnosticSpec> = {
   "kubectl-top": { via: "k8s-api-nodes" },
 };
 
-export async function POST(
+export const POST = withRequestContext(async function (
   _req: Request,
   { params }: { params: Promise<{ test: string }> }
 ) {
@@ -169,4 +170,4 @@ export async function POST(
   });
 
   return NextResponse.json({ test, startedAt, exitCode, stdout, stderr });
-}
+});

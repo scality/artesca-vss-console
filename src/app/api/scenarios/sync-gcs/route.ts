@@ -5,6 +5,7 @@ import {
   type ScenariosConfig,
   type ScenarioConfig,
 } from "@/lib/helpers/gcs-config";
+import { withRequestContext } from "@/lib/with-request-context";
 import { readConfigMapKey } from "@/lib/helpers/configmaps";
 import { CLUSTER } from "@/lib/cluster-refs";
 import fs from "fs/promises";
@@ -40,7 +41,7 @@ type ScenariosConfigRaw = {
   }>;
 };
 
-export async function POST() {
+export const POST = withRequestContext(async function () {
   const session = await auth();
   if (!session)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -116,4 +117,4 @@ export async function POST() {
     instance: VSS_INSTANCE_NAME,
     synced: scenarios.length,
   });
-}
+});

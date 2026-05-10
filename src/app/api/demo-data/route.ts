@@ -7,6 +7,7 @@ import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { dockerSock, dockerRecreateWithEnv } from "@/lib/helpers/docker-sock";
+import { withRequestContext } from "@/lib/with-request-context";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ const DemoDataSchema = z.object({
   { message: "At least one field required" }
 );
 
-export async function PATCH(req: NextRequest) {
+export const PATCH = withRequestContext(async function (req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -155,4 +156,4 @@ export async function PATCH(req: NextRequest) {
     tickRate,
     matchProbability,
   });
-}
+});

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { createLogger } from "@/lib/logger";
+import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/cameras/[id]");
 import { vstDeleteSensor } from "@/lib/helpers/vst";
@@ -189,7 +190,7 @@ const PatchCameraSchema = z.object({
   feeds: z.array(PatchFeedSchema).min(1).optional(),
 });
 
-export async function PATCH(
+export const PATCH = withRequestContext(async function (
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -267,11 +268,11 @@ export async function PATCH(
   await auditLog("camera-update", `camera/${id}`, { update });
 
   return NextResponse.json({ ok: true, cameraId: id, warnings });
-}
+});
 
 // ─── DELETE — unregister a camera ─────────────────────────────────────────────
 
-export async function DELETE(
+export const DELETE = withRequestContext(async function (
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -335,4 +336,4 @@ export async function DELETE(
   });
 
   return NextResponse.json({ ok: true, cameraId: id, warnings });
-}
+});

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { createLogger } from "@/lib/logger";
+import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/demo-data/rehearsal");
 import { appsV1 } from "@/lib/k8s";
@@ -17,7 +18,7 @@ const REHEARSAL_DURATION_MS = 60_000;
 const REHEARSAL_MATCH_PROBABILITY = "0.95";
 const RESTORE_MATCH_PROBABILITY = "0.1";
 
-export async function POST() {
+export const POST = withRequestContext(async function () {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -160,4 +161,4 @@ export async function POST() {
     restoreAfterMs: REHEARSAL_DURATION_MS,
     matchProbability: REHEARSAL_MATCH_PROBABILITY,
   });
-}
+});

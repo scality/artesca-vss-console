@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { coreV1, rolloutRestart } from "@/lib/k8s";
+import { withRequestContext } from "@/lib/with-request-context";
 import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { markRotated, getRotationAge } from "@/lib/db";
@@ -279,7 +280,7 @@ export async function GET(
 
 const SinglePatchSchema = z.object({ value: z.string().min(1) });
 
-export async function PATCH(
+export const PATCH = withRequestContext(async function (
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
@@ -454,4 +455,4 @@ export async function PATCH(
     rotatedAt: new Date().toISOString(),
     warnings: restartWarnings.length ? restartWarnings : undefined,
   });
-}
+});

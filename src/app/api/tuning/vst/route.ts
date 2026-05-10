@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { createLogger } from "@/lib/logger";
+import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/tuning/vst");
 import { z } from "zod";
@@ -342,7 +343,7 @@ export async function GET() {
 
 // ─── PATCH ────────────────────────────────────────────────────────────────────
 
-export async function PATCH(req: NextRequest) {
+export const PATCH = withRequestContext(async function (req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -518,4 +519,4 @@ export async function PATCH(req: NextRequest) {
   });
 
   return NextResponse.json({ ok: true, applied: patches });
-}
+});
