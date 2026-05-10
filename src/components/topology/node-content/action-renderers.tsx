@@ -178,7 +178,7 @@ export function CameraSimActionsRenderer({ snapshot }: TabRendererProps) {
         </div>
         {!fileBase64 && (
           <p className="text-xs text-muted-foreground">
-            File will be SCP'd to <span className="font-mono">/opt/camera-sim/data/</span>
+            File will be SCP&apos;d to <span className="font-mono">/opt/camera-sim/data/</span>
           </p>
         )}
       </div>

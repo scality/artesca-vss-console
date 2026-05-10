@@ -24,6 +24,9 @@ export function LiveFeedPlayer({ eip, sensorId }: LiveFeedPlayerProps) {
     }
 
     if (!Hls.isSupported()) {
+      // reason: environment capability check — not a cascading render; HLS support
+      // is a one-time synchronous probe that has no React state equivalent.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError("HLS not supported in this browser");
       return;
     }

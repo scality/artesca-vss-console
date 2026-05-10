@@ -123,7 +123,6 @@ function CameraSimJournal({
 
   React.useEffect(() => {
     bufRef.current = [];
-    setLines([]);
     const es = new EventSource("/api/camera-sim/journal");
     es.addEventListener("message", (evt) => {
       if (pausedRef.current) return;

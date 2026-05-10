@@ -3,7 +3,7 @@
 // storage-renderers.tsx — JSX tab renderers for storage nodes (Agent 4).
 // Imported by storage.ts which re-exports as STORAGE_CONTENT.
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Info,
@@ -255,16 +255,17 @@ function TestPutButton() {
 function ArtescaS3Status({ runtimeState }: TabRendererProps) {
   const s3: S3State | undefined = runtimeState?.s3;
 
-  // Local ring buffer for instantaneous PUT rate display (no sparkline — deferred to Phase 7)
-  const ringRef = useRef<Array<{ t: number; v: number }>>([]);
-  const [_samples, setSamples] = useState(0); // triggers re-render on ring push
+  // Local ring buffer for instantaneous PUT rate display (sparkline deferred to Phase 7).
+  // Kept as state so the ring is available immutably when the sparkline renderer lands.
+  // _ring prefix: not yet consumed in render (sparkline deferred to Phase 7)
+  const [_ring, setRing] = useState<Array<{ t: number; v: number }>>([]);
 
   useEffect(() => {
     if (s3) {
-      const ring = ringRef.current;
-      if (ring.length >= 60) ring.shift();
-      ring.push({ t: Date.now(), v: s3.putRateMBps });
-      setSamples((n) => n + 1);
+      // reason: accumulating a rolling history buffer from a streaming prop;
+      // this is the correct subscription pattern (setState in callback of external update).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setRing((prev) => [...prev.slice(-59), { t: Date.now(), v: s3.putRateMBps }]);
     }
   }, [s3]);
 

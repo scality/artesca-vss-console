@@ -1,4 +1,5 @@
 import "server-only";
+import { getRequestId } from "./request-context";
 
 type Level = "trace" | "debug" | "info" | "warn" | "error";
 
@@ -60,9 +61,17 @@ function emit(level: Level, scope: string, baseCtx: Record<string, unknown>, msg
 
   const stream = level === "error" || level === "warn" ? process.stderr : process.stdout;
 
+  let reqId: string | undefined;
+  try {
+    reqId = getRequestId();
+  } catch {
+    // getRequestId may throw in environments where ALS is unavailable — safe to ignore
+  }
+
   if (isPretty()) {
+    const reqIdStr = reqId && !merged.reqId ? ` reqId=${reqId}` : "";
     const ctxStr = Object.keys(merged).length ? " " + JSON.stringify(merged) : "";
-    stream.write(`[${level}] [${scope}] ${msg}${ctxStr}\n`);
+    stream.write(`[${level}] [${scope}]${reqIdStr} ${msg}${ctxStr}\n`);
     return;
   }
 
@@ -71,7 +80,8 @@ function emit(level: Level, scope: string, baseCtx: Record<string, unknown>, msg
     scope,
     msg,
     time: new Date().toISOString(),
-    ...merged,
+    ...(reqId ? { reqId } : {}),
+    ...merged,  // call-site ctx still last to win
   };
   stream.write(JSON.stringify(record) + "\n");
 }
