@@ -1,9 +1,10 @@
 // src/lib/streams/kafka-sse.ts
 // Common Kafka consumer setup + JSON parsing + SSE wrapping for SSE routes.
 
-import { Kafka, type Consumer } from "kafkajs";
+import { type Consumer } from "kafkajs";
 import { randomUUID } from "crypto";
 import { createLogger } from "@/lib/logger";
+import { getKafka } from "@/lib/kafka";
 
 const log = createLogger("kafka-sse");
 
@@ -25,28 +26,92 @@ export interface KafkaSseOptions {
   onMessage: (parsed: unknown) => void;
 }
 
+const MAX_ACTIVE_CONSUMERS = (() => {
+  const raw = parseInt(process.env.KAFKA_SSE_MAX_CONSUMERS ?? "50", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 50;
+})();
+
+interface ActiveEntry {
+  consumer: Consumer;
+  topic: string;
+  groupId: string;
+  disconnected: boolean;
+}
+
+const g = globalThis as unknown as {
+  __kafkaSseActive?: Set<ActiveEntry>;
+  __kafkaSseShutdownRegistered?: boolean;
+};
+
+if (!g.__kafkaSseActive) g.__kafkaSseActive = new Set<ActiveEntry>();
+const activeConsumers = g.__kafkaSseActive;
+
+if (!g.__kafkaSseShutdownRegistered) {
+  g.__kafkaSseShutdownRegistered = true;
+  const drain = () => {
+    if (activeConsumers.size === 0) return;
+    log.info("draining active consumers", { count: activeConsumers.size });
+    for (const entry of [...activeConsumers]) {
+      void disconnectEntry(entry);
+    }
+  };
+  process.once("SIGTERM", drain);
+  process.once("SIGINT", drain);
+}
+
+function disconnectEntry(entry: ActiveEntry): Promise<void> {
+  if (entry.disconnected) return Promise.resolve();
+  entry.disconnected = true;
+  activeConsumers.delete(entry);
+  return entry.consumer.disconnect().catch((err) => {
+    log.warn("disconnect failed", { err, topic: entry.topic, groupId: entry.groupId });
+  });
+}
+
+export class KafkaSseCapacityError extends Error {
+  constructor(public readonly limit: number, public readonly active: number) {
+    super(`kafka-sse: max active consumers reached (${active}/${limit})`);
+    this.name = "KafkaSseCapacityError";
+  }
+}
+
+/** Active consumer count — exposed for tests and capacity probes. */
+export function getActiveConsumerCount(): number {
+  return activeConsumers.size;
+}
+
 /**
  * Starts a dedicated Kafka consumer for a single SSE connection.
- * Returns a cleanup function that disconnects the consumer.
+ * Reuses the process-wide Kafka client (one TCP pool) but assigns a
+ * unique consumer group per call so parallel SSE clients each receive
+ * all messages independently.
+ *
+ * Returns a cleanup function that disconnects the consumer; cleanup is
+ * idempotent (safe to call multiple times).
  */
 export async function startKafkaSseConsumer(
   opts: KafkaSseOptions
 ): Promise<() => void> {
-  const brokersEnv = process.env.KAFKA_BROKERS;
-  if (!brokersEnv) {
+  if (activeConsumers.size >= MAX_ACTIVE_CONSUMERS) {
+    throw new KafkaSseCapacityError(MAX_ACTIVE_CONSUMERS, activeConsumers.size);
+  }
+
+  const { instance } = getKafka();
+  if (!instance) {
     throw new Error("Kafka not configured — set KAFKA_BROKERS");
   }
 
-  const kafka = new Kafka({
-    clientId: `console-sse-${randomUUID()}`,
-    brokers: brokersEnv.split(",").map((b) => b.trim()),
-    retry: { retries: 3 },
-  });
-
   const groupId = `console-sse-${opts.topic}-${randomUUID()}`;
-  const consumer: Consumer = kafka.consumer({ groupId });
+  const consumer: Consumer = instance.consumer({ groupId });
+  const entry: ActiveEntry = { consumer, topic: opts.topic, groupId, disconnected: false };
+  activeConsumers.add(entry);
 
-  await consumer.connect();
+  try {
+    await consumer.connect();
+  } catch (err) {
+    activeConsumers.delete(entry);
+    throw err;
+  }
 
   consumer.on(consumer.events.CRASH, (event) => {
     log.error("consumer crash", {
@@ -64,7 +129,7 @@ export async function startKafkaSseConsumer(
   await consumer.subscribe({ topic: opts.topic, fromBeginning });
 
   let replayed = 0;
-  let replayPhase = replayTarget > 0; // true = in replay window, forward up to N then switch to live
+  let replayPhase = replayTarget > 0;
 
   await consumer.run({
     eachMessage: async ({ message }) => {
@@ -95,7 +160,7 @@ export async function startKafkaSseConsumer(
   });
 
   const disconnect = () => {
-    consumer.disconnect().catch(() => undefined);
+    void disconnectEntry(entry);
   };
 
   opts.signal.addEventListener("abort", disconnect, { once: true });
