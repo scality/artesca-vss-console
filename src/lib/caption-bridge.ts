@@ -2,6 +2,9 @@ import "server-only";
 import { appendFileSync, existsSync } from "node:fs";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("caption-bridge");
 
 const RTVI_BASE = process.env.RTVI_VLM_URL ?? "http://127.0.0.1:8018";
 const JSONL_PATH =
@@ -128,7 +131,5 @@ export function startCaptionBridge(): void {
   tick();
   setInterval(tick, POLL_INTERVAL_MS);
 
-  console.log(
-    `[caption-bridge] started — polling rtvi-vlm at ${RTVI_BASE} every ${POLL_INTERVAL_MS / 1000}s`,
-  );
+  log.info(`started — polling rtvi-vlm at ${RTVI_BASE} every ${POLL_INTERVAL_MS / 1000}s`);
 }

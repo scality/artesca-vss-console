@@ -1,5 +1,8 @@
 import "server-only";
 import { CLUSTER } from "../cluster-refs";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("mediamtx");
 
 // mediamtx REST API is on port 9997 of the camera-sim host
 // (k8s/nvidia-vss/pyramid-ingress/21-replay-server.yaml).  Override via MEDIAMTX_API_URL
@@ -49,7 +52,7 @@ export async function mediamtxListPaths(): Promise<{
     return { paths };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[mediamtx] unreachable: ${msg}`);
+    log.warn("unreachable", { err });
     return { paths: [], warning: `mediamtx unreachable: ${msg}` };
   }
 }

@@ -8,6 +8,9 @@ import {
 import { vstAddSensor } from "./helpers/vst";
 import { applyPromptLive } from "./helpers/prompt-apply";
 import { applyScenariosLive } from "./helpers/scenarios-apply";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("gcs-bootstrap");
 
 // ─── Bootstrap logic ──────────────────────────────────────────────────────────
 //
@@ -43,13 +46,13 @@ export const awaitBootstrap = awaitGcsBootstrap;
 async function runBootstrap(): Promise<void> {
   // Only runs in docker mode.
   if (process.env.CONSOLE_RUNTIME !== "docker") {
-    console.log("[gcs-bootstrap] skipped (CONSOLE_RUNTIME !== docker)");
+    log.info("skipped (CONSOLE_RUNTIME !== docker)");
     return;
   }
 
   const instance = process.env.VSS_INSTANCE_NAME;
   if (!instance) {
-    console.log("[gcs-bootstrap] skipped (VSS_INSTANCE_NAME not set)");
+    log.info("skipped (VSS_INSTANCE_NAME not set)");
     return;
   }
 
@@ -58,16 +61,12 @@ async function runBootstrap(): Promise<void> {
   try {
     health = await gcsHealthCheck();
   } catch {
-    console.warn("[gcs-bootstrap] gcsHealthCheck threw — skipping bootstrap");
+    log.warn("gcsHealthCheck threw — skipping bootstrap");
     return;
   }
 
   if (health.status !== "ok") {
-    console.log(
-      `[gcs-bootstrap] skipped — GCS health: ${health.status}${
-        health.detail ? ` (${health.detail})` : ""
-      }`,
-    );
+    log.info(`skipped — GCS health: ${health.status}${health.detail ? ` (${health.detail})` : ""}`);
     return;
   }
 
@@ -81,17 +80,15 @@ async function runBootstrap(): Promise<void> {
 async function restoreCameras(instance: string): Promise<void> {
   const list = await gcsCamerasGet(instance);
   if (!list) {
-    console.log(`[gcs-bootstrap] cameras — no object at cameras/${instance}.json`);
+    log.info(`cameras — no object at cameras/${instance}.json`);
     return;
   }
   if (list.cameras.length === 0) {
-    console.log("[gcs-bootstrap] cameras — list is empty, nothing to restore");
+    log.info("cameras — list is empty, nothing to restore");
     return;
   }
 
-  console.log(
-    `[gcs-bootstrap] cameras — restoring ${list.cameras.length} cameras (last updated ${list.updatedAt} by ${list.updatedBy})`,
-  );
+  log.info(`cameras — restoring ${list.cameras.length} cameras (last updated ${list.updatedAt} by ${list.updatedBy})`);
 
   let registered = 0;
   let alreadyThere = 0;
@@ -107,66 +104,52 @@ async function restoreCameras(instance: string): Promise<void> {
     if (result.ok) {
       if (result.warning?.includes("already")) {
         alreadyThere++;
-        console.log(`[gcs-bootstrap] cameras   ✓ ${cam.id} already registered`);
+        log.info(`cameras   ✓ ${cam.id} already registered`);
       } else {
         registered++;
-        console.log(`[gcs-bootstrap] cameras   + ${cam.id} registered`);
+        log.info(`cameras   + ${cam.id} registered`);
       }
     } else {
       failed++;
-      console.warn(`[gcs-bootstrap] cameras   ✗ ${cam.id} failed: ${result.warning}`);
+      log.warn(`cameras   ✗ ${cam.id} failed`, { warning: result.warning });
     }
   }
 
-  console.log(
-    `[gcs-bootstrap] cameras done — registered: ${registered}, already-there: ${alreadyThere}, failed: ${failed}`,
-  );
+  log.info(`cameras done — registered: ${registered}, already-there: ${alreadyThere}, failed: ${failed}`);
 }
 
 async function restorePrompt(instance: string): Promise<void> {
   const config = await gcsPromptGet(instance);
   if (!config) {
-    console.log(`[gcs-bootstrap] prompt — no object at prompt/${instance}.json`);
+    log.info(`prompt — no object at prompt/${instance}.json`);
     return;
   }
 
-  console.log(
-    `[gcs-bootstrap] prompt — restoring (last updated ${config.updatedAt} by ${config.updatedBy})`,
-  );
+  log.info(`prompt — restoring (last updated ${config.updatedAt} by ${config.updatedBy})`);
 
   const dockerMode = process.env.CONSOLE_RUNTIME === "docker";
   try {
     await applyPromptLive(dockerMode, config.prompt);
-    console.log("[gcs-bootstrap] prompt — applied successfully");
+    log.info("prompt — applied successfully");
   } catch (err) {
-    console.warn(
-      `[gcs-bootstrap] prompt — apply failed (will remain at container default): ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
+    log.warn("prompt — apply failed (will remain at container default)", { err });
   }
 }
 
 async function restoreScenarios(instance: string): Promise<void> {
   const config = await gcsScenariosGet(instance);
   if (!config) {
-    console.log(`[gcs-bootstrap] scenarios — no object at scenarios/${instance}.json`);
+    log.info(`scenarios — no object at scenarios/${instance}.json`);
     return;
   }
 
-  console.log(
-    `[gcs-bootstrap] scenarios — restoring ${config.scenarios.length} scenarios (last updated ${config.updatedAt} by ${config.updatedBy})`,
-  );
+  log.info(`scenarios — restoring ${config.scenarios.length} scenarios (last updated ${config.updatedAt} by ${config.updatedBy})`);
 
   const dockerMode = process.env.CONSOLE_RUNTIME === "docker";
   try {
     await applyScenariosLive(dockerMode, config.scenarios);
-    console.log("[gcs-bootstrap] scenarios — applied successfully");
+    log.info("scenarios — applied successfully");
   } catch (err) {
-    console.warn(
-      `[gcs-bootstrap] scenarios — apply failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
+    log.warn("scenarios — apply failed", { err });
   }
 }

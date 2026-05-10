@@ -157,6 +157,10 @@ const VALID_SCENARIOS_CONFIG: ScenariosConfig = {
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
+let stderrWrites: string[] = [];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let stderrSpy: any;
+
 beforeEach(() => {
   vi.resetAllMocks();
   // Re-apply crypto mock implementation after vi.resetAllMocks() clears it.
@@ -164,16 +168,21 @@ beforeEach(() => {
     update: vi.fn().mockReturnThis(),
     sign: vi.fn().mockReturnValue("fake-sig"),
   }));
-  // Suppress implementation console.warn calls — tests assert on return values,
-  // not on whether the impl logged. Any test that wants to assert on warn output
-  // installs its own spy that overrides this one.
-  vi.spyOn(console, "warn").mockImplementation(() => void 0);
+  // Suppress / capture structured logger output (goes to process.stderr.write).
+  stderrWrites = [];
+  stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((c) => {
+    stderrWrites.push(String(c));
+    return true;
+  });
+  vi.stubEnv("LOG_PRETTY", "0");
   clearCredentials();
 });
 
 afterEach(() => {
+  stderrSpy.mockRestore();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   clearCredentials();
 });
 
@@ -224,11 +233,11 @@ describe("gcsCamerasGet", () => {
     setupCredentials();
     const badSchema = { ...VALID_CAMERA_LIST, schema: "isv-labs.cameras.v0" };
     mockFetch(badSchema);
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => void 0);
     const result = await gcsCamerasGet("nvidia-vss-brev-1");
     expect(result).toBeNull();
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("schema mismatch"),
+    const warnRecords = stderrWrites.map((s) => JSON.parse(s));
+    expect(warnRecords).toContainEqual(
+      expect.objectContaining({ level: "warn", scope: "gcs-config", msg: expect.stringContaining("schema mismatch") }),
     );
   });
 

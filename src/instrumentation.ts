@@ -13,6 +13,10 @@
  * Only active in the Node.js runtime (not edge).
  */
 
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("instrumentation");
+
 const globalForInstrumentation = globalThis as unknown as {
   __started?: boolean;
 };
@@ -25,7 +29,7 @@ export async function register() {
 
   const required = ["AUTH_SECRET"];
   const missing = required.filter((k) => !process.env[k]);
-  if (missing.length) console.warn(`[instrumentation] missing env vars: ${missing.join(", ")}`);
+  if (missing.length) log.warn(`missing env vars: ${missing.join(", ")}`);
 
   const instance = process.env.VSS_INSTANCE_NAME;
   if (instance) {

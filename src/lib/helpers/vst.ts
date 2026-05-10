@@ -1,5 +1,8 @@
 import "server-only";
 import { CLUSTER } from "../cluster-refs";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("vst");
 
 // sensor-ms exposes its HTTP API on port 30000 (k8s/nvidia-vss/vst/30-sensor-ms.yaml).
 // The original default used port 5010, which sensor-ms does not expose.
@@ -74,7 +77,7 @@ export async function vstListSensors(): Promise<{
     return { sensors };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[vst] unreachable: ${msg}`);
+    log.warn("unreachable", { err });
     return { sensors: [], warning: `VST sensor-ms unreachable: ${msg}` };
   }
 }

@@ -93,9 +93,18 @@ import {
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
+let stderrWrites: string[] = [];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let stderrSpy: any;
+
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.spyOn(console, "warn").mockImplementation(() => void 0);
+  stderrWrites = [];
+  stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((c) => {
+    stderrWrites.push(String(c));
+    return true;
+  });
+  vi.stubEnv("LOG_PRETTY", "0");
 
   // Re-apply default implementations cleared by resetAllMocks
   MockKubeConfig.mockImplementation(() => ({
@@ -121,7 +130,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  stderrSpy.mockRestore();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   delete process.env.KUBE_NAMESPACES;
 });
 
@@ -234,9 +245,8 @@ describe("listAllPodsInNs", () => {
     );
   });
 
-  it("stops at 10 pages and emits a console.warn", async () => {
+  it("stops at 10 pages and emits a structured warn log", async () => {
     const fakeCore = { listNamespacedPod: mockListNamespacedPod } as never;
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => void 0);
 
     // Every response has a continue token so pagination would loop indefinitely
     // without the cap.
@@ -247,7 +257,10 @@ describe("listAllPodsInNs", () => {
     const pods = await listAllPodsInNs(fakeCore, "alerts", { limit: 1 });
     expect(mockListNamespacedPod).toHaveBeenCalledTimes(10);
     expect(pods).toHaveLength(10);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("alerts"));
+    const warnRecords = stderrWrites.map((s) => JSON.parse(s));
+    expect(warnRecords).toContainEqual(
+      expect.objectContaining({ level: "warn", scope: "k8s", msg: expect.stringContaining("alerts") }),
+    );
   });
 
   it("forwards labelSelector to every page call", async () => {

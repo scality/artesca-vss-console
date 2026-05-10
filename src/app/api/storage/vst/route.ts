@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("api/storage/vst");
 import {
   type S3Client,
   ListObjectsV2Command,
@@ -265,7 +268,7 @@ async function fetchLocalCacheFill(
       }
       return pct;
     } catch (err) {
-      console.warn("[storage/vst] localCacheFillPercent unavailable:", String(err));
+      log.warn("localCacheFillPercent unavailable", { err: String(err) });
       alerts.push({
         severity: "warn",
         message: "Local cache fill unavailable — could not exec into sensor-ms-dev container",
@@ -294,7 +297,7 @@ async function fetchLocalCacheFill(
     }
     return pct;
   } catch (err) {
-    console.warn("[storage/vst] localCacheFillPercent unavailable:", String(err));
+    log.warn("localCacheFillPercent unavailable", { err: String(err) });
     alerts.push({
       severity: "warn",
       message: "Local cache fill unavailable — could not exec into sensor-ms pod",
@@ -377,7 +380,7 @@ async function fetchFrameDropStats(
     return { count, ratePerMin };
   } catch (err) {
     clearTimeout(timer);
-    console.warn("[storage/vst] frameDropStats unavailable:", String(err));
+    log.warn("frameDropStats unavailable", { err: String(err) });
     alerts.push({
       severity: "warn",
       message: "Frame drop count unavailable — Prometheus scrape failed",
@@ -453,7 +456,7 @@ export async function GET() {
         return writeCachedTotals(bucket, totals);
       })
       .catch((err) => {
-        console.warn("[storage/vst] background totals scan failed:", String(err));
+        log.warn("background totals scan failed", { err: String(err) });
       });
   } else {
     // First call — block on a capped scan to bound latency.
@@ -473,7 +476,7 @@ export async function GET() {
       });
     } catch (err: unknown) {
       // Non-fatal — fall back to sample count from the stats pass
-      console.warn("[storage/vst] totals scan failed, using sample count:", String(err));
+      log.warn("totals scan failed, using sample count", { err: String(err) });
       objectCount = sampleObjects.length;
       bytesTotal = sampleObjects.reduce((s, o) => s + (o.Size ?? 0), 0);
       bucketScanTruncated = true;

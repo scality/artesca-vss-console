@@ -1,4 +1,7 @@
 import { Kafka, type Consumer, type EachMessagePayload } from "kafkajs";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("kafka");
 
 const globalForKafka = globalThis as unknown as { __kafka?: Kafka | null };
 
@@ -47,13 +50,13 @@ export async function consumeTopic(
   await consumer.connect();
 
   consumer.on(consumer.events.CRASH, (event) => {
-    console.error("[kafka] consumer crashed", event.payload?.error);
+    log.error("consumer crashed", { err: event.payload?.error });
   });
 
   await consumer.subscribe({ topic, fromBeginning: false });
 
   signal.addEventListener("abort", () => {
-    consumer.disconnect().catch((err) => console.warn("[kafka] disconnect failed", err));
+    consumer.disconnect().catch((err) => log.warn("disconnect failed", { err }));
   });
 
   await consumer.run({ eachMessage: onMessage });

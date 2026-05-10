@@ -262,16 +262,19 @@ describe("evictLru", () => {
     expect(callOrder.length).toBeGreaterThanOrEqual(2);
   });
 
-  // ── 5. Error in doEvictLru: chain stays usable, console.error logged ──────
+  // ── 5. Error in doEvictLru: chain stays usable, structured error logged ──────
 
-  it("chain stays usable after doEvictLru throws; console.error is called", async () => {
+  it("chain stays usable after doEvictLru throws; structured error log is emitted", async () => {
     // Create the cache root directory so walkCacheEntries proceeds to readdirSync.
     const cacheRoot = path.join(tmpRoot, "clip-cache");
     real.mkdirSync(cacheRoot, { recursive: true });
 
-    const errorSpy = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => void 0);
+    const stderrWrites: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((c) => {
+      stderrWrites.push(String(c));
+      return true;
+    });
+    vi.stubEnv("LOG_PRETTY", "0");
 
     let firstCall = true;
     readdirSyncFn.mockImplementation(() => {
@@ -284,14 +287,15 @@ describe("evictLru", () => {
 
     const { evictLru } = await import("@/lib/streams/clip-cache");
 
-    // First call fails internally → .catch() logs it.
+    // First call fails internally → .catch() logs it via structured logger.
     await evictLru();
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("[clip-cache]"),
-      expect.anything(),
+    const errorRecords = stderrWrites.map((s) => JSON.parse(s));
+    expect(errorRecords).toContainEqual(
+      expect.objectContaining({ level: "error", scope: "clip-cache" }),
     );
 
     // Second call must still work (chain is not permanently broken).
     await expect(evictLru()).resolves.toBeUndefined();
+    stderrSpy.mockRestore();
   });
 });

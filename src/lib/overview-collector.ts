@@ -4,6 +4,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { type V1Pod } from "@kubernetes/client-node";
 import { coreV1, listAllPodsInNs, watchedNamespaces } from "@/lib/k8s";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("overview-collector");
 import {
   inspectContainer,
   listComposeContainers,
@@ -414,7 +417,7 @@ export async function collectOverviewSnapshot(): Promise<OverviewResult> {
     return { snapshot, mode, warnings };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    console.error(`[overview] collector threw: ${reason}`);
+    log.error("collector threw", { err });
     warnings.push(`collector threw: ${reason}`);
     return { snapshot: emptySnapshot(takenAt), mode, warnings };
   }
@@ -505,7 +508,7 @@ export async function collectPodSummaries(nsFilter?: string): Promise<PodsResult
     return { pods, warnings };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    console.error(`[pods] collector threw: ${reason}`);
+    log.error("pods collector threw", { err });
     warnings.push(`collector threw: ${reason}`);
     return { pods: [], warnings };
   }

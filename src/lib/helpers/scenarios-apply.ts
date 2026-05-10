@@ -13,6 +13,9 @@ import { patchConfigMapKey } from "./configmaps";
 import { CLUSTER } from "../cluster-refs";
 import type { ScenarioConfig } from "./gcs-config";
 import type { Scenario } from "../types";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("scenarios-apply");
 
 /** Convert GCS wire-format scenarios to the ConfigMap YAML payload. */
 export function gcsScenariosToCmPayload(
@@ -54,7 +57,7 @@ export async function applyScenariosLive(
   scenarios: ScenarioConfig[],
 ): Promise<void> {
   if (dockerMode) {
-    console.log("[scenarios-apply] docker mode — skipping ConfigMap patch (no scenarios CM in compose)");
+    log.info("docker mode — skipping ConfigMap patch (no scenarios CM in compose)");
     return;
   }
   const payload = gcsScenariosToCmPayload(scenarios);

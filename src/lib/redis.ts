@@ -1,4 +1,7 @@
 import Redis from "ioredis";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("redis");
 
 const globalForRedis = globalThis as unknown as { __redis?: Redis | null };
 
@@ -24,7 +27,7 @@ export function getRedis(): RedisShape {
 
     globalForRedis.__redis.on("error", (err) => {
       // Log but do not crash — banner on the UI indicates disconnection.
-      console.warn("[redis] connection error:", err.message);
+      log.warn("connection error", { err });
     });
   }
 

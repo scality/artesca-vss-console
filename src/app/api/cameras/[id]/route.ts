@@ -1,6 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("api/cameras/[id]");
 import { vstDeleteSensor } from "@/lib/helpers/vst";
 import { auditLog } from "@/lib/helpers/audit";
 import {
@@ -159,7 +162,7 @@ async function pushOverridesToGcs(updatedBy: string): Promise<string | undefined
     return undefined;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[cameras/[id]] GCS v2 push failed: ${msg}`);
+    log.warn("GCS v2 push failed", { err });
     return `GCS push failed (SQLite saved): ${msg}`;
   }
 }

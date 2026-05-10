@@ -115,10 +115,8 @@ describe("scenarioToGcsConfig", () => {
 
 describe("applyScenariosLive", () => {
   it("docker mode: skips ConfigMap patch and returns without error", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => void 0);
     await applyScenariosLive(true, [SCENARIO_GCS]);
     expect(configmapsMod.patchConfigMapKey).not.toHaveBeenCalled();
-    logSpy.mockRestore();
   });
 
   it("k8s mode: calls patchConfigMapKey with correct namespace/name/key/payload", async () => {

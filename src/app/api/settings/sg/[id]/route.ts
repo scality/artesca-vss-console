@@ -4,6 +4,9 @@ import { listSgEntries, deleteSgEntry } from "@/lib/db";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { revokeSgIngress } from "@/lib/aws";
 import { auditLog } from "@/lib/helpers/audit";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("api/settings/sg/[id]");
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +42,7 @@ export async function DELETE(
     const awsErr = err as { name?: string; message?: string };
     // Ignore "not found" errors — rule may already be gone
     if (awsErr.name !== "InvalidPermission.NotFound") {
-      console.error("[sg-write] aws error", err);
+      log.error("sg-write aws error", { err });
       return NextResponse.json(
         { error: "AWS rejected the rule (check IAM and SG state)" },
         { status: 502 }
