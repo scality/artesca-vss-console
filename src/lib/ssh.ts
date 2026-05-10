@@ -2,6 +2,9 @@ import { Client, type ConnectConfig } from "ssh2";
 import * as fs from "fs";
 import * as crypto from "crypto";
 import { appendAuditLog } from "./db";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("ssh");
 
 export interface SshExecResult {
   stdout: string;
@@ -38,9 +41,7 @@ function getConnectConfig(): ConnectConfig {
   } else {
     if (!hostKeyWarnEmitted) {
       hostKeyWarnEmitted = true;
-      console.warn(
-        "[ssh] CAMERA_SIM_HOST_PUBKEY_SHA256 is not set — SSH host key verification is disabled"
-      );
+      log.warn("CAMERA_SIM_HOST_PUBKEY_SHA256 is not set — SSH host key verification is disabled");
     }
   }
 

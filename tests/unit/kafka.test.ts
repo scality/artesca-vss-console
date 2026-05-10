@@ -173,12 +173,18 @@ describe("consumeTopic()", () => {
     expect(mockConsumer.disconnect).toHaveBeenCalledOnce();
   });
 
-  it("registers the CRASH handler via consumer.on and logs via console.error when it fires", async () => {
+  it("registers the CRASH handler via consumer.on and logs via structured logger when it fires", async () => {
     vi.stubEnv("KAFKA_BROKERS", "broker1:9092");
+    vi.stubEnv("LOG_PRETTY", "0");
+
+    const stderrWrites: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((c) => {
+      stderrWrites.push(String(c));
+      return true;
+    });
 
     const { consumeTopic } = await freshImport();
     const controller = new AbortController();
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => void 0);
 
     await consumeTopic("events", vi.fn(), controller.signal);
 
@@ -188,16 +194,16 @@ describe("consumeTopic()", () => {
     );
     expect(crashCall).toBeDefined();
 
-    // Invoke the registered handler with a fake event and confirm console.error.
+    // Invoke the registered handler with a fake event and confirm structured log.
     const crashHandler = crashCall![1] as (event: unknown) => void;
     const fakeError = new Error("broker disconnected");
     crashHandler({ payload: { error: fakeError } });
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      "[kafka] consumer crashed",
-      fakeError,
+    const errorRecords = stderrWrites.map((s) => JSON.parse(s));
+    expect(errorRecords).toContainEqual(
+      expect.objectContaining({ level: "error", scope: "kafka", msg: expect.stringContaining("crashed") }),
     );
 
-    errorSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 });

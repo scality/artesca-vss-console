@@ -7,6 +7,9 @@ import { auth } from "@/lib/auth";
 import { collectSnapshot } from "@/lib/pipeline/aggregator";
 import { createSseResponse } from "@/lib/streams/sse";
 import type { PipelineSnapshot } from "@/lib/types/pipeline";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("api/pipeline/live");
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +31,7 @@ export async function GET(req: NextRequest) {
         write(snapshot, "snapshot");
       } catch (err) {
         // collectSnapshot never throws, but guard defensively
-        console.warn("[pipeline/live] snapshot error:", String(err));
+        log.warn("snapshot error", { err: String(err) });
       }
 
       if (!req.signal.aborted) {

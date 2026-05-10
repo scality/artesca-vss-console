@@ -2,6 +2,9 @@ import "server-only";
 import { createSign } from "crypto";
 import { readFileSync } from "fs";
 import { z } from "zod";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("gcs-config");
 
 const GCS_TIMEOUT_MS = 15_000;
 
@@ -359,33 +362,22 @@ export async function gcsCamerasGet(
     const text = await gcsGet(GCS_CONFIG_BUCKET, camerasObject(instance));
     const obj: unknown = JSON.parse(text);
     if (!isValidCameraList(obj)) {
-      console.warn(
-        `[gcs-config] schema mismatch for ${instance}: ` +
-          `expected isv-labs.cameras.v1 or v2, got schema=${
-            obj && typeof obj === "object"
-              ? (obj as Record<string, unknown>)["schema"]
-              : "unknown"
-          }`,
-      );
+      log.warn(`schema mismatch for ${instance}: expected isv-labs.cameras.v1 or v2, got schema=${obj && typeof obj === "object" ? (obj as Record<string, unknown>)["schema"] : "unknown"}`);
       return null;
     }
     return obj;
   } catch (err) {
     if (err instanceof GcsConfigError) {
       if (!isNotFoundError(err)) {
-        console.warn(`[gcs-config] gcsCamerasGet(${instance}): ${err.message}`);
+        log.warn(`gcsCamerasGet(${instance})`, { err });
       }
       return null;
     }
     if (err instanceof SyntaxError) {
-      console.warn(`[gcs-config] gcsCamerasGet(${instance}): invalid JSON in GCS object`);
+      log.warn(`gcsCamerasGet(${instance}): invalid JSON in GCS object`);
       return null;
     }
-    console.warn(
-      `[gcs-config] gcsCamerasGet(${instance}): unexpected error: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
+    log.warn(`gcsCamerasGet(${instance}): unexpected error`, { err });
     return null;
   }
 }
@@ -461,33 +453,22 @@ export async function gcsPromptGet(instance: string): Promise<PromptConfig | nul
     const text = await gcsGet(GCS_CONFIG_BUCKET, promptObject(instance));
     const obj: unknown = JSON.parse(text);
     if (!isValidPromptConfig(obj)) {
-      console.warn(
-        `[gcs-config] schema mismatch for prompt/${instance}: ` +
-          `expected isv-labs.prompt.v1, got schema=${
-            obj && typeof obj === "object"
-              ? (obj as Record<string, unknown>)["schema"]
-              : "unknown"
-          }`,
-      );
+      log.warn(`schema mismatch for prompt/${instance}: expected isv-labs.prompt.v1, got schema=${obj && typeof obj === "object" ? (obj as Record<string, unknown>)["schema"] : "unknown"}`);
       return null;
     }
     return obj;
   } catch (err) {
     if (err instanceof GcsConfigError) {
       if (!isNotFoundError(err)) {
-        console.warn(`[gcs-config] gcsPromptGet(${instance}): ${err.message}`);
+        log.warn(`gcsPromptGet(${instance})`, { err });
       }
       return null;
     }
     if (err instanceof SyntaxError) {
-      console.warn(`[gcs-config] gcsPromptGet(${instance}): invalid JSON in GCS object`);
+      log.warn(`gcsPromptGet(${instance}): invalid JSON in GCS object`);
       return null;
     }
-    console.warn(
-      `[gcs-config] gcsPromptGet(${instance}): unexpected error: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
+    log.warn(`gcsPromptGet(${instance}): unexpected error`, { err });
     return null;
   }
 }
@@ -509,33 +490,22 @@ export async function gcsScenariosGet(instance: string): Promise<ScenariosConfig
     const text = await gcsGet(GCS_CONFIG_BUCKET, scenariosObject(instance));
     const obj: unknown = JSON.parse(text);
     if (!isValidScenariosConfig(obj)) {
-      console.warn(
-        `[gcs-config] schema mismatch for scenarios/${instance}: ` +
-          `expected isv-labs.scenarios.v1, got schema=${
-            obj && typeof obj === "object"
-              ? (obj as Record<string, unknown>)["schema"]
-              : "unknown"
-          }`,
-      );
+      log.warn(`schema mismatch for scenarios/${instance}: expected isv-labs.scenarios.v1, got schema=${obj && typeof obj === "object" ? (obj as Record<string, unknown>)["schema"] : "unknown"}`);
       return null;
     }
     return obj;
   } catch (err) {
     if (err instanceof GcsConfigError) {
       if (!isNotFoundError(err)) {
-        console.warn(`[gcs-config] gcsScenariosGet(${instance}): ${err.message}`);
+        log.warn(`gcsScenariosGet(${instance})`, { err });
       }
       return null;
     }
     if (err instanceof SyntaxError) {
-      console.warn(`[gcs-config] gcsScenariosGet(${instance}): invalid JSON in GCS object`);
+      log.warn(`gcsScenariosGet(${instance}): invalid JSON in GCS object`);
       return null;
     }
-    console.warn(
-      `[gcs-config] gcsScenariosGet(${instance}): unexpected error: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
+    log.warn(`gcsScenariosGet(${instance}): unexpected error`, { err });
     return null;
   }
 }

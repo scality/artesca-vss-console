@@ -1,5 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("api/tuning/vst");
 import { z } from "zod";
 import { rolloutRestart } from "@/lib/k8s";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
@@ -221,7 +224,7 @@ async function readVstConfigDocker(): Promise<VstConfigJson | null> {
   try {
     const result = VstConfigJsonSchema.safeParse(JSON.parse(raw.trim()));
     if (!result.success) {
-      console.error("[tuning/vst] readVstConfigDocker: ConfigMap shape unexpected", result.error);
+      log.error("readVstConfigDocker: ConfigMap shape unexpected", { err: result.error });
       return null;
     }
     return result.data as VstConfigJson;
@@ -249,7 +252,7 @@ async function readPersistedVstConfig(): Promise<VstConfigJson | null> {
     const raw = await fs.readFile(VST_PERSIST_FILE, "utf-8");
     const result = VstConfigJsonSchema.safeParse(JSON.parse(raw));
     if (!result.success) {
-      console.error("[tuning/vst] readPersistedVstConfig: ConfigMap shape unexpected", result.error);
+      log.error("readPersistedVstConfig: ConfigMap shape unexpected", { err: result.error });
       return null;
     }
     return result.data as VstConfigJson;
@@ -317,7 +320,7 @@ export async function GET() {
       observed = { sensors };
     }
   } else {
-    console.warn("[tuning/vst] GET: VST sensor list unavailable — omitting observed field");
+    log.warn("VST sensor list unavailable — omitting observed field");
   }
 
   const response: VstTuningResponse = {

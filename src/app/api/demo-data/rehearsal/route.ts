@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("api/demo-data/rehearsal");
 import { appsV1 } from "@/lib/k8s";
 import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
@@ -53,7 +56,7 @@ export async function POST() {
           [CLUSTER.demoData.matchProbabilityEnv]: originalProbability,
         });
       } catch (err) {
-        console.error("[rehearsal] docker restore failed:", err);
+        log.error("rehearsal docker restore failed", { err });
       }
     })();
 
@@ -147,7 +150,7 @@ export async function POST() {
         },
       });
     } catch (err) {
-      console.error("[rehearsal] restore failed:", err);
+      log.error("rehearsal restore failed", { err });
     }
   })();
 

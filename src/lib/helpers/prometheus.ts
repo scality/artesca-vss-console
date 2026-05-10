@@ -1,5 +1,8 @@
 import "server-only";
 import { CLUSTER } from "../cluster-refs";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("prometheus");
 
 // ARTESCA's kube-prometheus-stack Prometheus.  Service "prometheus-operated"
 // in namespace "artesca-monitoring" (confirmed on live cluster 2026-04-22).
@@ -36,7 +39,7 @@ export async function promQuery(
     });
 
     if (!resp.ok) {
-      console.warn(`[prometheus] HTTP ${resp.status} for query: ${q}`);
+      log.warn(`HTTP ${resp.status} for query`, { query: q });
       return { results: [], warning: `Prometheus returned HTTP ${resp.status}` };
     }
 
@@ -52,7 +55,7 @@ export async function promQuery(
     return { results: json.data.result };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[prometheus] unreachable: ${msg}`);
+    log.warn("unreachable", { err });
     return { results: [], warning: `Prometheus unreachable: ${msg}` };
   }
 }

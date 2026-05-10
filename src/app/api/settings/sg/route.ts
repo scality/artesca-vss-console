@@ -6,6 +6,9 @@ import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { listSgEntries, upsertSgEntry } from "@/lib/db";
 import { authorizeSgIngress } from "@/lib/aws";
 import { auditLog } from "@/lib/helpers/audit";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("api/settings/sg");
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +69,7 @@ export async function POST(req: NextRequest) {
     const awsErr = err as { name?: string; message?: string };
     // Ignore "already exists" errors
     if (awsErr.name !== "InvalidPermission.Duplicate") {
-      console.error("[sg-write] aws error", err);
+      log.error("sg-write aws error", { err });
       return NextResponse.json(
         { error: "AWS rejected the rule (check IAM and SG state)" },
         { status: 502 }

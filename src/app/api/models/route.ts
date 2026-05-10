@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { ModelCardSchema } from "@/lib/schemas";
 import modelCatalog from "@/data/model-catalog.json";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("api/models");
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +17,7 @@ export async function GET() {
     .map((m, i) => {
       const result = ModelCardSchema.safeParse(m);
       if (!result.success) {
-        console.warn(`[models] catalog entry ${i} invalid:`, result.error.issues);
+        log.warn("catalog entry invalid", { index: i, issues: result.error.issues });
         return null;
       }
       return result.data;

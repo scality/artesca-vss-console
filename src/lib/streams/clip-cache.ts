@@ -4,6 +4,9 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("clip-cache");
 
 /** 24-hour freshness TTL (ms) */
 export const CLIP_CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
@@ -120,7 +123,7 @@ export function evictLru(): Promise<void> {
   _evictChain = _evictChain
     .then(() => doEvictLru())
     .catch((err) => {
-      console.error("[clip-cache] eviction failed", err);
+      log.error("eviction failed", { err });
     });
   return _evictChain;
 }

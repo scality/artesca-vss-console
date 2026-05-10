@@ -1,5 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("api/tuning/alerts");
 import { z } from "zod";
 import { coreV1, rolloutRestart } from "@/lib/k8s";
 import { patchConfigMapRawKey } from "@/lib/helpers/configmaps";
@@ -164,7 +167,7 @@ export async function PATCH(req: NextRequest) {
       cooldownSeconds: tuning.cooldownSeconds ?? (Number.isFinite(parsedCooldown) ? parsedCooldown : ALERTS_TUNING_DEFAULTS.cooldownSeconds),
       slackWebhookConfigured: tuning.slackWebhookConfigured ?? (existingEnv[CLUSTER.alertsTuning.slackConfiguredKey] === "true" ? true : ALERTS_TUNING_DEFAULTS.slackWebhookConfigured),
     };
-    await persistAlertsTuning(newState).catch((err) => console.error("[alerts-tuning] persist failed", err));
+    await persistAlertsTuning(newState).catch((err) => log.error("alerts-tuning persist failed", { err }));
 
     await auditLog("tuning-alerts", `docker/${ALERTS_CONTAINER}`, { patches: envPatch });
     return NextResponse.json({ ok: true, applied: envPatch, runtime: "docker" });

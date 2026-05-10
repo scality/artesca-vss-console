@@ -102,7 +102,8 @@ import { appendAuditLog } from "@/lib/db";
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
-let warnSpy: ReturnType<typeof vi.spyOn>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let stderrSpy: any;
 
 beforeEach(() => {
   // Clear instance tracking so lastClient() returns the one from this test.
@@ -114,9 +115,10 @@ beforeEach(() => {
   // Restore return values explicitly after clearAllMocks.
   readFileSyncMock.mockReturnValue(Buffer.from("FAKE_PRIVATE_KEY"));
   (appendAuditLog as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
-  // Suppress incidental console.warn from ssh.ts.  Track the spy so we can
-  // restore it in afterEach without calling vi.restoreAllMocks().
-  warnSpy = vi.spyOn(console, "warn").mockImplementation(() => void 0);
+  // Suppress incidental structured log output from ssh.ts. Track the spy so we
+  // can restore it in afterEach without calling vi.restoreAllMocks().
+  stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  vi.stubEnv("LOG_PRETTY", "0");
   // Default SSH env vars.
   vi.stubEnv("CAMERA_SIM_HOST", "1.2.3.4");
   vi.stubEnv("CAMERA_SIM_SSH_USER", "ubuntu");
@@ -127,7 +129,7 @@ beforeEach(() => {
 afterEach(() => {
   // Restore only the spies we installed — NOT vi.restoreAllMocks() which
   // would wipe out ClientMock.mockImplementation().
-  warnSpy.mockRestore();
+  stderrSpy.mockRestore();
   vi.unstubAllEnvs();
   delete process.env.CAMERA_SIM_HOST_PUBKEY_SHA256;
 });
@@ -435,14 +437,15 @@ describe("hostVerifier", () => {
     await p.catch(() => void 0);
   });
 
-  it("when env is unset, connect config has NO hostVerifier and console.warn fires exactly once", async () => {
+  it("when env is unset, connect config has NO hostVerifier and warn log fires exactly once", async () => {
     delete process.env.CAMERA_SIM_HOST_PUBKEY_SHA256;
 
     // Spy must be installed BEFORE the fresh module is imported, because
     // getConnectConfig() fires the warn on the first connect() call.
-    const freshWarnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => void 0);
+    const freshStderrWrites: string[] = [];
+    const freshStderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((c) => { freshStderrWrites.push(String(c)); return true; });
 
     vi.resetModules();
     vi.doMock("ssh2", () => ({ Client: ClientMock }));
@@ -473,10 +476,10 @@ describe("hostVerifier", () => {
     p2.catch(() => void 0);
     await tick();
 
-    expect(freshWarnSpy).toHaveBeenCalledOnce();
-    expect(String(freshWarnSpy.mock.calls[0][0])).toContain(
-      "CAMERA_SIM_HOST_PUBKEY_SHA256",
-    );
+    const warnRecords = freshStderrWrites.map((s) => JSON.parse(s));
+    const sshWarns = warnRecords.filter((r) => r.level === "warn" && r.scope === "ssh");
+    expect(sshWarns).toHaveLength(1);
+    expect(sshWarns[0].msg).toContain("CAMERA_SIM_HOST_PUBKEY_SHA256");
 
     // Clean up dangling promises.
     c1.emit("error", new Error("abort-test-cleanup"));
@@ -485,6 +488,6 @@ describe("hostVerifier", () => {
     await tick();
     await p1.catch(() => void 0);
     await p2.catch(() => void 0);
-    freshWarnSpy.mockRestore();
+    freshStderrSpy.mockRestore();
   });
 });

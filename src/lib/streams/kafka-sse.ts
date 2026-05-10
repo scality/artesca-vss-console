@@ -3,6 +3,9 @@
 
 import { Kafka, type Consumer } from "kafkajs";
 import { randomUUID } from "crypto";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("kafka-sse");
 
 export const ALLOWED_TOPICS = new Set([
   "vision-llm-responses",
@@ -46,7 +49,8 @@ export async function startKafkaSseConsumer(
   await consumer.connect();
 
   consumer.on(consumer.events.CRASH, (event) => {
-    console.error("[kafka-sse] consumer crash", event.payload.error, {
+    log.error("consumer crash", {
+      err: event.payload.error,
       groupId: event.payload.groupId,
       restart: event.payload.restart,
     });

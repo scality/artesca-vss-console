@@ -156,7 +156,9 @@ describe("POST /api/settings/sg", () => {
     const awsError = Object.assign(new Error("aws failure"), { name: "SomeOtherError" });
     vi.mocked(authorizeSgIngress).mockRejectedValue(awsError);
 
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stderrWrites: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((c) => { stderrWrites.push(String(c)); return true; });
+    vi.stubEnv("LOG_PRETTY", "0");
 
     const req = makePostRequest({ cidr: VALID_CIDR, label: VALID_LABEL });
     const res = await POST(req);
@@ -164,9 +166,12 @@ describe("POST /api/settings/sg", () => {
     expect(res.status).toBe(502);
     const body = await res.json();
     expect(body.error).toMatch(/aws rejected/i);
-    expect(consoleSpy).toHaveBeenCalled();
+    expect(stderrWrites.map((s) => JSON.parse(s))).toContainEqual(
+      expect.objectContaining({ level: "error", scope: "api/settings/sg", msg: expect.stringContaining("sg-write aws error") }),
+    );
 
-    consoleSpy.mockRestore();
+    stderrSpy.mockRestore();
+    vi.unstubAllEnvs();
   });
 
   it("AWS throws InvalidPermission.Duplicate → treated as success (already authorized), proceeds to persist", async () => {
@@ -267,7 +272,9 @@ describe("DELETE /api/settings/sg/[id]", () => {
     const awsError = Object.assign(new Error("aws failure"), { name: "SomeOtherError" });
     vi.mocked(revokeSgIngress).mockRejectedValue(awsError);
 
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stderrWrites: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((c) => { stderrWrites.push(String(c)); return true; });
+    vi.stubEnv("LOG_PRETTY", "0");
 
     const req = new Request(`http://localhost/api/settings/sg/${ENTRY_ID}`, { method: "DELETE" });
     const res = await DELETE(req, makeDeleteParams(ENTRY_ID));
@@ -275,9 +282,12 @@ describe("DELETE /api/settings/sg/[id]", () => {
     expect(res.status).toBe(502);
     const body = await res.json();
     expect(body.error).toMatch(/aws rejected/i);
-    expect(consoleSpy).toHaveBeenCalled();
+    expect(stderrWrites.map((s) => JSON.parse(s))).toContainEqual(
+      expect.objectContaining({ level: "error", scope: "api/settings/sg/[id]", msg: expect.stringContaining("sg-write aws error") }),
+    );
 
-    consoleSpy.mockRestore();
+    stderrSpy.mockRestore();
+    vi.unstubAllEnvs();
   });
 
   it("AWS throws InvalidPermission.NotFound → treated as success (already gone), proceeds to delete from DB", async () => {

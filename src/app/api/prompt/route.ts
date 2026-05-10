@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("api/prompt");
 import { z } from "zod";
 import { coreV1, rolloutRestart } from "@/lib/k8s";
 import { extractK8sError } from "@/lib/errors";
@@ -27,7 +30,7 @@ const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 // Mutex for GCS writes — same pattern as cameras/route.ts.
 let _gcsWriteChain: Promise<void> = Promise.resolve();
 function chainGcsWrite(fn: () => Promise<void>): Promise<void> {
-  _gcsWriteChain = _gcsWriteChain.then(fn).catch((err) => console.error("[gcs-write] failed", err));
+  _gcsWriteChain = _gcsWriteChain.then(fn).catch((err) => log.error("gcs-write failed", { err }));
   return _gcsWriteChain;
 }
 
@@ -296,7 +299,7 @@ async function persistPromptToGcs(
       warning = `GCS prompt write failed (live update already applied): ${
         err instanceof Error ? err.message : String(err)
       }`;
-      console.warn(`[prompt/route] ${warning}`);
+      log.warn("gcs prompt write failed", { err });
     }
   });
   return warning;

@@ -2,6 +2,9 @@ import "server-only";
 
 import { gcsCamerasGet } from "@/lib/helpers/gcs-config";
 import { vstListSensors, vstAddSensor, vstStartStream } from "@/lib/helpers/vst";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("camera-watcher");
 
 const POLL_INTERVAL_MS = 60_000;
 const POST_RESTART_DELAY_MS = 10_000;
@@ -12,7 +15,7 @@ async function restoreCamerasFromGcs(instance: string): Promise<void> {
   const list = await gcsCamerasGet(instance);
   if (!list || list.cameras.length === 0) return;
 
-  console.log(`[camera-watcher] restoring ${list.cameras.length} cameras from GCS`);
+  log.info(`restoring ${list.cameras.length} cameras from GCS`);
   let ok = 0;
   for (const cam of list.cameras) {
     const result = await vstAddSensor({
@@ -21,20 +24,18 @@ async function restoreCamerasFromGcs(instance: string): Promise<void> {
       description: cam.description,
     });
     if (!result.ok) {
-      console.warn(`[camera-watcher] failed to register ${cam.id}: ${result.warning}`);
+      log.warn(`failed to register ${cam.id}`, { warning: result.warning });
       continue;
     }
     ok++;
     if (isDockerRuntime) {
       const streamResult = await vstStartStream({ sensorId: cam.id, rtspUrl: cam.rtspUrl });
       if (!streamResult.ok) {
-        console.warn(
-          `[camera-watcher] failed to start stream for ${cam.id}: ${streamResult.warning}`,
-        );
+        log.warn(`failed to start stream for ${cam.id}`, { warning: streamResult.warning });
       }
     }
   }
-  console.log(`[camera-watcher] restore done — ${ok}/${list.cameras.length} registered`);
+  log.info(`restore done — ${ok}/${list.cameras.length} registered`);
 }
 
 export function startCameraRestoreWatcher(instance: string): void {
@@ -51,7 +52,7 @@ export function startCameraRestoreWatcher(instance: string): void {
       await new Promise((r) => setTimeout(r, POST_RESTART_DELAY_MS));
       await restoreCamerasFromGcs(instance);
     } catch (err) {
-      console.warn(`[camera-watcher] tick error: ${err instanceof Error ? err.message : err}`);
+      log.warn("tick error", { err });
     } finally {
       restoreInProgress = false;
     }
@@ -60,7 +61,5 @@ export function startCameraRestoreWatcher(instance: string): void {
   tick();
   setInterval(tick, POLL_INTERVAL_MS);
 
-  console.log(
-    `[camera-watcher] started — polling VST every ${POLL_INTERVAL_MS / 1000}s for instance ${instance}`,
-  );
+  log.info(`started — polling VST every ${POLL_INTERVAL_MS / 1000}s for instance ${instance}`);
 }

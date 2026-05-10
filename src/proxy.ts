@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 
 const PUBLIC_PATHS = [
   "/sign-in",
@@ -15,8 +16,14 @@ function isPublic(pathname: string): boolean {
   );
 }
 
+function withRequestId(response: NextResponse, reqId: string): NextResponse {
+  response.headers.set("x-request-id", reqId);
+  return response;
+}
+
 export default auth((req) => {
   const { pathname, searchParams } = req.nextUrl;
+  const reqId = req.headers.get("x-request-id") ?? randomUUID();
 
   // Persist ?mode=kiosk to a cookie so subsequent navigations keep kiosk mode.
   if (searchParams.get("mode") === "kiosk") {
@@ -29,17 +36,27 @@ export default auth((req) => {
       path: "/",
       maxAge: 8 * 60 * 60,
     });
+    return withRequestId(response, reqId);
+  }
+
+  if (isPublic(pathname)) {
+    const response = NextResponse.next();
+    response.headers.set("x-request-id", reqId);
     return response;
   }
 
-  if (isPublic(pathname)) return NextResponse.next();
-
   if (!req.auth) {
     const signInUrl = new URL("/sign-in", req.url);
-    return NextResponse.redirect(signInUrl);
+    return withRequestId(NextResponse.redirect(signInUrl), reqId);
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next({
+    request: {
+      headers: new Headers({ ...Object.fromEntries(req.headers), "x-request-id": reqId }),
+    },
+  });
+  response.headers.set("x-request-id", reqId);
+  return response;
 });
 
 export const config = {

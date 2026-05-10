@@ -2,6 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("api/cameras");
 import { vstListSensors } from "@/lib/helpers/vst";
 import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
 import { auditLog } from "@/lib/helpers/audit";
@@ -42,7 +45,7 @@ const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 let _gcsWriteChain: Promise<void> = Promise.resolve();
 
 function chainGcsWrite(fn: () => Promise<void>): Promise<void> {
-  _gcsWriteChain = _gcsWriteChain.then(fn).catch((err) => console.error("[gcs-write] failed", err));
+  _gcsWriteChain = _gcsWriteChain.then(fn).catch((err) => log.error("gcs-write failed", { err }));
   return _gcsWriteChain;
 }
 
@@ -378,7 +381,7 @@ async function writeToGcs(
       warning = `GCS ${op} failed (VST change already applied): ${
         err instanceof Error ? err.message : String(err)
       }`;
-      console.warn(`[cameras/route] ${warning}`);
+      log.warn("gcs write failed", { err, op });
     }
   });
   return warning;
