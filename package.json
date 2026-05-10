@@ -11,7 +11,13 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "prepare": "cd .. && console/node_modules/.bin/husky console/.husky"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx}": [
+      "eslint --fix"
+    ]
   },
   "dependencies": {
     "@auth/core": "^0.37.4",
@@ -67,6 +73,8 @@
     "@vitest/ui": "^3.1.1",
     "eslint": "^9.23.0",
     "eslint-config-next": "^16.2.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.4",
     "vitest": "^3.1.1"
   },
   "overrides": {

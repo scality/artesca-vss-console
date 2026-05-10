@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { vstListSensors } from "@/lib/helpers/vst";
 import { gcsCamerasGet, gcsCamerasPut, type CameraList, type CameraEntry } from "@/lib/helpers/gcs-config";
+import { withRequestContext } from "@/lib/with-request-context";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 // Snapshots the current VST sensor list as the new GCS camera definition.
 // Used by the "Save all to GCS" button to persist a runtime-only state.
 
-export async function POST() {
+export const POST = withRequestContext(async function () {
   const session = await auth();
   if (!session)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -82,4 +83,4 @@ export async function POST() {
     synced: cameras.length,
     warnings: warning ? [warning] : [],
   });
-}
+});

@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+
+cd "$(dirname "$0")/.."
+
+# Run lint-staged for ESLint --fix on staged TS/TSX files
+npx lint-staged || exit 1
+
+# Run a project-wide TypeScript check. Skipped if no staged TS/TSX files.
+if git diff --cached --name-only --diff-filter=ACM | grep -qE '\.(ts|tsx)$'; then
+  echo "[pre-commit] running tsc --noEmit..."
+  npx tsc --noEmit || {
+    echo "[pre-commit] tsc --noEmit failed — fix type errors before committing"
+    exit 1
+  }
+fi

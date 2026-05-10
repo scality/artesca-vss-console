@@ -17,6 +17,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
+import { withRequestContext } from "@/lib/with-request-context";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ const ChatRequestSchema = z.object({
   model: z.string().optional(),
 });
 
-export async function POST(req: NextRequest) {
+export const POST = withRequestContext(async function (req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -62,4 +63,4 @@ export async function POST(req: NextRequest) {
       { status: 503 },
     );
   }
-}
+});

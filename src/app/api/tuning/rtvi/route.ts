@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { coreV1, rolloutRestart } from "@/lib/k8s";
+import { withRequestContext } from "@/lib/with-request-context";
 import { patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
@@ -96,7 +97,7 @@ export async function GET() {
   });
 }
 
-export async function PATCH(req: NextRequest) {
+export const PATCH = withRequestContext(async function (req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -195,4 +196,4 @@ export async function PATCH(req: NextRequest) {
     applied: Object.fromEntries(patches),
     restarted: `statefulset/${CLUSTER.rtvi.nimStatefulSet}`,
   });
-}
+});

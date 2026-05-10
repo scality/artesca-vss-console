@@ -5,12 +5,13 @@ import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { revokeSgIngress } from "@/lib/aws";
 import { auditLog } from "@/lib/helpers/audit";
 import { createLogger } from "@/lib/logger";
+import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/settings/sg/[id]");
 
 export const dynamic = "force-dynamic";
 
-export async function DELETE(
+export const DELETE = withRequestContext(async function (
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -60,4 +61,4 @@ export async function DELETE(
   });
 
   return NextResponse.json({ ok: true, id });
-}
+});

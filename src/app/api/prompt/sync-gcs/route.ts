@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { gcsPromptPut, type PromptConfig } from "@/lib/helpers/gcs-config";
 import { readPromptLive } from "@/lib/helpers/prompt-apply";
+import { withRequestContext } from "@/lib/with-request-context";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 // Snapshots the current live VLM prompt to GCS.
 // Used by the "Save to GCS" button on the prompt page.
 
-export async function POST() {
+export const POST = withRequestContext(async function () {
   const session = await auth();
   if (!session)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -57,4 +58,4 @@ export async function POST() {
     instance: VSS_INSTANCE_NAME,
     promptLength: prompt.length,
   });
-}
+});

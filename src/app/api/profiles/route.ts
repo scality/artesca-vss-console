@@ -5,6 +5,7 @@ import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { listProfiles, saveProfile } from "@/lib/db";
 import { DemoProfileSchema } from "@/lib/schemas";
 import { auditLog } from "@/lib/helpers/audit";
+import { withRequestContext } from "@/lib/with-request-context";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export async function GET() {
 
 const SaveProfileSchema = DemoProfileSchema.omit({ savedAt: true, savedBy: true });
 
-export async function POST(req: NextRequest) {
+export const POST = withRequestContext(async function (req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -53,4 +54,4 @@ export async function POST(req: NextRequest) {
   await auditLog("profile-save", `profile/${profile.name}`, { name: profile.name });
 
   return NextResponse.json({ ok: true, name: profile.name, savedAt });
-}
+});

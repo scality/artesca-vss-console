@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { loadProfile, saveProfile, getDb } from "@/lib/db";
+import { withRequestContext } from "@/lib/with-request-context";
 import { DemoProfileSchema } from "@/lib/schemas";
 import { auditLog } from "@/lib/helpers/audit";
 import { patchConfigMapKey, patchConfigMapRawKey, readConfigMapKey } from "@/lib/helpers/configmaps";
@@ -50,7 +51,7 @@ export async function GET(
 
 // ─── PUT — apply a profile atomically ─────────────────────────────────────────
 
-export async function PUT(
+export const PUT = withRequestContext(async function (
   req: NextRequest,
   { params }: { params: Promise<{ name: string }> }
 ) {
@@ -238,11 +239,11 @@ export async function PUT(
   });
 
   return NextResponse.json({ ok: true, name, warnings: warnings.length ? warnings : undefined });
-}
+});
 
 // ─── DELETE — remove a profile ────────────────────────────────────────────────
 
-export async function DELETE(
+export const DELETE = withRequestContext(async function (
   _req: Request,
   { params }: { params: Promise<{ name: string }> }
 ) {
@@ -263,4 +264,4 @@ export async function DELETE(
   await auditLog("profile-delete", `profile/${name}`, { name });
 
   return NextResponse.json({ ok: true, name });
-}
+});
