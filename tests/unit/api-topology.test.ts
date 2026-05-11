@@ -33,6 +33,8 @@ vi.mock("@/lib/s3", () => ({
 
 vi.mock("@/lib/cluster-refs", () => ({
   CLUSTER: {
+    legacy: true,
+    vssNamespace: "vst",
     vst: { sensorListUrl: "http://vst-svc/sensors" },
   },
 }));

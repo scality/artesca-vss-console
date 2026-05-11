@@ -137,7 +137,7 @@ describe("POST /api/chat", () => {
 
     expect(res.status).toBe(502);
     const body = await res.json();
-    expect(body.error).toMatch(/nvidia-vss-agent HTTP 502/);
+    expect(body.error).toMatch(/vss-agent HTTP 502/);
   });
 
   it("upstream fetch throws (network error): route returns 503", async () => {

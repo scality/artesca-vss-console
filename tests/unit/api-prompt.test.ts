@@ -16,8 +16,29 @@ vi.mock("@/lib/k8s", () => ({
     patchNamespacedConfigMap: vi.fn(),
     replaceNamespacedConfigMap: vi.fn(),
   })),
+  appsV1: vi.fn(() => ({
+    readNamespacedDeployment: vi.fn(),
+    patchNamespacedDeployment: vi.fn(),
+  })),
   rolloutRestart: vi.fn().mockResolvedValue(undefined),
   watchedNamespaces: vi.fn(() => ["pyramid-ingress", "alerts", "rtvi"]),
+}));
+
+// Force legacy layout so the route takes the ConfigMap path (coreV1 / patchConfigMapRawKey).
+// In Helm mode (default) the route patches the Deployment env directly — these tests
+// were written for the ConfigMap path.
+vi.mock("@/lib/cluster-refs", () => ({
+  CLUSTER: {
+    legacy: true,
+    rtvi: {
+      runtimeEnvCm: "rtvi-runtime-env",
+      promptKey: "RTVI_VLM_SYSTEM_PROMPT",
+      modelKey: "RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME",
+      vlmDeployment: "rtvi-vlm",
+      nimStatefulSet: "cosmos-reason2-8b",
+      nimNamespace: "rtvi",
+    },
+  },
 }));
 
 vi.mock("@/lib/helpers/gcs-config", () => ({

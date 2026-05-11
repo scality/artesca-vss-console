@@ -19,6 +19,21 @@ vi.mock("@/lib/k8s", () => ({
   rolloutRestart: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Force legacy layout so VST namespace/ConfigMap names match test assertions.
+vi.mock("@/lib/cluster-refs", () => ({
+  CLUSTER: {
+    legacy: true,
+    vst: {
+      namespace: "vst",
+      configMap: "vst-config",
+      configKey: "vst_config.json",
+      sensorDeployment: "sensor-ms",
+      streamProcessingDeployment: "streamprocessing-ms",
+      sensorListUrl: "http://sensor-ms.vst.svc.cluster.local:30000/api/v1/live/sensor/list",
+    },
+  },
+}));
+
 vi.mock("@/lib/helpers/configmaps", () => ({
   readConfigMapKey: vi.fn(),
   patchConfigMapKey: vi.fn().mockResolvedValue(undefined),

@@ -7,7 +7,7 @@ import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/prompt");
 import { z } from "zod";
-import { coreV1, rolloutRestart } from "@/lib/k8s";
+import { coreV1, appsV1, rolloutRestart } from "@/lib/k8s";
 import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { patchConfigMapRawKey } from "@/lib/helpers/configmaps";
@@ -103,6 +103,34 @@ export async function GET() {
         { prompt: "", model: "", runtime: "docker", defaultPrompt: readDefaultPrompt(), gcs: buildGcsField(gcsCfg), warnings },
         { status: 502 }
       );
+    }
+  }
+
+  // Helm path: VLM_SYSTEM_PROMPT is a direct env var on the vss-rtvi-vlm Deployment.
+  // Legacy path: prompt lives in ConfigMap rtvi-runtime-env under key RTVI_VLM_SYSTEM_PROMPT.
+  if (!CLUSTER.rtvi.runtimeEnvCm) {
+    // Helm path — read from Deployment env
+    try {
+      const [deploy, gcsCfg] = await Promise.all([
+        appsV1().readNamespacedDeployment({
+          name: CLUSTER.rtvi.vlmDeployment,
+          namespace: CLUSTER.rtvi.nimNamespace,
+        }),
+        gcsPromise,
+      ]);
+      const envVars = deploy.spec?.template?.spec?.containers?.[0]?.env ?? [];
+      const promptEnv = envVars.find((e) => e.name === CLUSTER.rtvi.promptKey);
+      const modelEnv = envVars.find((e) => e.name === CLUSTER.rtvi.modelKey);
+      const prompt = promptEnv?.value ?? "";
+      const model = modelEnv?.value ?? "";
+      if (gcsCfg && !prompt) {
+        warnings.push("GCS-persisted prompt not yet applied — restart will pick it up");
+      }
+      return NextResponse.json({ prompt, model, resourceVersion: undefined, gcs: buildGcsField(gcsCfg), warnings });
+    } catch (err) {
+      warnings.push(`${CLUSTER.rtvi.vlmDeployment} unreadable: ${String(err)}`);
+      const gcsCfg = await gcsPromise.catch(() => null);
+      return NextResponse.json({ prompt: "", model: "", gcs: buildGcsField(gcsCfg), warnings }, { status: 502 });
     }
   }
 
@@ -203,44 +231,73 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
   const { prompt, model } = parsed.data;
   const ifMatch = req.headers.get("If-Match") ?? undefined;
 
-  try {
-    // Read current resourceVersion if not provided via If-Match
-    let resourceVersion = ifMatch;
-    if (!resourceVersion) {
-      const cm = await coreV1().readNamespacedConfigMap({
-        name: CLUSTER.rtvi.runtimeEnvCm,
+  if (!CLUSTER.rtvi.runtimeEnvCm) {
+    // Helm path — patch env vars directly on the Deployment
+    try {
+      const deploy = await appsV1().readNamespacedDeployment({
+        name: CLUSTER.rtvi.vlmDeployment,
         namespace: CLUSTER.rtvi.nimNamespace,
       });
-      resourceVersion = cm.metadata?.resourceVersion;
-    }
-
-    await patchConfigMapRawKey(
-      CLUSTER.rtvi.nimNamespace,
-      CLUSTER.rtvi.runtimeEnvCm,
-      CLUSTER.rtvi.promptKey,
-      prompt,
-      resourceVersion
-    );
-
-    // If model is changing, also patch the model key
-    if (model) {
-      await patchConfigMapRawKey(CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.runtimeEnvCm, CLUSTER.rtvi.modelKey, model);
-    }
-  } catch (err: unknown) {
-    const { status } = extractK8sError(err);
-    if (status === 409) {
+      const containers = deploy.spec?.template?.spec?.containers ?? [];
+      const container = containers[0];
+      if (!container) throw new Error(`No containers in ${CLUSTER.rtvi.vlmDeployment}`);
+      const envPatch = container.env ? [...container.env] : [];
+      const setEnv = (key: string, value: string) => {
+        const idx = envPatch.findIndex((e) => e.name === key);
+        if (idx >= 0) envPatch[idx] = { name: key, value };
+        else envPatch.push({ name: key, value });
+      };
+      setEnv(CLUSTER.rtvi.promptKey, prompt);
+      if (model) setEnv(CLUSTER.rtvi.modelKey, model);
+      await appsV1().patchNamespacedDeployment({
+        name: CLUSTER.rtvi.vlmDeployment,
+        namespace: CLUSTER.rtvi.nimNamespace,
+        body: { spec: { template: { spec: { containers: [{ name: container.name, env: envPatch }] } } } },
+      });
+    } catch (err: unknown) {
+      const { status } = extractK8sError(err);
       return NextResponse.json(
-        { error: "Config modified by another operator — reload and retry" },
-        { status: 409 }
+        { error: `Deployment env patch failed: ${String(err)}` },
+        { status }
       );
     }
-    return NextResponse.json(
-      { error: `ConfigMap patch failed: ${String(err)}` },
-      { status: 502 }
-    );
+  } else {
+    // Legacy path — patch ConfigMap
+    try {
+      let resourceVersion = ifMatch;
+      if (!resourceVersion) {
+        const cm = await coreV1().readNamespacedConfigMap({
+          name: CLUSTER.rtvi.runtimeEnvCm,
+          namespace: CLUSTER.rtvi.nimNamespace,
+        });
+        resourceVersion = cm.metadata?.resourceVersion;
+      }
+      await patchConfigMapRawKey(
+        CLUSTER.rtvi.nimNamespace,
+        CLUSTER.rtvi.runtimeEnvCm,
+        CLUSTER.rtvi.promptKey,
+        prompt,
+        resourceVersion
+      );
+      if (model) {
+        await patchConfigMapRawKey(CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.runtimeEnvCm, CLUSTER.rtvi.modelKey, model);
+      }
+    } catch (err: unknown) {
+      const { status } = extractK8sError(err);
+      if (status === 409) {
+        return NextResponse.json(
+          { error: "Config modified by another operator — reload and retry" },
+          { status: 409 }
+        );
+      }
+      return NextResponse.json(
+        { error: `ConfigMap patch failed: ${String(err)}` },
+        { status: 502 }
+      );
+    }
   }
 
-  // Rollout-restart rtvi-vlm (and NIM StatefulSet if model changed)
+  // Rollout-restart VLM deployment (and NIM if model changed)
   const restartErrors: string[] = [];
   try {
     await rolloutRestart("Deployment", CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.vlmDeployment);
@@ -249,15 +306,18 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
   }
 
   if (model) {
+    const nimKind = CLUSTER.legacy ? ("StatefulSet" as const) : ("Deployment" as const);
     try {
-      // cosmos-reason2-8b is a StatefulSet (k8s/nvidia-vss/rtvi/30-nim-cosmos-reason2-8b.yaml)
-      await rolloutRestart("StatefulSet", CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.nimStatefulSet);
+      await rolloutRestart(nimKind, CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.nimStatefulSet);
     } catch {
       // Best-effort — NIM restart may be disallowed by RBAC or timing
     }
   }
 
-  await auditLog("prompt-update", `configmap/${CLUSTER.rtvi.runtimeEnvCm}`, {
+  const auditTarget = CLUSTER.rtvi.runtimeEnvCm
+    ? `configmap/${CLUSTER.rtvi.runtimeEnvCm}`
+    : `deployment/${CLUSTER.rtvi.vlmDeployment}`;
+  await auditLog("prompt-update", auditTarget, {
     promptLength: prompt.length,
     modelChanged: !!model,
     newModel: model,

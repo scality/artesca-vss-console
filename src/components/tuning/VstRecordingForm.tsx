@@ -59,9 +59,9 @@ interface StepState {
 }
 
 const INITIAL_STEPS: StepState[] = [
-  { label: "Patching ConfigMap…", status: "pending" },
-  { label: "Restarting sensor-ms…", status: "pending" },
-  { label: "Restarting streamprocessing-ms…", status: "pending" },
+  { label: "Patching config…", status: "pending" },
+  { label: "Restarting VST sensor…", status: "pending" },
+  { label: "Restarting VST stream processor…", status: "pending" },
   { label: "Done", status: "pending" },
 ];
 
@@ -271,7 +271,7 @@ export function VstRecordingForm() {
           <h3 className="text-base font-semibold">VST Recording Tuning</h3>
           <p className="text-sm text-muted-foreground">
             Recording mode, codec, and storage parameters. Changes restart
-            sensor-ms and streamprocessing-ms (~10 s gap).
+            the VST sensor and stream processor (~10 s gap).
           </p>
         </div>
         <Button
@@ -311,7 +311,7 @@ export function VstRecordingForm() {
       {observedSensors.length > 0 && (
         <div className="bg-muted/20 rounded p-3 text-xs font-mono">
           <p className="text-muted-foreground mb-1">
-            Live ingest (from sensor-ms):
+            Live ingest (from VST sensor):
           </p>
           {observedSensors.map((s) => (
             <p key={s.sensorId}>
@@ -493,7 +493,7 @@ export function VstRecordingForm() {
                 className="w-32"
               />
               <p className="text-xs text-muted-foreground">
-                How often sensor-ms polls S3 fill level (1–60 s).
+                How often the VST sensor polls S3 fill level (1–60 s).
               </p>
             </div>
 
@@ -528,7 +528,7 @@ export function VstRecordingForm() {
               <div>
                 <Label htmlFor="enable-aging-policy">enable_aging_policy</Label>
                 <p className="text-xs text-muted-foreground">
-                  Allow sensor-ms to delete expired files when the storage
+                  Allow the VST sensor to delete expired files when the storage
                   threshold is exceeded.
                 </p>
               </div>
@@ -583,8 +583,8 @@ export function VstRecordingForm() {
           <DialogHeader>
             <DialogTitle>Save VST Recording Tuning?</DialogTitle>
             <DialogDescription>
-              This will patch the vst-config ConfigMap and restart sensor-ms +
-              streamprocessing-ms. RTSP streams reconnect automatically but
+              This will patch the VST config and restart the VST sensor +
+              stream processor. RTSP streams reconnect automatically but
               there will be a 5–10 s recording gap.
             </DialogDescription>
           </DialogHeader>
@@ -647,7 +647,7 @@ export function VstRecordingForm() {
               <div className="flex items-start gap-2 rounded-md border border-yellow-600/40 bg-yellow-600/10 p-3">
                 <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
                 <p className="text-sm text-yellow-300">
-                  sensor-ms and streamprocessing-ms will restart — expect a 5–10 s
+                  VST sensor and stream processor will restart — expect a 5–10 s
                   recording gap while RTSP streams reconnect.
                 </p>
               </div>

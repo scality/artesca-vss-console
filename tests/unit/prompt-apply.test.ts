@@ -9,7 +9,25 @@ vi.mock("@/lib/k8s", () => ({
     replaceNamespacedConfigMap: vi.fn(),
     createNamespacedConfigMap: vi.fn(),
   })),
+  appsV1: vi.fn(() => ({
+    readNamespacedDeployment: vi.fn(),
+    patchNamespacedDeployment: vi.fn(),
+  })),
   rolloutRestart: vi.fn(),
+}));
+
+// Force legacy layout so prompt-apply takes the ConfigMap path (runtimeEnvCm non-empty).
+// In Helm mode runtimeEnvCm="" and the code patches the Deployment env instead.
+vi.mock("@/lib/cluster-refs", () => ({
+  CLUSTER: {
+    legacy: true,
+    rtvi: {
+      runtimeEnvCm: "rtvi-runtime-env",
+      promptKey: "RTVI_VLM_SYSTEM_PROMPT",
+      vlmDeployment: "rtvi-vlm",
+      nimNamespace: "rtvi",
+    },
+  },
 }));
 
 vi.mock("@/lib/helpers/configmaps", () => ({

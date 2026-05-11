@@ -16,6 +16,12 @@ import {
   MediamtxActionsRenderer,
   DemoDataActionsRenderer,
   getFeedActionsContent,
+  VssViosSensorActionsRenderer,
+  VssViosStreamActionsRenderer,
+  VssRtviVlmActionsRenderer,
+  VssVideoAnalyticsActionsRenderer,
+  VssAgentActionsRenderer,
+  NimNemotronActionsFullRenderer,
 } from "./action-renderers";
 
 // Re-export for NodeDetailPanel feed:* fallback merging.
@@ -31,6 +37,7 @@ export { getFeedActionsContent };
 // and must be merged by the NodeDetailPanel with getFeedContent() (Agent 3).
 
 export const ACTIONS_CONTENT: NodeContentMap = {
+  // Legacy node IDs
   "camera-sim": {
     actions: CameraSimActionsRenderer,
   },
@@ -55,6 +62,26 @@ export const ACTIONS_CONTENT: NodeContentMap = {
   agent: {
     actions: AgentActionsRenderer,
   },
+  // Helm node IDs
+  "vss-vios-sensor": {
+    actions: VssViosSensorActionsRenderer,
+  },
+  "vss-vios-streamprocessing": {
+    actions: VssViosStreamActionsRenderer,
+  },
+  "vss-rtvi-vlm": {
+    actions: VssRtviVlmActionsRenderer,
+  },
+  "nim-nemotron-nano": {
+    actions: NimNemotronActionsFullRenderer,
+  },
+  "vss-video-analytics-api": {
+    actions: VssVideoAnalyticsActionsRenderer,
+  },
+  "vss-agent": {
+    actions: VssAgentActionsRenderer,
+  },
+  // Common
   mediamtx: {
     actions: MediamtxActionsRenderer,
   },

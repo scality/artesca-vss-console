@@ -131,5 +131,5 @@ export function startCaptionBridge(): void {
   tick();
   setInterval(tick, POLL_INTERVAL_MS);
 
-  log.info(`started — polling rtvi-vlm at ${RTVI_BASE} every ${POLL_INTERVAL_MS / 1000}s`);
+  log.info(`started — polling vss-rtvi-vlm at ${RTVI_BASE} every ${POLL_INTERVAL_MS / 1000}s`);
 }

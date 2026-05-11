@@ -31,14 +31,12 @@ const S3_CEILING_GIB = 100;
 // Timeout for all individual external calls (ms)
 const CALL_TIMEOUT_MS = 2_000;
 
-// GPU index → primary node responsible
-// GPU 0 → NIM, 1 → rtvi-vlm, 2 → rtvi-embed, 3 → sensor-ms + streamprocessing-ms
-const GPU_INDEX_TO_NODE: Record<number, string> = {
-  0: "nim-cosmos-reason2",
-  1: "rtvi-vlm",
-  2: "rtvi-embed",
-  3: "sensor-ms",
-};
+// GPU index → primary node responsible.
+// Helm layout: GPU 0 → NIM (nemotron), 1 → vss-rtvi-vlm, 2+ → vss-vios-sensor/stream.
+// Legacy layout: GPU 0 → NIM (cosmos), 1 → rtvi-vlm, 2 → rtvi-embed, 3 → sensor-ms.
+const GPU_INDEX_TO_NODE: Record<number, string> = CLUSTER.legacy
+  ? { 0: "nim-cosmos-reason2", 1: "rtvi-vlm", 2: "rtvi-embed", 3: "sensor-ms" }
+  : { 0: "nim-nemotron-nano", 1: "vss-rtvi-vlm", 2: "vss-vios-sensor", 3: "vss-vios-streamprocessing" };
 
 // Kafka topics to inspect
 const KAFKA_TOPICS = [
@@ -79,21 +77,37 @@ interface PodSnapshot {
   state: PodState;
 }
 
-// Map deployment prefix → node ID (mirrors topology route definitions)
-const DEPLOY_TO_NODE: Record<string, string> = {
-  "sensor-ms": "sensor-ms",
-  "streamprocessing-ms": "streamprocessing-ms",
-  "rtvi-vlm": "rtvi-vlm",
-  "rtvi-embed": "rtvi-embed",
-  "cosmos-reason2-8b": "nim-cosmos-reason2",
-  "nim-cosmos-reason2": "nim-cosmos-reason2",
-  "alert-worker": "alert-worker",
-  "nvidia-vss-agent": "agent",
-  "agent": "agent",
-  "demo-producer": "demo-data-producer",
-  "demo-data-producer": "demo-data-producer",
-  "redpanda": "kafka",
-};
+// Map deployment-name prefix → topology node ID.
+// Helm layout uses the updated deployment names from the chart.
+// Legacy layout uses the old hand-authored names.
+const DEPLOY_TO_NODE: Record<string, string> = CLUSTER.legacy
+  ? {
+      "sensor-ms":           "sensor-ms",
+      "streamprocessing-ms": "streamprocessing-ms",
+      "rtvi-vlm":            "rtvi-vlm",
+      "rtvi-embed":          "rtvi-embed",
+      "cosmos-reason2-8b":   "nim-cosmos-reason2",
+      "nim-cosmos-reason2":  "nim-cosmos-reason2",
+      "alert-worker":        "alert-worker",
+      "nvidia-vss-agent":    "agent",
+      "agent":               "agent",
+      "demo-producer":       "demo-data-producer",
+      "demo-data-producer":  "demo-data-producer",
+      "redpanda":            "kafka",
+    }
+  : {
+      // Helm service names verified on live cluster 2026-05-11
+      "vss-vios-sensor":             "vss-vios-sensor",
+      "vss-vios-streamprocessing":   "vss-vios-streamprocessing",
+      "vss-rtvi-vlm":                "vss-rtvi-vlm",
+      "nvidia-nemotron-nano-9b-v2":  "nim-nemotron-nano",
+      "vss-video-analytics-api":     "vss-video-analytics-api",
+      "vss-agent":                   "vss-agent",
+      "demo-producer":               "demo-data-producer",
+      "demo-data-producer":          "demo-data-producer",
+      "kafka":                       "kafka",
+      "redis":                       "vss-redis",
+    };
 
 async function collectPods(warnings: string[]): Promise<PodSnapshot[]> {
   const results: PodSnapshot[] = [];
@@ -285,11 +299,17 @@ async function collectS3(warnings: string[]): Promise<S3State | null> {
 // ─── Local cache (VST emptyDir) ───────────────────────────────────────────────
 
 async function collectCache(warnings: string[]): Promise<CacheState | null> {
+  // Helm: sensor pod label is app.kubernetes.io/name=vss-vios-sensor.
+  // Legacy: app=sensor-ms.
+  const cacheNs = CLUSTER.vst.namespace;
+  const cacheLabel = CLUSTER.legacy
+    ? "app=sensor-ms"
+    : "app.kubernetes.io/name=vss-vios-sensor";
   try {
     const fillResult = await withTimeout(
       runInPod(
-        CLUSTER.vst.namespace,
-        "app=sensor-ms",
+        cacheNs,
+        cacheLabel,
         [
           "sh",
           "-c",
@@ -486,7 +506,7 @@ async function collectNim(warnings: string[]): Promise<NimState | null> {
     // NIM health: GET /v1/health/ready — 200 = ready (warmupPct=100), else 503
     const nimBase =
       process.env.NIM_ENDPOINT ??
-      "http://cosmos-reason2-8b.rtvi.svc.cluster.local:8000";
+      `http://${CLUSTER.rtvi.nimStatefulSet}.${CLUSTER.rtvi.nimNamespace}.svc.cluster.local:8000`;
 
     const [healthResp, tokensRes, latP50Res, latP95Res] = await Promise.allSettled([
       withTimeout(

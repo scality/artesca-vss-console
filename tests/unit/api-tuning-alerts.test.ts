@@ -19,6 +19,22 @@ vi.mock("@/lib/k8s", () => ({
   rolloutRestart: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Force legacy layout so namespace/ConfigMap names match test assertions.
+vi.mock("@/lib/cluster-refs", () => ({
+  CLUSTER: {
+    legacy: true,
+    alertsTuning: {
+      namespace: "alerts",
+      configMap: "alerts-runtime-env",
+      cooldownKey: "COOLDOWN_SECONDS",
+      slackConfiguredKey: "SLACK_WEBHOOK_CONFIGURED",
+    },
+    scenarios: {
+      alertWorkerDeployment: "alert-worker",
+    },
+  },
+}));
+
 vi.mock("@/lib/helpers/configmaps", () => ({
   readConfigMapKey: vi.fn(),
   patchConfigMapKey: vi.fn().mockResolvedValue(undefined),

@@ -883,4 +883,56 @@ export const COMPUTE_CONTENT: NodeContentMap = {
   "camera-sim": {
     status: ({ runtimeState }) => <CameraSimStatus runtimeState={runtimeState} />,
   },
+
+  // Helm node IDs — reuse the same component renderers
+  "vss-vios-sensor": {
+    status: ({ nodeId: _n, runtimeState, snapshot }) => (
+      <SensorMsStatus runtimeState={runtimeState} snapshot={snapshot} />
+    ),
+    config: () => <SensorMsConfig />,
+    metrics: ({ nodeId, runtimeState }) => (
+      <SensorMsMetrics nodeId={nodeId} runtimeState={runtimeState} />
+    ),
+  },
+  "vss-vios-streamprocessing": {
+    status: ({ runtimeState }) => <StreamProcessingStatus runtimeState={runtimeState} />,
+    metrics: ({ nodeId, runtimeState }) => (
+      <StreamProcessingMetrics nodeId={nodeId} runtimeState={runtimeState} />
+    ),
+  },
+  "vss-rtvi-vlm": {
+    status: ({ runtimeState }) => <RtviVlmStatus runtimeState={runtimeState} />,
+    config: () => <RtviVlmConfig />,
+    metrics: ({ nodeId, runtimeState }) => (
+      <RtviVlmMetrics nodeId={nodeId} runtimeState={runtimeState} />
+    ),
+  },
+  "nim-nemotron-nano": {
+    status: ({ runtimeState }) => <NimStatus runtimeState={runtimeState} />,
+    config: () => <NimConfig />,
+    metrics: ({ nodeId, runtimeState }) => (
+      <NimMetrics nodeId={nodeId} runtimeState={runtimeState} />
+    ),
+  },
+  "vss-video-analytics-api": {
+    status: ({ runtimeState }) => <AlertWorkerStatus runtimeState={runtimeState} />,
+    config: () => <AlertWorkerConfig />,
+  },
+  "vss-agent": {
+    status: ({ runtimeState }) => <AgentStatus runtimeState={runtimeState} />,
+  },
+  "vss-redis": {
+    status: ({ runtimeState }) => (
+      <div className="space-y-4">
+        <PodStatusBlock pod={runtimeState?.pod} />
+      </div>
+    ),
+  },
+  "vss-vios-postgres": {
+    status: ({ runtimeState }) => (
+      <div className="space-y-4">
+        <PodStatusBlock pod={runtimeState?.pod} />
+      </div>
+    ),
+  },
 };

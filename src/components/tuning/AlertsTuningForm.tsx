@@ -31,7 +31,7 @@ interface StepState {
 
 const INITIAL_STEPS: StepState[] = [
   { label: "Patching ConfigMap...", status: "pending" },
-  { label: "Restarting alert-worker...", status: "pending" },
+  { label: "Restarting video analytics...", status: "pending" },
   { label: "Done", status: "pending" },
 ];
 
@@ -117,7 +117,7 @@ export function AlertsTuningForm() {
         <div>
           <h3 className="text-base font-semibold">Alert Worker Tuning</h3>
           <p className="text-sm text-muted-foreground">
-            Cooldown and Slack integration. Changes restart alert-worker.
+            Cooldown and Slack integration. Changes restart the video analytics service.
           </p>
         </div>
         <Button
@@ -210,7 +210,7 @@ export function AlertsTuningForm() {
           <DialogHeader>
             <DialogTitle>Save Alert Worker Tuning?</DialogTitle>
             <DialogDescription>
-              This will patch the ConfigMap and restart alert-worker.
+              This will patch the config and restart the video analytics service.
             </DialogDescription>
           </DialogHeader>
 
@@ -230,7 +230,7 @@ export function AlertsTuningForm() {
             <div className="flex items-start gap-2 rounded-md border border-yellow-600/40 bg-yellow-600/10 p-3">
               <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
               <p className="text-sm text-yellow-300">
-                alert-worker will restart briefly. In-flight alerts may be
+                The video analytics service will restart briefly. In-flight alerts may be
                 delayed.
               </p>
             </div>

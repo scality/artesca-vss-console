@@ -11,19 +11,35 @@ interface RbacSummary {
   namespacedRoles: Array<{ namespace: string; role: string }>;
 }
 
-// Fallback based on k8s/console/01-rbac.yaml contents
+// Fallback based on k8s/console/01-rbac.yaml contents.
+// Helm layout: single vss-<profile> namespace replaces vst/rtvi/agent/alerts.
+// The VSS_NAMESPACE env var is read at deploy time and injected into console-env.
+const _vssNs =
+  typeof process !== "undefined"
+    ? (process.env.VSS_NAMESPACE ?? "vss-base")
+    : "vss-base";
+const _legacy =
+  typeof process !== "undefined" &&
+  process.env.CONSOLE_LEGACY_NAMESPACES === "1";
+
 const FALLBACK_RBAC: RbacSummary = {
   serviceAccount: "console",
   namespace: "console",
   clusterRoles: ["console-reader"],
-  namespacedRoles: [
-    { namespace: "vst", role: "console-writer" },
-    { namespace: "rtvi", role: "console-writer" },
-    { namespace: "agent", role: "console-writer" },
-    { namespace: "alerts", role: "console-writer" },
-    { namespace: "demo-data", role: "console-writer" },
-    { namespace: "pyramid-ingress", role: "console-writer" },
-  ],
+  namespacedRoles: _legacy
+    ? [
+        { namespace: "vst", role: "console-writer" },
+        { namespace: "rtvi", role: "console-writer" },
+        { namespace: "agent", role: "console-writer" },
+        { namespace: "alerts", role: "console-writer" },
+        { namespace: "demo-data", role: "console-writer" },
+        { namespace: "pyramid-ingress", role: "console-writer" },
+      ]
+    : [
+        { namespace: _vssNs, role: "console-writer" },
+        { namespace: "demo-data", role: "console-writer" },
+        { namespace: "pyramid-ingress", role: "console-writer" },
+      ],
 };
 
 export function RbacInspector() {

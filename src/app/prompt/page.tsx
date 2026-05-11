@@ -117,7 +117,7 @@ export default function PromptPage() {
       if (!res.ok) throw new Error("Save failed");
       await queryClient.invalidateQueries({ queryKey: ["prompt"] });
       setConfirmOpen(false);
-      toast({ title: "Prompt saved — rtvi-vlm restarting" });
+      toast({ title: "Prompt saved — vss-rtvi-vlm restarting" });
     } catch (err) {
       toast({
         title: "Save failed",
@@ -137,7 +137,7 @@ export default function PromptPage() {
             <h2 className="text-lg font-semibold">VLM Prompt</h2>
             <p className="text-sm text-muted-foreground">
               Edit the system prompt for the Vision Language Model. Changes
-              require an rtvi-vlm restart (~30 s).
+              require a vss-rtvi-vlm restart (~30 s).
             </p>
             {data?.gcs && (
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -214,7 +214,7 @@ export default function PromptPage() {
         {data?.runtime === "docker" && (
           <div className="rounded-md border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-300">
             Compose-mode runtime — prompt is the <code>VLM_SYSTEM_PROMPT</code> env on the
-            <code> rtvi-vlm</code> container. Saving recreates the container with the new value
+            <code> vss-rtvi-vlm</code> container. Saving recreates the container with the new value
             (~30 s of downtime; old container is auto-restored on failure).
           </div>
         )}
@@ -278,18 +278,18 @@ export default function PromptPage() {
         <Dialog open={confirmOpen} onOpenChange={saving ? undefined : setConfirmOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Save + Restart rtvi-vlm?</DialogTitle>
+              <DialogTitle>Save + Restart vss-rtvi-vlm?</DialogTitle>
               <DialogDescription>
                 {data?.runtime === "docker" ? (
                   <>
-                    The <code>rtvi-vlm</code> container will be recreated with
+                    The <code>vss-rtvi-vlm</code> container will be recreated with
                     the new <code>VLM_SYSTEM_PROMPT</code>. Image, mounts, GPU
                     binding, network, and restart policy are preserved.
                   </>
                 ) : (
                   <>
-                    This will patch the prompt ConfigMap and restart the{" "}
-                    <code>rtvi-vlm</code> deployment.
+                    This will patch the prompt and restart the{" "}
+                    <code>vss-rtvi-vlm</code> deployment.
                   </>
                 )}
               </DialogDescription>
@@ -297,7 +297,7 @@ export default function PromptPage() {
             <div className="flex items-start gap-2 rounded-md border border-yellow-600/40 bg-yellow-600/10 p-3">
               <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
               <p className="text-sm text-yellow-300">
-                Expect ~30 s downtime while rtvi-vlm restarts. Live inference
+                Expect ~30 s downtime while vss-rtvi-vlm restarts. Live inference
                 will be paused during this time.
                 {data?.runtime === "docker" && (
                   <> If the new container fails to start, the old one is

@@ -161,11 +161,15 @@ export const PUT = withRequestContext(async function (
 
   // Apply scenarios
   try {
-    const { resourceVersion } = await readConfigMapKey("alerts", "scenarios-config", "scenarios.yaml");
+    const { resourceVersion } = await readConfigMapKey(
+      CLUSTER.scenarios.namespace,
+      CLUSTER.scenarios.configMap,
+      CLUSTER.scenarios.yamlKey
+    );
     await patchConfigMapKey(
-      "alerts",
-      "scenarios-config",
-      "scenarios.yaml",
+      CLUSTER.scenarios.namespace,
+      CLUSTER.scenarios.configMap,
+      CLUSTER.scenarios.yamlKey,
       {
         scenarios: profile.scenarios.map((s: Scenario) => ({
           id: s.id,
@@ -180,18 +184,42 @@ export const PUT = withRequestContext(async function (
       },
       resourceVersion
     );
-    await rolloutRestart("Deployment", "alerts", "alert-worker");
+    const alertWorkerSpec = CLUSTER.restartable[CLUSTER.scenarios.alertWorkerDeployment];
+    if (alertWorkerSpec) {
+      await rolloutRestart(alertWorkerSpec.kind, alertWorkerSpec.namespace, alertWorkerSpec.name);
+    }
   } catch (err) {
     warnings.push(`Scenarios apply failed: ${String(err)}`);
   }
 
-  // Apply VLM prompt
+  // Apply VLM prompt — uses applyPromptLive for Helm/legacy abstraction
   try {
-    await patchConfigMapRawKey("rtvi", "rtvi-runtime-env", "RTVI_VLM_SYSTEM_PROMPT", profile.vlmPrompt);
+    const { applyPromptLive } = await import("@/lib/helpers/prompt-apply");
+    await applyPromptLive(false, profile.vlmPrompt);
     if (profile.nimModel) {
-      await patchConfigMapRawKey("rtvi", "rtvi-runtime-env", "RTVI_VLM_MODEL", profile.nimModel);
+      // Model override: patch deployment env (Helm) or ConfigMap (legacy)
+      if (!CLUSTER.rtvi.runtimeEnvCm) {
+        const { appsV1 } = await import("@/lib/k8s");
+        const deploy = await appsV1().readNamespacedDeployment({
+          name: CLUSTER.rtvi.vlmDeployment,
+          namespace: CLUSTER.rtvi.nimNamespace,
+        });
+        const container = deploy.spec?.template?.spec?.containers?.[0];
+        if (container) {
+          const envPatch = [...(container.env ?? [])];
+          const idx = envPatch.findIndex((e) => e.name === "VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME");
+          if (idx >= 0) envPatch[idx] = { name: "VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME", value: profile.nimModel };
+          else envPatch.push({ name: "VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME", value: profile.nimModel });
+          await appsV1().patchNamespacedDeployment({
+            name: CLUSTER.rtvi.vlmDeployment,
+            namespace: CLUSTER.rtvi.nimNamespace,
+            body: { spec: { template: { spec: { containers: [{ name: container.name, env: envPatch }] } } } },
+          });
+        }
+      } else {
+        await patchConfigMapRawKey(CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.runtimeEnvCm, "RTVI_VLM_MODEL", profile.nimModel);
+      }
     }
-    await rolloutRestart("Deployment", "rtvi", "rtvi-vlm");
   } catch (err) {
     warnings.push(`Prompt apply failed: ${String(err)}`);
   }
@@ -201,12 +229,14 @@ export const PUT = withRequestContext(async function (
     try {
       const tuning = profile.rtviTuning;
       const patches: Record<string, string> = {};
-      if (tuning.maxNumSeqs !== undefined) patches["MAX_NUM_SEQS"] = String(tuning.maxNumSeqs);
-      if (tuning.kvCachePct !== undefined) patches["KV_CACHE_PERCENT"] = String(tuning.kvCachePct);
-      if (tuning.maxModelLen !== undefined) patches["MAX_MODEL_LEN"] = String(tuning.maxModelLen);
+      if (tuning.maxNumSeqs !== undefined) patches[CLUSTER.rtvi.nimMaxNumSeqsKey] = String(tuning.maxNumSeqs);
+      if (tuning.kvCachePct !== undefined) patches[CLUSTER.rtvi.nimKvCacheKey] = String(tuning.kvCachePct);
+      if (tuning.maxModelLen !== undefined) patches[CLUSTER.rtvi.nimMaxModelLenKey] = String(tuning.maxModelLen);
 
+      const cmName = CLUSTER.rtvi.nimTuningConfigMap || CLUSTER.rtvi.runtimeEnvCm;
+      const cmNs = CLUSTER.rtvi.nimTuningNamespace;
       for (const [key, val] of Object.entries(patches)) {
-        await patchConfigMapRawKey("rtvi", "rtvi-runtime-env", key, val);
+        await patchConfigMapRawKey(cmNs, cmName, key, val);
       }
     } catch (err) {
       warnings.push(`RTVI tuning apply failed: ${String(err)}`);
@@ -219,13 +249,16 @@ export const PUT = withRequestContext(async function (
       const tuning = profile.alertTuning;
       if (tuning.cooldownSeconds !== undefined) {
         await patchConfigMapRawKey(
-          "alerts",
-          "alert-worker-config",
+          CLUSTER.alertsTuning.namespace,
+          CLUSTER.alertsTuning.configMap,
           "COOLDOWN_SECONDS",
           String(tuning.cooldownSeconds)
         );
       }
-      await rolloutRestart("Deployment", "alerts", "alert-worker");
+      const alertWorkerSpec = CLUSTER.restartable[CLUSTER.scenarios.alertWorkerDeployment];
+      if (alertWorkerSpec) {
+        await rolloutRestart(alertWorkerSpec.kind, alertWorkerSpec.namespace, alertWorkerSpec.name);
+      }
     } catch (err) {
       warnings.push(`Alert tuning apply failed: ${String(err)}`);
     }

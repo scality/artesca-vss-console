@@ -75,11 +75,16 @@ export async function GET() {
     });
   }
 
+  // Helm path: NIM tuning lives in a per-NIM ConfigMap (nvidia-nemotron-nano-9b-v2-nim-env).
+  // Legacy path: NIM tuning lives in rtvi-runtime-env.
+  const cmName = CLUSTER.rtvi.nimTuningConfigMap || CLUSTER.rtvi.runtimeEnvCm;
+  const cmNs = CLUSTER.rtvi.nimTuningNamespace;
+
   let data: Record<string, string> | undefined;
   try {
     const cm = await coreV1().readNamespacedConfigMap({
-      name: CLUSTER.rtvi.runtimeEnvCm,
-      namespace: CLUSTER.rtvi.nimNamespace,
+      name: cmName,
+      namespace: cmNs,
     });
     data = cm.data;
   } catch (err: unknown) {
@@ -151,18 +156,20 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     patches.push([CLUSTER.rtvi.nimMaxNumSeqsKey, String(tuning.maxNumSeqs)]);
   }
   if (tuning.kvCachePercent !== undefined) {
-    // ConfigMap key is VLM_NIM_KVCACHE_PERCENT (k8s/nvidia-vss/rtvi/30-nim-cosmos-reason2-8b.yaml),
-    // not NIM_KVCACHE_PERCENT — the NIM container's env var is NIM_KVCACHE_PERCENT
-    // but the ConfigMap key it reads from is VLM_NIM_KVCACHE_PERCENT.
     patches.push([CLUSTER.rtvi.nimKvCacheKey, String(tuning.kvCachePercent)]);
   }
   if (tuning.maxModelLen !== undefined) {
     patches.push([CLUSTER.rtvi.nimMaxModelLenKey, String(tuning.maxModelLen)]);
   }
 
+  // Helm path: NIM tuning ConfigMap is nvidia-nemotron-nano-9b-v2-nim-env.
+  // Legacy path: NIM tuning ConfigMap is rtvi-runtime-env.
+  const cmName = CLUSTER.rtvi.nimTuningConfigMap || CLUSTER.rtvi.runtimeEnvCm;
+  const cmNs = CLUSTER.rtvi.nimTuningNamespace;
+
   try {
     for (const [key, val] of patches) {
-      await patchConfigMapRawKey(CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.runtimeEnvCm, key, val);
+      await patchConfigMapRawKey(cmNs, cmName, key, val);
     }
   } catch (err: unknown) {
     const { status, message } = extractK8sError(err);
@@ -172,12 +179,10 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     );
   }
 
-  // All three keys (NIM_MAX_NUM_SEQS, VLM_NIM_KVCACHE_PERCENT, NIM_MAX_MODEL_LEN)
-  // are env vars on the cosmos-reason2-8b NIM StatefulSet — see
-  // k8s/nvidia-vss/rtvi/30-nim-cosmos-reason2-8b.yaml containers[0].env. rtvi-vlm does
-  // not consume them, so restarting it would be a no-op.
+  // Helm path: NIM is a Deployment; legacy path: StatefulSet.
+  const nimKind = CLUSTER.legacy ? ("StatefulSet" as const) : ("Deployment" as const);
   try {
-    await rolloutRestart("StatefulSet", CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.nimStatefulSet);
+    await rolloutRestart(nimKind, cmNs, CLUSTER.rtvi.nimStatefulSet);
   } catch (err) {
     return NextResponse.json(
       { error: `NIM rollout restart failed: ${String(err)}` },
@@ -185,15 +190,16 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     );
   }
 
+  const auditTarget = `${nimKind.toLowerCase()}/${CLUSTER.rtvi.nimStatefulSet}`;
   await auditLog(
     "tuning-rtvi",
-    `statefulset/${CLUSTER.rtvi.nimStatefulSet}`,
+    auditTarget,
     { patches: Object.fromEntries(patches) }
   );
 
   return NextResponse.json({
     ok: true,
     applied: Object.fromEntries(patches),
-    restarted: `statefulset/${CLUSTER.rtvi.nimStatefulSet}`,
+    restarted: auditTarget,
   });
 });

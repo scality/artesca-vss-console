@@ -61,7 +61,7 @@ export function ModelSwapDialog({
           <div className="text-sm text-yellow-300">
             {isPrimary ? (
               <>
-                This will restart <strong>rtvi-vlm</strong> — expect ~30 s
+                This will restart <strong>vss-rtvi-vlm</strong> — expect ~30 s
                 downtime. On first cold start, warmup may take{" "}
                 <strong>~28 min</strong>; subsequent restarts with cached weights
                 take ~3 min.

@@ -8,6 +8,7 @@ import { dockerSock } from "./docker-sock";
 import { patchConfigMapRawKey } from "./configmaps";
 import { CLUSTER } from "../cluster-refs";
 
+// Docker-compose container name (upstream blueprint). K8s path uses CLUSTER.rtvi.vlmDeployment.
 const RTVI_VLM_CONTAINER = "rtvi-vlm";
 const DOCKER_PROMPT_ENV = "VLM_SYSTEM_PROMPT";
 
@@ -118,7 +119,18 @@ export async function readPromptLive(dockerMode: boolean): Promise<string> {
     const env = await dockerInspectEnv(RTVI_VLM_CONTAINER);
     return env[DOCKER_PROMPT_ENV] ?? "";
   }
-  const cm = await (await import("../k8s")).coreV1().readNamespacedConfigMap({
+  const { coreV1, appsV1 } = await import("../k8s");
+  // Helm path: prompt is a direct env var on the Deployment.
+  // Legacy path: prompt lives in ConfigMap rtvi-runtime-env.
+  if (!CLUSTER.rtvi.runtimeEnvCm) {
+    const deploy = await appsV1().readNamespacedDeployment({
+      name: CLUSTER.rtvi.vlmDeployment,
+      namespace: CLUSTER.rtvi.nimNamespace,
+    });
+    const envVars = deploy.spec?.template?.spec?.containers?.[0]?.env ?? [];
+    return envVars.find((e) => e.name === CLUSTER.rtvi.promptKey)?.value ?? "";
+  }
+  const cm = await coreV1().readNamespacedConfigMap({
     name: CLUSTER.rtvi.runtimeEnvCm,
     namespace: CLUSTER.rtvi.nimNamespace,
   });
@@ -132,6 +144,27 @@ export async function applyPromptLive(
 ): Promise<void> {
   if (dockerMode) {
     await dockerRecreateWithEnv(RTVI_VLM_CONTAINER, { [DOCKER_PROMPT_ENV]: prompt });
+    return;
+  }
+  // Helm path: patch env var directly on the Deployment.
+  // Legacy path: patch ConfigMap.
+  if (!CLUSTER.rtvi.runtimeEnvCm) {
+    const { appsV1 } = await import("../k8s");
+    const deploy = await appsV1().readNamespacedDeployment({
+      name: CLUSTER.rtvi.vlmDeployment,
+      namespace: CLUSTER.rtvi.nimNamespace,
+    });
+    const container = deploy.spec?.template?.spec?.containers?.[0];
+    if (!container) throw new Error(`No containers in ${CLUSTER.rtvi.vlmDeployment}`);
+    const envPatch = [...(container.env ?? [])];
+    const idx = envPatch.findIndex((e) => e.name === CLUSTER.rtvi.promptKey);
+    if (idx >= 0) envPatch[idx] = { name: CLUSTER.rtvi.promptKey, value: prompt };
+    else envPatch.push({ name: CLUSTER.rtvi.promptKey, value: prompt });
+    await appsV1().patchNamespacedDeployment({
+      name: CLUSTER.rtvi.vlmDeployment,
+      namespace: CLUSTER.rtvi.nimNamespace,
+      body: { spec: { template: { spec: { containers: [{ name: container.name, env: envPatch }] } } } },
+    });
     return;
   }
   await patchConfigMapRawKey(
