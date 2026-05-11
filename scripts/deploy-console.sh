@@ -273,16 +273,24 @@ for ns in console vst rtvi agent alerts demo-data pyramid-ingress; do
 done
 
 echo "==> creating host directory for console PV (/srv/scality/console-data)"
-# Same salt-call pattern as bootstrap-rtvi.sh + bootstrap-vst.sh —
-# artesca-os sudoers blocks mkdir/chmod but permits salt-call, which
-# runs as root on the node.
+# Two paths:
+#   - ARTESCA/MetalK8s (Rocky 8): artesca-os sudoers blocks mkdir/chmod
+#     directly but permits salt-call, which runs as root on the node.
+#   - Brev/k3s (Ubuntu): no salt, but the ubuntu user has plain sudo.
+# Try plain `sudo -n mkdir` first (works on Brev); fall back to salt-call
+# (works on ARTESCA). If both fail, warn — the PV mount will fail and the
+# operator will see a clear MountVolume error.
 if [[ -n "${REMOTE_SSH_TARGET:-}" ]]; then
-  rsh "sudo -n salt-call --local --out=quiet cmd.run '
-     mkdir -p /srv/scality/console-data &&
-     chmod 0777 /srv/scality/console-data
-   '" >/dev/null 2>&1 || {
-    echo "WARN: could not create /srv/scality/console-data via salt-call — PV may fail to bind" >&2
-  }
+  if rsh "sudo -n mkdir -p /srv/scality/console-data && sudo -n chmod 0777 /srv/scality/console-data" >/dev/null 2>&1; then
+    : # success via direct sudo
+  elif rsh "sudo -n salt-call --local --out=quiet cmd.run '
+       mkdir -p /srv/scality/console-data &&
+       chmod 0777 /srv/scality/console-data
+     '" >/dev/null 2>&1; then
+    : # success via salt-call (ARTESCA path)
+  else
+    echo "WARN: could not create /srv/scality/console-data on remote — PV may fail to bind" >&2
+  fi
 fi
 
 echo "==> applying Secrets"
