@@ -13,8 +13,12 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 
 COPY package.json package-lock.json ./
-# Full install (includes devDeps for TypeScript compilation).
-RUN npm ci
+# --ignore-scripts: the package.json `prepare` hook is
+# `cd .. && console/node_modules/.bin/husky console/.husky` — a path that
+# assumes the monorepo layout. Inside the build container we are at /app
+# and there is no parent console/ dir, so npm errors out before the hook
+# can even check HUSKY=0. We don't need git hooks installed in the image.
+RUN npm ci --ignore-scripts
 
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1

@@ -43,10 +43,32 @@ REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 # shellcheck source=/dev/null
 source "$VSS_STATE_FILE"
 : "${PUB_IP:?PUB_IP missing from $VSS_STATE_FILE}"
-KEY_NAME="${KEY_NAME:-isv-labs-ec2}"
-KEY_PATH="${CAMERA_SIM_KEY_FILE:-$HOME/.ssh/${KEY_NAME}.pem}"
-[[ -f "$KEY_PATH" ]] || { echo "ERROR: SSH key $KEY_PATH missing" >&2; exit 1; }
-: "${SSH_USER:=artesca-os}"
+
+# Provider-aware SSH via lib-remote.sh.
+# REMOTE_SSH_OPTS, REMOTE_SSH_TARGET, REMOTE_KUBECONFIG are populated here.
+# shellcheck source=lib-remote.sh
+source "$SCRIPT_DIR/lib-remote.sh"
+# Allow CAMERA_SIM_KEY_FILE to override KEY_NAME-derived path on AWS/OVH.
+if [[ -n "${CAMERA_SIM_KEY_FILE:-}" && -f "$CAMERA_SIM_KEY_FILE" ]]; then
+  KEY_NAME="${KEY_NAME:-isv-labs-ec2}"
+fi
+remote_init || { echo "ERROR: remote_init failed — check state file and SSH config" >&2; exit 1; }
+
+# Importer container image — must have glibc >= the host's so the bind-mounted
+# /host-ctr binary can resolve its dynamic-link deps. Brev workspaces run
+# Ubuntu (glibc 2.34+); AWS ARTESCA AMI is Rocky 8.10 (glibc 2.28).
+# Override with IMPORTER_IMAGE=...
+#
+# Containerd socket path — k3s embeds its own containerd at /run/k3s/...;
+# MetalK8s + standard installs use ${CONTAINERD_SOCK}.
+# Importing to the wrong socket means kubelet won't see the image.
+if [[ "${PROVIDER:-}" == "brev" ]]; then
+  : "${IMPORTER_IMAGE:=docker.io/library/ubuntu:24.04}"
+  : "${CONTAINERD_SOCK:=/run/k3s/containerd/containerd.sock}"
+else
+  : "${IMPORTER_IMAGE:=docker.io/library/rockylinux:8}"
+  : "${CONTAINERD_SOCK:=/run/containerd/containerd.sock}"
+fi
 
 # Image naming: use a repo-local name that is never fetched remotely. Tag
 # from git so reruns skip unchanged builds.
@@ -63,14 +85,13 @@ if [[ -n "$(git -C "$REPO_ROOT" status --porcelain -- console/ 2>/dev/null)" ]];
 fi
 FULL_IMAGE="${IMAGE_REPO}:${TAG_HASH}"
 
-SSH_OPTS=(-i "$KEY_PATH" -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
-KUBECTL_REMOTE="sudo -n kubectl --kubeconfig=/etc/kubernetes/admin.conf"
+KUBECTL_REMOTE="sudo -n kubectl --kubeconfig=${REMOTE_KUBECONFIG}"
 
 # ---------------------------------------------------------------------------
 # Short-circuit: is the tag already in the cluster's containerd cache?
 # ---------------------------------------------------------------------------
 if [[ "${FORCE_BUILD:-0}" != "1" ]]; then
-  if ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
+  if rsh \
       "sudo -n crictl images --no-trunc 2>/dev/null | grep -qE '^${IMAGE_REPO}\\s+${TAG_HASH}\\s'" \
       2>/dev/null; then
     echo "==> $FULL_IMAGE already present in containerd — skipping build"
@@ -123,8 +144,8 @@ ls -lh "$TARBALL" | awk '{print "   ", $5, $9}'
 # ---------------------------------------------------------------------------
 # Ship to node
 # ---------------------------------------------------------------------------
-echo "==> scp to $PUB_IP:/tmp/console-image.tar.gz"
-scp "${SSH_OPTS[@]}" "$TARBALL" "${SSH_USER:-artesca-os}@$PUB_IP:/tmp/console-image.tar.gz"
+echo "==> scp to $REMOTE_SSH_TARGET:/tmp/console-image.tar.gz"
+rscp "$TARBALL" "$REMOTE_SSH_TARGET:/tmp/console-image.tar.gz"
 
 # ---------------------------------------------------------------------------
 # Import into containerd via a one-shot privileged Job.
@@ -154,10 +175,11 @@ spec:
       - operator: Exists
       containers:
       - name: importer
-        # Match the host OS (Rocky 8.10, glibc 2.28) so /host-ctr resolves
-        # libdl.so.2 + friends in /lib64 as it was linked. Debian's
-        # /lib/x86_64-linux-gnu layout doesn't satisfy Rocky binaries.
-        image: docker.io/library/rockylinux:8
+        # Match the host OS glibc so the bind-mounted /host-ctr binary
+        # resolves its dynamic-link deps. AWS/OVH path: Rocky 8.10 host
+        # (glibc 2.28). Brev path: Ubuntu 22+ host (glibc 2.34+).
+        # Importer image is selected at script time via IMPORTER_IMAGE.
+        image: ${IMPORTER_IMAGE}
         command:
         - /bin/sh
         - -c
@@ -167,17 +189,17 @@ spec:
           # ctr import expects a plain tar stream; we ship gzipped to keep
           # the scp small. gunzip -c is part of debian:12-slim by default.
           gunzip -c /tarball/console-image.tar.gz \
-            | /host-ctr --address /run/containerd/containerd.sock \
+            | /host-ctr --address ${CONTAINERD_SOCK} \
               -n=k8s.io images import -
           echo "[importer] images now in k8s.io namespace:"
-          /host-ctr --address /run/containerd/containerd.sock \
+          /host-ctr --address ${CONTAINERD_SOCK} \
             -n=k8s.io images list | grep -E '^${IMAGE_REPO}:' || true
         volumeMounts:
         - name: ctr-bin
           mountPath: /host-ctr
           readOnly: true
         - name: containerd-sock
-          mountPath: /run/containerd/containerd.sock
+          mountPath: ${CONTAINERD_SOCK}
         - name: tarball
           mountPath: /tarball
           readOnly: true
@@ -190,7 +212,7 @@ spec:
           type: File
       - name: containerd-sock
         hostPath:
-          path: /run/containerd/containerd.sock
+          path: ${CONTAINERD_SOCK}
           type: Socket
       - name: tarball
         hostPath:
@@ -199,23 +221,23 @@ spec:
 YAML
 
 echo "==> importing into containerd (job $JOB_NAME)"
-scp "${SSH_OPTS[@]}" "$JOB_YAML" "${SSH_USER:-artesca-os}@$PUB_IP:/tmp/${JOB_NAME}.yaml" >/dev/null
-ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" "$KUBECTL_REMOTE apply -f /tmp/${JOB_NAME}.yaml" >/dev/null
+rscp "$JOB_YAML" "$REMOTE_SSH_TARGET:/tmp/${JOB_NAME}.yaml" >/dev/null
+rsh "$KUBECTL_REMOTE apply -f /tmp/${JOB_NAME}.yaml" >/dev/null
 
 # Wait for completion (up to 5 min — import is local; slow disk pushes it
 # past 1 min). On failure, dump events + pod logs so we can diagnose.
-if ! ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
+if ! rsh \
     "$KUBECTL_REMOTE wait --for=condition=complete --timeout=300s job/${JOB_NAME} -n default" 2>&1 | \
     sed 's/^/    [wait] /' >&2; then
   echo "ERROR: image-import Job did not complete." >&2
   echo "--- Job describe ---" >&2
-  ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
+  rsh \
     "$KUBECTL_REMOTE describe job ${JOB_NAME} -n default" 2>&1 | sed 's/^/    /' >&2 || true
   echo "--- Pod describe ---" >&2
-  ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
+  rsh \
     "$KUBECTL_REMOTE describe pod -l job-name=${JOB_NAME} -n default" 2>&1 | sed 's/^/    /' >&2 || true
   echo "--- Pod logs ---" >&2
-  ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
+  rsh \
     "$KUBECTL_REMOTE logs -l job-name=${JOB_NAME} -n default --tail=200" 2>&1 | sed 's/^/    /' >&2 || true
   exit 1
 fi
@@ -223,9 +245,9 @@ fi
 # Success — dump the importer log so the operator has visible proof, then
 # delete the Job + tarball explicitly (no TTL race).
 echo "--- importer log ---"
-ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
+rsh \
   "$KUBECTL_REMOTE logs -l job-name=${JOB_NAME} -n default --tail=50" 2>&1 | sed 's/^/    /' || true
-ssh "${SSH_OPTS[@]}" "${SSH_USER:-artesca-os}@$PUB_IP" \
+rsh \
   "$KUBECTL_REMOTE delete job ${JOB_NAME} -n default --wait=false >/dev/null 2>&1; rm -f /tmp/${JOB_NAME}.yaml /tmp/console-image.tar.gz" >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
