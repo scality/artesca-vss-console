@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { type V1Pod } from "@kubernetes/client-node";
 import { coreV1, listAllPodsInNs, watchedNamespaces } from "@/lib/k8s";
+import { CLUSTER } from "@/lib/cluster-refs";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger("overview-collector");
@@ -250,9 +251,12 @@ async function collectK8sOverview(
 
   let nim: OverviewSnapshot["nim"] = { ready: false, warmupPct: 0, queueDepth: 0 };
   try {
-    const rtviPods = await listAllPodsInNs(coreV1(), "rtvi");
-    const nimPods = rtviPods.filter((p) =>
-      p.metadata?.name?.includes("nim")
+    // Helm: NIM pods are in vss-<profile> namespace, named nvidia-nemotron-nano-9b-v2-*.
+    // Legacy: NIM pods are in rtvi namespace.
+    const nimNs = CLUSTER.rtvi.nimNamespace;
+    const nimPods_ = await listAllPodsInNs(coreV1(), nimNs);
+    const nimPods = nimPods_.filter((p) =>
+      p.metadata?.name?.includes("nim") || p.metadata?.name?.includes("nemotron") || p.metadata?.name?.includes("cosmos")
     );
     const anyReady = nimPods.some((p) =>
       p.status?.conditions?.find(

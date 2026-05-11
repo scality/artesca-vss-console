@@ -207,14 +207,15 @@ export function CameraSimActionsRenderer({ snapshot }: TabRendererProps) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Rollout Restart — shared by sensor-ms, streamprocessing-ms, rtvi-vlm,
-// rtvi-embed, nim-cosmos-reason2, alert-worker, agent, mediamtx
+// Rollout Restart — shared across legacy and Helm topology node IDs
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Map from topology node IDs to the component IDs accepted by /api/restart/[component].
 // The key is the nodeId used in the pipeline snapshot; value is the restartable key
 // from CLUSTER.restartable in cluster-refs.ts.
+// Covers both legacy node IDs and Helm node IDs — each path only uses its own subset.
 const NODE_TO_RESTART_KEY: Record<string, string> = {
+  // Legacy node IDs
   "sensor-ms": "sensor-ms",
   "streamprocessing-ms": "streamprocessing-ms",
   "rtvi-vlm": "rtvi-vlm",
@@ -222,6 +223,14 @@ const NODE_TO_RESTART_KEY: Record<string, string> = {
   "nim-cosmos-reason2": "cosmos-reason2-8b",
   "alert-worker": "alert-worker",
   agent: "nvidia-vss-agent",
+  // Helm node IDs
+  "vss-vios-sensor": "vss-vios-sensor",
+  "vss-vios-streamprocessing": "vss-vios-streamprocessing",
+  "vss-rtvi-vlm": "vss-rtvi-vlm",
+  "nim-nemotron-nano": "nvidia-nemotron-nano-9b-v2",
+  "vss-video-analytics-api": "vss-video-analytics-api",
+  "vss-agent": "vss-agent",
+  // Common
   mediamtx: "mediamtx", // no matching RESTARTABLE entry — button will be disabled
 };
 
@@ -233,10 +242,16 @@ function RolloutRestartRenderer({ componentKey }: RolloutRestartRendererProps) {
   const { toast } = useToast();
   const [confirm, setConfirm] = React.useState(false);
 
-  // Known restartable keys from cluster-refs.ts RESTARTABLE map
+  // Known restartable keys from cluster-refs.ts RESTARTABLE map (both layouts)
   const KNOWN_KEYS = new Set([
+    // Legacy
     "sensor-ms", "streamprocessing-ms", "rtvi-vlm", "rtvi-embed",
-    "cosmos-reason2-8b", "alert-worker", "nvidia-vss-agent", "demo-producer",
+    "cosmos-reason2-8b", "alert-worker", "nvidia-vss-agent",
+    // Helm
+    "vss-vios-sensor", "vss-vios-streamprocessing", "vss-rtvi-vlm",
+    "nvidia-nemotron-nano-9b-v2", "vss-video-analytics-api", "vss-agent",
+    // Common
+    "demo-producer",
   ]);
   const isKnown = KNOWN_KEYS.has(componentKey);
 
@@ -332,6 +347,7 @@ function makeRolloutRenderer(nodeId: string) {
   };
 }
 
+// Legacy node renderers
 export const SensorMsActionsRenderer = makeRolloutRenderer("sensor-ms");
 export const StreamProcessingActionsRenderer = makeRolloutRenderer("streamprocessing-ms");
 export const RtviVlmActionsRenderer = makeRolloutRenderer("rtvi-vlm");
@@ -344,6 +360,15 @@ const NimCosmosActionsRenderer = makeRolloutRenderer("nim-cosmos-reason2");
 export const AlertWorkerActionsRenderer = makeRolloutRenderer("alert-worker");
 export const AgentActionsRenderer = makeRolloutRenderer("agent");
 
+// Helm node renderers
+export const VssViosSensorActionsRenderer = makeRolloutRenderer("vss-vios-sensor");
+export const VssViosStreamActionsRenderer = makeRolloutRenderer("vss-vios-streamprocessing");
+export const VssRtviVlmActionsRenderer = makeRolloutRenderer("vss-rtvi-vlm");
+export const VssVideoAnalyticsActionsRenderer = makeRolloutRenderer("vss-video-analytics-api");
+export const VssAgentActionsRenderer = makeRolloutRenderer("vss-agent");
+const NimNemotronActionsRenderer = makeRolloutRenderer("nim-nemotron-nano");
+
+// Common
 // mediamtx — no RESTARTABLE entry — button disabled
 export const MediamtxActionsRenderer = makeRolloutRenderer("mediamtx");
 
@@ -503,6 +528,25 @@ export function NimCosmosActionsFullRenderer(props: TabRendererProps) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// nim-nemotron-nano — combined actions (restart + swap model) — Helm path
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function NimNemotronActionsFullRenderer(props: TabRendererProps) {
+  return (
+    <div className="space-y-5">
+      <div>
+        <p className="text-xs font-medium mb-2">Restart</p>
+        <NimNemotronActionsRenderer {...props} />
+      </div>
+      <div className="border-t border-border pt-3">
+        <p className="text-xs font-medium mb-2">Model</p>
+        <NimCosmosSwapModelRenderer {...props} />
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // feed:* — per-feed actions (Remove + Copy RTSP URL + View in sensor-ms)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -568,12 +612,15 @@ export function FeedActionsRenderer({ nodeId, runtimeState }: TabRendererProps) 
           variant="outline"
           size="sm"
           className="w-full"
-          onClick={() => window.open(`http://sensor-ms.vst.svc.cluster.local:30888/`, "_blank")}
+          onClick={() => window.open(
+            process.env.NEXT_PUBLIC_VST_INGRESS_URL ?? "http://localhost:30888/",
+            "_blank",
+          )}
         >
-          View in sensor-ms
+          View VST sensor UI
         </Button>
         <p className="text-xs text-muted-foreground mt-1">
-          Opens the sensor-ms UI — only accessible from within the cluster.
+          Opens the VST sensor UI — only accessible from within the cluster.
         </p>
       </div>
 

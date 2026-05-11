@@ -376,6 +376,13 @@ if [[ -z "$S3_BUCKET_VALUE" ]]; then
 fi
 echo "==> S3_ENDPOINT=$S3_ENDPOINT_VALUE  S3_BUCKET=$S3_BUCKET_VALUE"
 
+# Derive VSS_NAMESPACE from SCALITY_BP_PROFILE env or .stack-state.env.
+# Format: vss-<profile> (e.g. vss-base, vss-alerts, vss-dev-profile-alerts).
+# Operators can override by exporting VSS_NAMESPACE before calling this script.
+_BP_PROFILE="${SCALITY_BP_PROFILE:-${BP_PROFILE:-base}}"
+VSS_NAMESPACE_VALUE="${VSS_NAMESPACE:-vss-${_BP_PROFILE}}"
+echo "==> VSS_NAMESPACE=$VSS_NAMESPACE_VALUE (from SCALITY_BP_PROFILE=${_BP_PROFILE})"
+
 kubectl kustomize "$CONSOLE_DIR" \
   | python3 -c '
 import sys, yaml
@@ -384,6 +391,7 @@ node_hostname = sys.argv[2]
 camsim_pub_ip = sys.argv[3]
 s3_endpoint_value = sys.argv[4]
 s3_bucket_value = sys.argv[5]
+vss_namespace_value = sys.argv[6]
 docs = list(yaml.safe_load_all(sys.stdin))
 for d in docs:
     if not d:
@@ -412,8 +420,13 @@ for d in docs:
         s3_bucket = data.get("S3_BUCKET", "") or ""
         if s3_bucket in ("", "nvidia-vss-video"):
             data["S3_BUCKET"] = s3_bucket_value
+        # Render VSS_NAMESPACE from SCALITY_BP_PROFILE if still at default.
+        existing_ns = data.get("VSS_NAMESPACE", "") or ""
+        if existing_ns in ("", "vss-base"):
+            data["VSS_NAMESPACE"] = vss_namespace_value
 yaml.safe_dump_all([d for d in docs if d], sys.stdout, default_flow_style=False)
 ' "$IMAGE_REPO" "$NODE_HOSTNAME" "$CAMSIM_PUB_IP" "$S3_ENDPOINT_VALUE" "$S3_BUCKET_VALUE" \
+  "$VSS_NAMESPACE_VALUE" \
   | kubectl apply -f -
 
 # Resolve the image tag used by the just-applied manifest for the state file.

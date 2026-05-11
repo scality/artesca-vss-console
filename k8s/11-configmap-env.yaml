@@ -4,26 +4,49 @@ metadata:
   name: console-env
   namespace: console
 data:
-  # Comma-separated list of namespaces the console monitors and can write to.
-  KUBE_NAMESPACES: "vst,rtvi,agent,alerts,demo-data,pyramid-ingress"
+  # ── Helm layout profile ───────────────────────────────────────────────────────
+  # VSS_NAMESPACE: Helm release namespace. All VSS services run here.
+  #   Format: vss-<profile>  (e.g. vss-base, vss-alerts, vss-dev-profile-alerts)
+  #   Drives: Kafka brokers, Redis URL, VST sensor/ingress URLs, restartable map.
+  #   deploy-console.sh renders this from SCALITY_BP_PROFILE (default: base).
+  VSS_NAMESPACE: "vss-base"
 
-  # Kafka — Redpanda StatefulSet "redpanda" in namespace "rtvi" (k8s/nvidia-vss/rtvi/20-redpanda.yaml).
-  # All pods use hostNetwork; the console uses the headless service DNS name.
-  # Override if the cluster routes Kafka differently.
-  KAFKA_BROKERS: "redpanda.rtvi.svc.cluster.local:9092"
+  # CONSOLE_LEGACY_NAMESPACES: set to "1" to enable the pre-Helm namespace layout
+  # (vst / rtvi / agent / alerts). Unset or "0" = Helm layout (default).
+  # CONSOLE_LEGACY_NAMESPACES: "0"
 
-  # Redis — Deployment "redis" in namespace "vst" (k8s/nvidia-vss/vst/21-redis.yaml).
-  # Used by alert-worker, rtvi-vlm, and rtvi-embed for shared state.
-  # The original default (alerts-redis.alerts) was wrong — Redis lives in vst.
-  REDIS_URL: "redis://redis.vst.svc.cluster.local:6379"
+  # ── Namespaces the console monitors ──────────────────────────────────────────
+  # Helm default: "<VSS_NAMESPACE>,demo-data,pyramid-ingress"
+  # Legacy override: "vst,rtvi,agent,alerts,demo-data,pyramid-ingress"
+  # Set explicitly only when the auto-derived value is wrong.
+  # KUBE_NAMESPACES: ""
 
-  # ARTESCA S3 endpoint and bucket for video clip storage.
+  # ── Kafka ─────────────────────────────────────────────────────────────────────
+  # Helm: Confluent kafka-kafka headless service in vss-<profile>.
+  #   Verified on live cluster 2026-05-11: kafka-kafka.<vss-ns>.svc.cluster.local:9092
+  # Legacy: redpanda.rtvi.svc.cluster.local:9092
+  # Auto-derived from VSS_NAMESPACE when unset — override only to pin explicitly.
+  # KAFKA_BROKERS: "kafka-kafka.vss-base.svc.cluster.local:9092"
+
+  # ── Redis ─────────────────────────────────────────────────────────────────────
+  # Helm: redis.<vss-ns>.svc.cluster.local:6379
+  # Legacy: redis://redis.vst.svc.cluster.local:6379
+  # Auto-derived from VSS_NAMESPACE when unset.
+  # REDIS_URL: "redis://redis.vss-base.svc.cluster.local:6379"
+
+  # ── VST sensor API ────────────────────────────────────────────────────────────
+  # Helm: vss-vios-sensor.<vss-ns>.svc.cluster.local:30000
+  # Legacy: sensor-ms.vst.svc.cluster.local:30000
+  # Auto-derived from VSS_NAMESPACE when unset.
+  # VST_SENSOR_URL: "http://vss-vios-sensor.vss-base.svc.cluster.local:30000/api/v1/live/sensor"
+
+  # ── ARTESCA S3 endpoint and bucket ───────────────────────────────────────────
   # Replace <base-domain> with the ARTESCA base domain used at install time
   # (the --base-domain flag passed to artesca-installer deploy).
   S3_ENDPOINT: "https://s3.<base-domain>"
   S3_BUCKET: "nvidia-vss-video"
 
-  # Camera-sim EC2 — SSH connection details.
+  # ── Camera-sim EC2 ───────────────────────────────────────────────────────────
   # CAMERA_SIM_HOST      : public IP or DNS name of the camera-sim instance.
   #                        Also used as the mediamtx host (port 9997) unless
   #                        MEDIAMTX_API_URL is set explicitly.
@@ -37,39 +60,33 @@ data:
   # Defaults to http://<CAMERA_SIM_HOST>:9997 if not set.
   # MEDIAMTX_API_URL: "http://<camera-sim-public-ip>:9997"
 
-  # VST sensor-ms API base URL.  sensor-ms binds port 30000 (k8s/nvidia-vss/vst/30-sensor-ms.yaml).
-  # The original .env.example used port 5010, which is wrong.
-  VST_SENSOR_URL: "http://sensor-ms.vst.svc.cluster.local:30000/api/v1/live/sensor"
+  # ── Alert worker ─────────────────────────────────────────────────────────────
+  # Helm: vss-video-analytics-api.<vss-ns>.svc.cluster.local:9101
+  # Legacy: alert-worker.alerts.svc.cluster.local:9101
+  # Auto-derived from VSS_NAMESPACE when unset.
+  # ALERT_WORKER_URL: "http://vss-video-analytics-api.vss-base.svc.cluster.local:9101"
 
-  # alert-worker HTTP API (k8s/nvidia-vss/alerts/20-alert-worker.yaml, hostPort 9101).
-  # Headless Service defined in k8s/nvidia-vss/alerts/21-alert-worker-service.yaml.
-  ALERT_WORKER_URL: "http://alert-worker.alerts.svc.cluster.local:9101"
-
-  # Prometheus — ARTESCA kube-prometheus-stack in artesca-monitoring namespace.
-  # Service name "prometheus-operated" confirmed on the live cluster (headless,
-  # StatefulSet prometheus-prometheus-ltm, endpoint 10.233.138.187:9090).
+  # ── Prometheus ────────────────────────────────────────────────────────────────
+  # ARTESCA kube-prometheus-stack in artesca-monitoring namespace.
   PROMETHEUS_URL: "http://prometheus-operated.artesca-monitoring.svc.cluster.local:9090"
 
-  # SQLite database directory — profiles, audit log, SG whitelist.
+  # ── SQLite database ───────────────────────────────────────────────────────────
   # Backed by PVC console-data (5 Gi, ReadWriteOnce).
   CONSOLE_DATA_DIR: "/data"
 
-  # Preview NIM endpoint — NVILA-Lite-2B sharing GPU 0 with the primary NIM.
-  # Used by /api/prompt/preview (dry-run prompt evaluation without touching
-  # the live inference path). Leave as-is if using the default in-cluster URL.
-  # Flag: ASSUMED — no nim-preview Deployment found in k8s/nvidia-vss/rtvi/; confirm name at deploy.
-  NIM_PREVIEW_ENDPOINT: "http://nvila-lite-preview.rtvi.svc.cluster.local:8000"
+  # ── NIM preview endpoint ──────────────────────────────────────────────────────
+  # Helm: nvila-lite-preview.<vss-ns>.svc.cluster.local:8000
+  # Legacy: nvila-lite-preview.rtvi.svc.cluster.local:8000
+  # Auto-derived from VSS_NAMESPACE when unset.
+  # NIM_PREVIEW_ENDPOINT: "http://nvila-lite-preview.vss-base.svc.cluster.local:8000"
 
-  # Model catalog selection — drives which card in console/src/data/model-catalog.json
-  # is rendered as primary / preview on the Prompt page. Matched against ModelCard.image
-  # (exact) first, then partial match on image or displayName.
-  # cosmos-reason1-7b is the L4-capable primary (cosmos-reason2-8b needs >56 GB VRAM).
-  NIM_CURRENT_MODEL: "cosmos-reason1-7b"
+  # ── Model catalog ─────────────────────────────────────────────────────────────
+  # Drives which card in console/src/data/model-catalog.json is rendered as
+  # primary / preview on the Prompt page.
+  NIM_CURRENT_MODEL: "nvidia-nemotron-nano-9b-v2"
   NIM_PREVIEW_MODEL: "nvila-lite-2b"
 
-  # next-auth base URL — must be reachable from inside the pod for callbacks.
-  # For in-cluster callers (health probes, AI agents) use the ClusterIP service.
-  # If the console is reached from a laptop via NodePort, set NEXTAUTH_URL to
-  # http://<ARTESCA-public-IP>:8800 instead.
+  # ── NextAuth ──────────────────────────────────────────────────────────────────
+  # Must be reachable from inside the pod for callbacks.
   NEXTAUTH_URL: "http://console.console.svc.cluster.local:8800"
   CONSOLE_DISABLE_AUTH: "true"

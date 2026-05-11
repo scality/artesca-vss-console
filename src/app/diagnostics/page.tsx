@@ -28,7 +28,7 @@ const AVAILABLE_TESTS: Array<{ id: string; label: string; description: string }>
   {
     id: "smoke-phase3",
     label: "Phase 3 smoke test",
-    description: "rtvi-vlm liveness + NIM /health probe.",
+    description: "VLM (vss-rtvi-vlm) liveness + NIM /health probe.",
   },
   {
     id: "smoke-phase4",

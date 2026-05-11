@@ -33,7 +33,7 @@ interface StepState {
 
 const INITIAL_STEPS: StepState[] = [
   { label: "Patching ConfigMap...", status: "pending" },
-  { label: "Restarting rtvi-vlm...", status: "pending" },
+  { label: "Restarting VLM...", status: "pending" },
   { label: "Done", status: "pending" },
 ];
 
@@ -94,7 +94,7 @@ export function RtviTuningForm() {
       setStep(1, "done");
       setStep(2, "done");
       await queryClient.invalidateQueries({ queryKey: ["tuning", "rtvi"] });
-      toast({ title: "rtvi-vlm tuning saved — restarting" });
+      toast({ title: "VLM tuning saved — restarting" });
       setTimeout(() => setConfirmOpen(false), 1000);
     } catch (err) {
       setStep(0, "error");
@@ -116,9 +116,9 @@ export function RtviTuningForm() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-base font-semibold">rtvi-vlm Tuning</h3>
+          <h3 className="text-base font-semibold">VLM Tuning</h3>
           <p className="text-sm text-muted-foreground">
-            Inference engine parameters. Changes restart rtvi-vlm (~30 s).
+            Inference engine parameters. Changes restart the VLM (~30 s).
           </p>
         </div>
         <Button
@@ -206,9 +206,9 @@ export function RtviTuningForm() {
       <Dialog open={confirmOpen} onOpenChange={saving ? undefined : setConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Save rtvi-vlm Tuning?</DialogTitle>
+            <DialogTitle>Save VLM Tuning?</DialogTitle>
             <DialogDescription>
-              This will patch the deployment and restart rtvi-vlm.
+              This will patch the deployment and restart the VLM.
             </DialogDescription>
           </DialogHeader>
 
@@ -228,7 +228,7 @@ export function RtviTuningForm() {
             <div className="flex items-start gap-2 rounded-md border border-yellow-600/40 bg-yellow-600/10 p-3">
               <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
               <p className="text-sm text-yellow-300">
-                rtvi-vlm will restart — expect ~30 s inference downtime.
+                The VLM will restart — expect ~30 s inference downtime.
               </p>
             </div>
           )}

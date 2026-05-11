@@ -31,7 +31,12 @@ export function batchV1(): BatchV1Api {
 }
 
 export function watchedNamespaces(): string[] {
-  const raw = process.env.KUBE_NAMESPACES ?? "vst,rtvi,agent,alerts,demo-data,pyramid-ingress";
+  const legacy = process.env.CONSOLE_LEGACY_NAMESPACES === "1";
+  const vssNs = process.env.VSS_NAMESPACE ?? "vss-base";
+  const defaultNs = legacy
+    ? "vst,rtvi,agent,alerts,demo-data,pyramid-ingress"
+    : `${vssNs},demo-data,pyramid-ingress`;
+  const raw = process.env.KUBE_NAMESPACES ?? defaultNs;
   return raw.split(",").map((ns) => ns.trim()).filter(Boolean);
 }
 

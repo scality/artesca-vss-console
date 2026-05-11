@@ -23,7 +23,7 @@ function buildServiceUrls(): ServiceUrlRow[] {
     {
       label: "VST Sensor URL",
       envVar: "VST_SENSOR_URL",
-      value: process.env.VST_SENSOR_URL ?? "http://sensor-ms.vst.svc.cluster.local:5010/api/v1/live/sensor",
+      value: process.env.VST_SENSOR_URL ?? "(defaults from VSS_NAMESPACE)",
     },
     {
       label: "VST MS URL",

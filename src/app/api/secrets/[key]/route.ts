@@ -10,6 +10,7 @@ import { auditLog } from "@/lib/helpers/audit";
 import { inspectContainer, dockerSock } from "@/lib/helpers/docker-sock";
 import fs from "fs/promises";
 import path from "path";
+import { CLUSTER } from "@/lib/cluster-refs";
 
 export const dynamic = "force-dynamic";
 
@@ -92,39 +93,54 @@ interface SecretSpec {
   restartTargets?: RestartTarget[];
 }
 
+// Helm: all VSS secrets live in vss-<profile>.
+// Legacy: secrets split across rtvi / alerts namespaces.
+const _VSS_NS = CLUSTER.secretsNamespace;
+const _legacy = CLUSTER.legacy;
+
+// Resolve namespace: use vss-<profile> under Helm, per-component under legacy.
+function vssNs(): string {
+  return _VSS_NS ?? "vss-base";
+}
+
 const SECRET_REGISTRY: Record<string, SecretSpec> = {
   "ngc-key": {
-    namespace: "rtvi",
+    namespace: _legacy ? "rtvi" : vssNs(),
     secretName: "ngc-secret",
     fields: [{ dataKey: "NGC_API_KEY" }],
-    restartTargets: [
-      { kind: "Deployment", namespace: "rtvi", name: "nim-cosmos-reason2" },
-      { kind: "Deployment", namespace: "rtvi", name: "nim-preview" },
-    ],
+    restartTargets: _legacy
+      ? [
+          { kind: "Deployment", namespace: "rtvi", name: "nim-cosmos-reason2" },
+          { kind: "Deployment", namespace: "rtvi", name: "nim-preview" },
+        ]
+      : [
+          { kind: "Deployment", namespace: vssNs(), name: "nvidia-nemotron-nano-9b-v2" },
+          { kind: "Deployment", namespace: vssNs(), name: "vss-rtvi-vlm" },
+        ],
   },
   "nvidia-api-key": {
-    namespace: "rtvi",
-    secretName: "nvidia-api-secret",
-    fields: [{ dataKey: "NVIDIA_API_KEY" }],
-    restartTargets: [
-      { kind: "Deployment", namespace: "rtvi", name: "rtvi-vlm" },
-    ],
+    namespace: _legacy ? "rtvi" : vssNs(),
+    secretName: _legacy ? "nvidia-api-secret" : "ngc-api",
+    fields: [{ dataKey: _legacy ? "NVIDIA_API_KEY" : "key" }],
+    restartTargets: _legacy
+      ? [{ kind: "Deployment", namespace: "rtvi", name: "rtvi-vlm" }]
+      : [{ kind: "Deployment", namespace: vssNs(), name: "vss-rtvi-vlm" }],
   },
   "huggingface-token": {
-    namespace: "rtvi",
-    secretName: "hf-secret",
+    namespace: _legacy ? "rtvi" : vssNs(),
+    secretName: _legacy ? "hf-secret" : "ngc-secret",
     fields: [{ dataKey: "HF_TOKEN" }],
-    restartTargets: [
-      { kind: "Deployment", namespace: "rtvi", name: "rtvi-embed" },
-    ],
+    restartTargets: _legacy
+      ? [{ kind: "Deployment", namespace: "rtvi", name: "rtvi-embed" }]
+      : [{ kind: "Deployment", namespace: vssNs(), name: "vss-rtvi-vlm" }],
   },
   "slack-webhook-url": {
-    namespace: "alerts",
-    secretName: "alert-worker-secrets",
+    namespace: _legacy ? "alerts" : vssNs(),
+    secretName: _legacy ? "alert-worker-secrets" : "ngc-secret",
     fields: [{ dataKey: "SLACK_WEBHOOK_URL" }],
-    restartTargets: [
-      { kind: "Deployment", namespace: "alerts", name: "alert-worker" },
-    ],
+    restartTargets: _legacy
+      ? [{ kind: "Deployment", namespace: "alerts", name: "alert-worker" }]
+      : [{ kind: "Deployment", namespace: vssNs(), name: "vss-video-analytics-api" }],
   },
   // Deployed k8s/console/10-secrets.yaml uses plain `CONSOLE_PASSWORD`
   // consumed through `envFrom` → process.env.CONSOLE_PASSWORD, which

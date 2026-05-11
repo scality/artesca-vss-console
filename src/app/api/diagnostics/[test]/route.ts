@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { coreV1 } from "@/lib/k8s";
+import { coreV1, watchedNamespaces } from "@/lib/k8s";
 import { sshExec } from "@/lib/ssh";
 import { auditLog } from "@/lib/helpers/audit";
 import { dockerSock } from "@/lib/helpers/docker-sock";
@@ -87,15 +87,7 @@ export const POST = withRequestContext(async function (
         stdout = "k8s events not available in docker mode";
         exitCode = 0;
       } else {
-        const namespaces = [
-          "vst",
-          "rtvi",
-          "agent",
-          "alerts",
-          "demo-data",
-          "pyramid-ingress",
-          "console",
-        ];
+        const namespaces = [...watchedNamespaces(), "console"];
         const eventLines: string[] = [];
         for (const ns of namespaces) {
           try {

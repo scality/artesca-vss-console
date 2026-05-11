@@ -11,15 +11,20 @@ import { createSseResponse } from "@/lib/streams/sse";
 import { streamDockerLogs } from "@/lib/helpers/docker-sock";
 import { KubeConfig, Log } from "@kubernetes/client-node";
 import { PassThrough } from "stream";
+import { watchedNamespaces } from "@/lib/k8s";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const DEFAULT_NAMESPACES = ["vst", "rtvi", "agent", "alerts", "demo-data", "pyramid-ingress", "console"];
+// Lazy-evaluated so VSS_NAMESPACE / CONSOLE_LEGACY_NAMESPACES are read at
+// request time (the module is imported once at server startup).
+function defaultNamespaces(): string[] {
+  return [...watchedNamespaces(), "console"];
+}
 
 function getAllowedNamespaces(): Set<string> {
   const raw = process.env.KUBE_NAMESPACES;
-  if (!raw || raw.trim() === "") return new Set(DEFAULT_NAMESPACES);
+  if (!raw || raw.trim() === "") return new Set(defaultNamespaces());
   return new Set(
     raw
       .split(",")

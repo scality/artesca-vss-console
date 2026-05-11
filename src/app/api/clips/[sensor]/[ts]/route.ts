@@ -5,7 +5,7 @@
 // Resolution order:
 //   1. Server-side cache (/data/clip-cache/<sensor>-<ts>/index.m3u8) — hit → serve.
 //   2. S3 bucket `nvidia-vss-video`: key `<sensor>/<ts-rounded>.mp4`.
-//   3. VST clip endpoint: http://sensor-ms.vst.svc.cluster.local:5010/...
+//   3. VST clip endpoint (VST_MS_URL, defaults from VSS_NAMESPACE).
 //
 // Response headers:
 //   X-Cache: hit | miss
@@ -13,6 +13,7 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { CLUSTER } from "@/lib/cluster-refs";
 import {
   cacheDir,
   cachePath,
@@ -62,9 +63,7 @@ async function fetchFromVst(
   sensor: string,
   ts: string
 ): Promise<Buffer | null> {
-  const vstBase =
-    process.env.VST_MS_URL ??
-    "http://sensor-ms.vst.svc.cluster.local:5010";
+  const vstBase = process.env.VST_MS_URL ?? CLUSTER.vst.msUrl;
   const start = new Date(new Date(ts).getTime() - 5_000).toISOString();
   const end = new Date(new Date(ts).getTime() + 5_000).toISOString();
   const url = `${vstBase}/api/v1/live/sensor/${encodeURIComponent(sensor)}/clip?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;

@@ -22,6 +22,14 @@ vi.mock("@/lib/k8s", () => ({
   rolloutRestart: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Force legacy layout so secret namespaces ("rtvi", "alerts") match test assertions.
+vi.mock("@/lib/cluster-refs", () => ({
+  CLUSTER: {
+    legacy: true,
+    secretsNamespace: undefined,
+  },
+}));
+
 vi.mock("@/lib/errors", () => ({
   extractK8sError: vi.fn((err) => ({ status: 500, message: String(err) })),
 }));

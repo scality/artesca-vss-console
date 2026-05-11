@@ -107,6 +107,8 @@ beforeEach(() => {
   // Default: k8s mode.
   delete process.env.KUBE_NAMESPACES;
   delete process.env.CONSOLE_RUNTIME;
+  // Use legacy namespace layout so "vst" is in the default allowlist.
+  vi.stubEnv("CONSOLE_LEGACY_NAMESPACES", "1");
 });
 
 afterEach(() => {

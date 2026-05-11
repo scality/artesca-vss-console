@@ -277,10 +277,15 @@ async function fetchLocalCacheFill(
     }
   }
 
+  // Helm: sensor pod label is app.kubernetes.io/name=vss-vios-sensor.
+  // Legacy: app=sensor-ms.
+  const sensorLabel = CLUSTER.legacy
+    ? "app=sensor-ms"
+    : "app.kubernetes.io/name=vss-vios-sensor";
   try {
     const result = await runInPod(
       CLUSTER.vst.namespace,
-      "app=sensor-ms",
+      sensorLabel,
       [
         "sh",
         "-c",
@@ -300,7 +305,7 @@ async function fetchLocalCacheFill(
     log.warn("localCacheFillPercent unavailable", { err: String(err) });
     alerts.push({
       severity: "warn",
-      message: "Local cache fill unavailable — could not exec into sensor-ms pod",
+      message: `Local cache fill unavailable — could not exec into ${CLUSTER.vst.sensorDeployment} pod`,
     });
     return null;
   }

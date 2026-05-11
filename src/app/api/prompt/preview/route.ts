@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { withRequestContext } from "@/lib/with-request-context";
+import { CLUSTER } from "@/lib/cluster-refs";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,7 @@ export const POST = withRequestContext(async function (req: NextRequest) {
   const { prompt, userMessage } = parsed.data;
 
   const previewEndpoint =
-    process.env.NIM_PREVIEW_ENDPOINT ??
-    "http://nim-preview.rtvi.svc.cluster.local:8000/v1/chat/completions";
+    `${process.env.NIM_PREVIEW_ENDPOINT ?? CLUSTER.nim.previewEndpoint}/v1/chat/completions`;
 
   const previewModel =
     process.env.NIM_PREVIEW_MODEL ?? "nvila-lite-2b";

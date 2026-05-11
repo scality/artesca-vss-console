@@ -139,7 +139,7 @@ describe("POST /api/prompt/preview", () => {
 
     // Verify the upstream request shape.
     const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
-    expect(url).toContain("nim-preview");
+    expect(url).toContain("nvila-lite-preview");
     const upstreamBody = JSON.parse(init.body as string);
     expect(upstreamBody.messages).toHaveLength(2);
     expect(upstreamBody.messages[0].role).toBe("system");
@@ -212,8 +212,8 @@ describe("POST /api/prompt/preview", () => {
     expect(body.model).toBe("nvila-lite-2b");
   });
 
-  it("NIM_PREVIEW_ENDPOINT env var is used when set", async () => {
-    process.env.NIM_PREVIEW_ENDPOINT = "http://custom-nim:9090/v1/chat/completions";
+  it("NIM_PREVIEW_ENDPOINT env var is used when set (base URL — route appends /v1/chat/completions)", async () => {
+    process.env.NIM_PREVIEW_ENDPOINT = "http://custom-nim:9090";
     vi.stubGlobal("fetch", makeFetchOk());
 
     const req = makeRequest(VALID_BODY);

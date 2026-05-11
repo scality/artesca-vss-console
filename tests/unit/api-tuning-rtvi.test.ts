@@ -19,6 +19,22 @@ vi.mock("@/lib/k8s", () => ({
   rolloutRestart: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Force legacy layout so ConfigMap names, namespace, and NIM kind match test assertions.
+vi.mock("@/lib/cluster-refs", () => ({
+  CLUSTER: {
+    legacy: true,
+    rtvi: {
+      runtimeEnvCm: "rtvi-runtime-env",
+      nimTuningConfigMap: "",
+      nimTuningNamespace: "rtvi",
+      nimMaxNumSeqsKey: "NIM_MAX_NUM_SEQS",
+      nimKvCacheKey: "VLM_NIM_KVCACHE_PERCENT",
+      nimMaxModelLenKey: "NIM_MAX_MODEL_LEN",
+      nimStatefulSet: "cosmos-reason2-8b",
+    },
+  },
+}));
+
 vi.mock("@/lib/helpers/configmaps", () => ({
   readConfigMapKey: vi.fn(),
   patchConfigMapKey: vi.fn().mockResolvedValue(undefined),
