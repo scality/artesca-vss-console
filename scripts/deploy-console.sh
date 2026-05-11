@@ -48,7 +48,11 @@ if [[ -f "$VSS_STATE_FILE" ]]; then
   # shellcheck source=/dev/null
   source "$VSS_STATE_FILE"
 fi
-: "${SSH_USER:=artesca-os}"
+# Provider-aware SSH via lib-remote.sh.
+# shellcheck source=lib-remote.sh
+source "$SCRIPT_DIR/lib-remote.sh"
+# remote_init is called after state files are sourced; defer until state is loaded.
+# SSH_USER default is set below for lib-kubectl.sh compatibility.
 
 # ---------------------------------------------------------------------------
 # State file — read by deployer/lib/console-deploy.ts to surface stage outcome.
@@ -96,6 +100,11 @@ trap on_exit EXIT
 
 # Mark "running" immediately so the dashboard sees active state.
 write_state "" ""
+
+# Initialise provider-aware SSH now that state files are loaded.
+if [[ -n "${PUB_IP:-}" ]]; then
+  remote_init || { echo "FATAL: remote_init failed — check state file and SSH config" >&2; exit 1; }
+fi
 
 # Open the SSH tunnel + kubeconfig once the state-file trap is in place.
 if [[ -n "${PUB_IP:-}" ]]; then
@@ -267,15 +276,14 @@ echo "==> creating host directory for console PV (/srv/scality/console-data)"
 # Same salt-call pattern as bootstrap-rtvi.sh + bootstrap-vst.sh —
 # artesca-os sudoers blocks mkdir/chmod but permits salt-call, which
 # runs as root on the node.
-KEY_PATH_HOST="${KEY_PATH:-$HOME/.ssh/${KEY_NAME:-isv-labs-ec2}.pem}"
-ssh -i "$KEY_PATH_HOST" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
-  -o ConnectTimeout=10 "${SSH_USER:-artesca-os}@$PUB_IP" \
-  "sudo -n salt-call --local --out=quiet cmd.run '
+if [[ -n "${REMOTE_SSH_TARGET:-}" ]]; then
+  rsh "sudo -n salt-call --local --out=quiet cmd.run '
      mkdir -p /srv/scality/console-data &&
      chmod 0777 /srv/scality/console-data
    '" >/dev/null 2>&1 || {
-  echo "WARN: could not create /srv/scality/console-data via salt-call — PV may fail to bind" >&2
-}
+    echo "WARN: could not create /srv/scality/console-data via salt-call — PV may fail to bind" >&2
+  }
+fi
 
 echo "==> applying Secrets"
 kubectl apply -f "$SECRETS_FILE"
