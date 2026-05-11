@@ -383,6 +383,18 @@ _BP_PROFILE="${SCALITY_BP_PROFILE:-${BP_PROFILE:-base}}"
 VSS_NAMESPACE_VALUE="${VSS_NAMESPACE:-vss-${_BP_PROFILE}}"
 echo "==> VSS_NAMESPACE=$VSS_NAMESPACE_VALUE (from SCALITY_BP_PROFILE=${_BP_PROFILE})"
 
+# CONSOLE_LEGACY_NAMESPACES: "1" when the workload side uses the legacy manifest
+# path (VSS_DEPLOY_PATH=legacy — four namespaces: vst/rtvi/nvidia-vss-single-gpu/alerts).
+# "0" when the helm path is active (single vss-<profile> namespace).
+# Defaults to "1" (legacy) when VSS_DEPLOY_PATH is absent — matches the existing
+# production path and avoids breaking deployed instances that pre-date this axis.
+if [[ "${VSS_DEPLOY_PATH:-legacy}" == "helm" ]]; then
+  CONSOLE_LEGACY_NAMESPACES="0"
+else
+  CONSOLE_LEGACY_NAMESPACES="1"
+fi
+echo "==> CONSOLE_LEGACY_NAMESPACES=$CONSOLE_LEGACY_NAMESPACES (VSS_DEPLOY_PATH=${VSS_DEPLOY_PATH:-legacy})"
+
 kubectl kustomize "$CONSOLE_DIR" \
   | python3 -c '
 import sys, yaml
@@ -392,6 +404,7 @@ camsim_pub_ip = sys.argv[3]
 s3_endpoint_value = sys.argv[4]
 s3_bucket_value = sys.argv[5]
 vss_namespace_value = sys.argv[6]
+console_legacy_namespaces = sys.argv[7]
 docs = list(yaml.safe_load_all(sys.stdin))
 for d in docs:
     if not d:
@@ -424,9 +437,12 @@ for d in docs:
         existing_ns = data.get("VSS_NAMESPACE", "") or ""
         if existing_ns in ("", "vss-base"):
             data["VSS_NAMESPACE"] = vss_namespace_value
+        # Set CONSOLE_LEGACY_NAMESPACES so the console knows which namespace
+        # topology is active ("1" = legacy 4-ns path, "0" = helm single-ns path).
+        data["CONSOLE_LEGACY_NAMESPACES"] = console_legacy_namespaces
 yaml.safe_dump_all([d for d in docs if d], sys.stdout, default_flow_style=False)
 ' "$IMAGE_REPO" "$NODE_HOSTNAME" "$CAMSIM_PUB_IP" "$S3_ENDPOINT_VALUE" "$S3_BUCKET_VALUE" \
-  "$VSS_NAMESPACE_VALUE" \
+  "$VSS_NAMESPACE_VALUE" "$CONSOLE_LEGACY_NAMESPACES" \
   | kubectl apply -f -
 
 # Resolve the image tag used by the just-applied manifest for the state file.
