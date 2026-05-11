@@ -18,7 +18,13 @@ COPY package.json package-lock.json ./
 # assumes the monorepo layout. Inside the build container we are at /app
 # and there is no parent console/ dir, so npm errors out before the hook
 # can even check HUSKY=0. We don't need git hooks installed in the image.
-RUN npm ci --ignore-scripts
+#
+# After install, explicitly rebuild native modules — `--ignore-scripts`
+# also skips legitimate postinstall hooks like better-sqlite3's
+# node-gyp compile that produces the .node binary. Without this, the
+# console pod's /api/health/ready returns "db: Could not locate the
+# bindings file" and never becomes Ready.
+RUN npm ci --ignore-scripts && npm rebuild better-sqlite3
 
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
