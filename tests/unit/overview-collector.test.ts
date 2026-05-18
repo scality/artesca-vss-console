@@ -94,7 +94,9 @@ vi.mock("@/lib/helpers/docker-sock", () => ({
 }));
 
 vi.mock("@/lib/s3", () => ({
-  s3Bucket: mockS3Bucket,
+  s3BucketForRecordings: mockS3Bucket,
+  s3BucketForAlertClips: vi.fn(() => "nvidia-vss-alert-clips"),
+  s3KeyForAlertClip: vi.fn(),
   makeS3Client: vi.fn(),
   s3Endpoint: vi.fn(() => undefined),
   s3Region: vi.fn(() => "us-west-2"),
