@@ -82,7 +82,27 @@ export function IncidentDetail({ incident, onClose }: IncidentDetailProps) {
           {/* HLS Clip */}
           <div>
             <p className="text-xs text-muted-foreground mb-1.5">Clip</p>
-            <ClipPlayer src={clipUrl} seekOffset={SEEK_OFFSET} />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span>Replay</span>
+                <span
+                  className={
+                    incident.clip_status === "ready"
+                      ? "text-green-400"
+                      : incident.clip_status === "failed"
+                      ? "text-red-400"
+                      : "text-yellow-400 animate-pulse"
+                  }
+                >
+                  {incident.clip_status === "ready"
+                    ? "● clip ready (S3)"
+                    : incident.clip_status === "failed"
+                    ? "● clip unavailable — live VST fallback"
+                    : "● materializing…"}
+                </span>
+              </div>
+              <ClipPlayer src={clipUrl} seekOffset={SEEK_OFFSET} />
+            </div>
           </div>
 
           {/* Raw payload */}
