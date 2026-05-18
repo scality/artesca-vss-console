@@ -8,7 +8,7 @@ import type { NodeType } from "@/lib/types/pipeline";
 // Helm namespace for VSS components (e.g. "vss-alerts").
 const VSS_NS = CLUSTER.vssNamespace;
 import { HeadBucketCommand } from "@aws-sdk/client-s3";
-import { makeS3Client, s3Bucket, s3Endpoint } from "@/lib/s3";
+import { makeS3Client, s3BucketForRecordings, s3Endpoint } from "@/lib/s3";
 
 export const dynamic = "force-dynamic";
 
@@ -266,7 +266,7 @@ function dockerHealth(c: DockerContainer | undefined): Health {
  *  "warn" rather than "fail" because the endpoint IS reachable — the
  *  operator just needs to pass NODE_EXTRA_CA_CERTS or OBJECTSTORE_CA_BUNDLE. */
 async function probeObjectStore(): Promise<Health> {
-  const bucket = s3Bucket();
+  const bucket = s3BucketForRecordings();
   if (!bucket) return "unknown";
   if (!s3Endpoint() && !process.env.AWS_ACCESS_KEY_ID && !process.env.OBJECTSTORE_ACCESS_KEY_ID) {
     return "unknown";
@@ -387,7 +387,7 @@ async function buildDockerTopology() {
     type: "storage",
     label: "Object store (S3 / ARTESCA)",
     health: s3Health,
-    details: { bucket: s3Bucket() || undefined, endpoint: s3Endpoint() || undefined },
+    details: { bucket: s3BucketForRecordings() || undefined, endpoint: s3Endpoint() || undefined },
     position: { x: COL(5), y: ROW(3) },
   });
 

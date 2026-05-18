@@ -32,20 +32,6 @@ export function s3Endpoint(): string | undefined {
   return ep ? ep : undefined;
 }
 
-/**
- * @deprecated Use `s3BucketForAlertClips()` or `s3BucketForRecordings()`.
- * Retained so call sites that pre-date the three-bucket model continue to
- * compile; they will be migrated in Task 4.3.
- */
-export function s3Bucket(): string {
-  return (
-    process.env.OBJECTSTORE_BUCKET ??
-    process.env.S3_BUCKET ??
-    process.env.VSS_VIDEO_BUCKET ??
-    "nvidia-vss-video"
-  );
-}
-
 /** Returns the bucket name for VST recordings. */
 export function s3BucketForRecordings(): string {
   return CLUSTER.s3.buckets.recordings;

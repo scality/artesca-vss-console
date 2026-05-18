@@ -16,7 +16,7 @@ import {
 } from "@/lib/helpers/docker-sock";
 import { getKafka } from "@/lib/kafka";
 import { s3Stats } from "@/lib/aws";
-import { s3Bucket } from "@/lib/s3";
+import { s3BucketForRecordings } from "@/lib/s3";
 import { promQuery } from "@/lib/helpers/prometheus";
 import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
 import type { OverviewSnapshot, GpuState, PodSummary } from "@/lib/types";
@@ -62,7 +62,7 @@ function emptySnapshot(takenAt: string): OverviewSnapshot {
     nim: { ready: false, warmupPct: 0, queueDepth: 0 },
     gpus: [],
     kafka: {},
-    s3: { bucket: s3Bucket(), objectCount: 0, bytesTotal: 0, growth24h: 0 },
+    s3: { bucket: s3BucketForRecordings(), objectCount: 0, bytesTotal: 0, growth24h: 0 },
     cameraSim: { instanceState: "unreachable", pathsReady: 0, pathsTotal: 0 },
   };
 }
@@ -128,7 +128,7 @@ async function collectDockerOverview(
     process.env.CAMERA_SIM_HOST ?? process.env.MEDIAMTX_BASE_URL,
   );
   const s3Configured = Boolean(
-    s3Bucket() && (process.env.AWS_ACCESS_KEY_ID || process.env.OBJECTSTORE_ACCESS_KEY_ID),
+    s3BucketForRecordings() && (process.env.AWS_ACCESS_KEY_ID || process.env.OBJECTSTORE_ACCESS_KEY_ID),
   );
 
   const [containers, nimInspect, gpuOut, mtxResult, s3] = await Promise.all([
@@ -160,7 +160,7 @@ async function collectDockerOverview(
         })
       : Promise.resolve({ paths: [], warning: undefined }),
     (async () => {
-      const bucket = s3Bucket();
+      const bucket = s3BucketForRecordings();
       if (!s3Configured) return { bucket: bucket || "", objectCount: 0, bytesTotal: 0, growth24h: 0 };
       try {
         const stats = await Promise.race([
@@ -359,7 +359,7 @@ async function collectK8sOverview(
     }
   }
 
-  const bucket = s3Bucket();
+  const bucket = s3BucketForRecordings();
   let s3: OverviewSnapshot["s3"] = {
     bucket,
     objectCount: 0,
