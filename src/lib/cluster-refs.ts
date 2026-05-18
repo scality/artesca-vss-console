@@ -166,12 +166,14 @@ const RTVI = LEGACY
       promptKey: "RTVI_VLM_SYSTEM_PROMPT",
       modelKey: "RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME",
       vlmDeployment: "rtvi-vlm",
+      vlmNamespace: "rtvi",
       embedDeployment: "rtvi-embed",
       nimStatefulSet: "cosmos-reason2-8b",
       nimNamespace: "rtvi",
       nimKvCacheKey: "VLM_NIM_KVCACHE_PERCENT",
       nimMaxModelLenKey: "NIM_MAX_MODEL_LEN",
       nimMaxNumSeqsKey: "NIM_MAX_NUM_SEQS",
+      nimModelProfileKey: "NIM_MODEL_PROFILE",
     } as const)
   : ({
       /**
@@ -185,12 +187,14 @@ const RTVI = LEGACY
       promptKey: "VLM_SYSTEM_PROMPT",
       modelKey: "VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME",
       vlmDeployment: "vss-rtvi-vlm",
+      vlmNamespace: VSS_NS,
       embedDeployment: "vss-rtvi-vlm", // rtvi-embed not present as separate service in this chart
       nimStatefulSet: "nvidia-nemotron-nano-9b-v2", // Deployment, not StatefulSet
       nimNamespace: VSS_NS,
       nimKvCacheKey: "NIM_KVCACHE_PERCENT",
       nimMaxModelLenKey: "NIM_MAX_MODEL_LEN",
       nimMaxNumSeqsKey: "NIM_MAX_NUM_SEQS",
+      nimModelProfileKey: "NIM_MODEL_PROFILE",
     } as const);
 
 // NIM ConfigMap name for tuning (only relevant in Helm path).
@@ -268,14 +272,21 @@ const DEMO_DATA = {
 } as const;
 
 // ─── S3 ──────────────────────────────────────────────────────────────────────
+// Three-bucket model: recordings (VST writes), alert-clips (materializer
+// writes + console replay reads), agent-corpus (optional forensic Q&A).
+// Each bucket is independently configurable via env vars injected from the
+// objectstore-creds Secret + console-env ConfigMap.
 const S3 = {
-  bucket:
-    process.env.OBJECTSTORE_BUCKET ??
-    process.env.S3_BUCKET ??
-    process.env.VSS_VIDEO_BUCKET ??
-    "nvidia-vss-video",
-  endpoint:
-    process.env.OBJECTSTORE_ENDPOINT ?? process.env.S3_ENDPOINT ?? "",
+  endpoint: process.env.OBJECTSTORE_ENDPOINT ?? process.env.S3_ENDPOINT ?? "",
+  region: process.env.OBJECTSTORE_REGION ?? "us-east-1",
+  buckets: {
+    recordings:
+      process.env.OBJECTSTORE_RECORDINGS_BUCKET ?? "nvidia-vss-recordings",
+    alertClips:
+      process.env.OBJECTSTORE_ALERT_CLIPS_BUCKET ?? "nvidia-vss-alert-clips",
+    agentCorpus:
+      process.env.OBJECTSTORE_AGENT_CORPUS_BUCKET ?? "nvidia-vss-agent-corpus",
+  },
 } as const;
 
 // ─── Secrets namespace ────────────────────────────────────────────────────────
