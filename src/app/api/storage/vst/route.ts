@@ -400,7 +400,7 @@ export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const bucket = CLUSTER.s3.bucket;
+  const bucket = CLUSTER.s3.buckets.recordings;
   const s3 = makeS3Client();
   const alerts: StorageAlert[] = [];
   const nowMs = Date.now();

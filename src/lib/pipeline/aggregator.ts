@@ -243,7 +243,7 @@ interface BucketSample {
 const _putRateSample = new Map<string, BucketSample>();
 
 async function collectS3(warnings: string[]): Promise<S3State | null> {
-  const bucket = CLUSTER.s3.bucket;
+  const bucket = CLUSTER.s3.buckets.recordings;
   const s3 = makeS3Client();
   const nowMs = Date.now();
 
