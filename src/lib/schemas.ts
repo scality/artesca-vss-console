@@ -89,9 +89,9 @@ export const IncidentSchema = z.object({
   topic: z.string(),
   summary: z.string(),
   raw: z.unknown(),
-  clip_key: z.string().optional().default(""),
-  clip_bucket: z.string().optional().default(""),
-  clip_status: z.enum(["pending", "ready", "failed"]).optional().default("pending"),
+  clipKey: z.string().optional().default(""),
+  clipBucket: z.string().optional().default(""),
+  clipStatus: z.enum(["pending", "ready", "failed"]).optional().default("pending"),
 });
 
 export const GpuProcessSchema = z.object({

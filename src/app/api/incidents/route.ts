@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { existsSync, readFileSync } from "node:fs";
 import { auth } from "@/lib/auth";
 import { CLUSTER } from "@/lib/cluster-refs";
+import { fromWire } from "@/lib/helpers/incident-wire";
 
 export const dynamic = "force-dynamic";
 
@@ -97,7 +98,12 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await resp.json();
-    return NextResponse.json(data);
+    const incidents = Array.isArray(data)
+      ? data.map(fromWire)
+      : Array.isArray(data?.incidents)
+      ? { ...data, incidents: (data.incidents as unknown[]).map(fromWire) }
+      : data;
+    return NextResponse.json(incidents);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json(

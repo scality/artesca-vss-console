@@ -1,5 +1,5 @@
 // GET /api/incidents/live
-// SSE: re-broadcast Kafka `incidents` topic, validated against IncidentSchema.
+// SSE: re-broadcast Kafka `alerts.incidents` topic, validated against IncidentSchema.
 // Emits typed incident events in real-time to connected operators.
 // Auth required.
 
@@ -8,6 +8,7 @@ import { auth } from "@/lib/auth";
 import { createSseResponse } from "@/lib/streams/sse";
 import { startKafkaSseConsumer } from "@/lib/streams/kafka-sse";
 import { IncidentSchema } from "@/lib/schemas";
+import { fromWire } from "@/lib/helpers/incident-wire";
 import type { Incident } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -21,11 +22,11 @@ export async function GET(req: NextRequest) {
 
   return createSseResponse<Incident>(req.signal, async (write) => {
     const disconnect = await startKafkaSseConsumer({
-      topic: "incidents",
+      topic: "alerts.incidents",
       fromOffset: "latest",
       signal: req.signal,
       onMessage: (raw) => {
-        const result = IncidentSchema.safeParse(raw);
+        const result = IncidentSchema.safeParse(fromWire(raw));
         if (result.success) {
           write(result.data as Incident);
         }
