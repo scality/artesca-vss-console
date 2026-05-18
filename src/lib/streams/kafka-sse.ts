@@ -10,11 +10,17 @@ const log = createLogger("kafka-sse");
 
 export const ALLOWED_TOPICS = new Set([
   "vision-llm-responses",
+  // "incidents" is kept for backward compatibility — unused today, no harm.
   "incidents",
+  "alerts.incidents",
   "alerts-demo-data",
 ] as const);
 
-export type AllowedTopic = "vision-llm-responses" | "incidents" | "alerts-demo-data";
+export type AllowedTopic =
+  | "vision-llm-responses"
+  | "incidents"
+  | "alerts.incidents"
+  | "alerts-demo-data";
 
 export interface KafkaSseOptions {
   topic: string;
