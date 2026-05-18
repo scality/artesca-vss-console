@@ -17,7 +17,7 @@ import {
 } from "@/lib/streams/clip-cache";
 import { transcodeToHls, extractThumbnail } from "@/lib/streams/ffmpeg";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { makeS3Client, s3Bucket } from "@/lib/s3";
+import { makeS3Client, s3BucketForAlertClips, s3KeyForAlertClip } from "@/lib/s3";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -34,8 +34,8 @@ async function fetchFromS3(
   sensor: string,
   tsRounded: Date
 ): Promise<Buffer | null> {
-  const bucket = s3Bucket();
-  const key = `${sensor}/${tsRounded.toISOString().replace(/[:.]/g, "-")}.mp4`;
+  const bucket = s3BucketForAlertClips();
+  const key = s3KeyForAlertClip(sensor, tsRounded.toISOString());
   const client = makeS3Client();
   try {
     const resp = await client.send(
