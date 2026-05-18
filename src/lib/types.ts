@@ -84,6 +84,9 @@ export interface Incident {
   topic: string;
   summary: string;
   raw: unknown;
+  clip_key?: string;
+  clip_bucket?: string;
+  clip_status?: "pending" | "ready" | "failed";
 }
 
 export interface GpuState {

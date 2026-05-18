@@ -23,6 +23,7 @@
 
 import { S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
+import { CLUSTER } from "@/lib/cluster-refs";
 
 const AWS_HOST_PATTERN = /(^|\.)s3([.-][a-z0-9-]+)?\.amazonaws\.com$/i;
 
@@ -31,6 +32,11 @@ export function s3Endpoint(): string | undefined {
   return ep ? ep : undefined;
 }
 
+/**
+ * @deprecated Use `s3BucketForAlertClips()` or `s3BucketForRecordings()`.
+ * Retained so call sites that pre-date the three-bucket model continue to
+ * compile; they will be migrated in Task 4.3.
+ */
 export function s3Bucket(): string {
   return (
     process.env.OBJECTSTORE_BUCKET ??
@@ -38,6 +44,45 @@ export function s3Bucket(): string {
     process.env.VSS_VIDEO_BUCKET ??
     "nvidia-vss-video"
   );
+}
+
+/** Returns the bucket name for VST recordings. */
+export function s3BucketForRecordings(): string {
+  return CLUSTER.s3.buckets.recordings;
+}
+
+/** Returns the bucket name for materializer-produced alert clips. */
+export function s3BucketForAlertClips(): string {
+  return CLUSTER.s3.buckets.alertClips;
+}
+
+/**
+ * Derives the canonical S3 key for an alert clip.
+ *
+ * Key format: `<sensorId>/<ts-rounded-to-10s>.mp4`
+ * where the timestamp is UTC, rounded to the nearest 10-second boundary using
+ * half-up rounding (`Math.round`), and colons are replaced with hyphens.
+ *
+ * This is byte-identical to the Python helper in `k8s/nvidia-vss/alerts/clip_key.py`
+ * which uses `math.floor(x/10 + 0.5) * 10` — both round half-up.
+ *
+ * @param sensorId - The camera/sensor identifier (e.g. "cam-01").
+ * @param tsIso    - ISO 8601 timestamp string (UTC or with offset).
+ * @returns        S3 object key, e.g. "cam-01/2026-05-15T14-03-30.mp4".
+ */
+export function s3KeyForAlertClip(sensorId: string, tsIso: string): string {
+  const epochMs = new Date(tsIso).getTime();
+  const epochS = epochMs / 1000;
+  const roundedS = Math.round(epochS / 10) * 10;
+  const rounded = new Date(roundedS * 1000);
+
+  // Format as ISO 8601 UTC with colons replaced by hyphens so the key is
+  // filesystem-safe and matches the Python implementation exactly.
+  const iso = rounded.toISOString(); // e.g. "2026-05-15T14:03:30.000Z"
+  const withoutMs = iso.replace(/\.\d{3}Z$/, ""); // "2026-05-15T14:03:30"
+  const safe = withoutMs.replace(/:/g, "-"); // "2026-05-15T14-03-30"
+
+  return `${sensorId}/${safe}.mp4`;
 }
 
 export function s3Region(): string {
