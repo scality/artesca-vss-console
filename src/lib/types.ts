@@ -154,3 +154,22 @@ export interface AuditLogEntry {
   target: string;
   detailsJson: string;
 }
+
+/**
+ * Shape of the JSON manifest written to the alert-clips bucket by the
+ * clip materializer.  The manifest records the VST clip URL so the replay
+ * route can fetch video bytes on demand without byte-duplicating them into S3.
+ *
+ * Produced by: k8s/nvidia-vss/alerts/15-configmap-materializer-code.yaml
+ * Consumed by: console /api/clips/[sensor]/[ts]/route.ts
+ */
+export interface AlertClipManifest {
+  version: 1;
+  sensor_id: string;
+  ts: string; // ISO 8601 — alert timestamp
+  window_seconds: number;
+  start_ts: string; // ISO 8601 — clip window start
+  end_ts: string; // ISO 8601 — clip window end
+  vst_clip_url: string; // VST /api/v1/live/sensor/<id>/clip?start=…&end=…
+  materialized_at: string; // ISO 8601 — when the materializer wrote this manifest
+}

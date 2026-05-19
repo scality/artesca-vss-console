@@ -4,15 +4,16 @@
 //
 // Resolution order:
 //   1. Server-side cache (/data/clip-cache/<sensor>-<ts>/index.m3u8) — hit → serve.
-//   2. S3 bucket `nvidia-vss-alert-clips`: key derived by s3KeyForAlertClip().
-//      Materialized by the alert clip materializer (k8s/nvidia-vss/alerts/22-).
-//   3. VST clip endpoint (VST_MS_URL) — live fallback when the materializer
-//      hasn't run or the clip rolled off.
+//   2. Alert-clips bucket (alert-clip manifest at the canonical S3 key). If the
+//      manifest exists, the materializer has confirmed the clip in VST; fetch the
+//      video bytes from manifest.vst_clip_url, transcode to HLS, cache, serve.
+//   3. VST clip endpoint (VST_MS_URL) — live fallback when the materializer has
+//      not yet run or the manifest has rolled off.
 //
 // Response headers:
-//   X-Cache: hit | miss
+//   X-Cache:     hit | miss
 //   X-Cache-Age: <seconds>  (only on hit)
-//   X-Source: cache | s3 | vst
+//   X-Source:    cache | s3-confirmed | vst-live
 
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
@@ -29,6 +30,7 @@ import {
 import { transcodeToHls, extractThumbnail } from "@/lib/streams/ffmpeg";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { makeS3Client, s3BucketForAlertClips, s3KeyForAlertClip } from "@/lib/s3";
+import type { AlertClipManifest } from "@/lib/types";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -37,15 +39,17 @@ interface RouteParams {
   params: Promise<{ sensor: string; ts: string }>;
 }
 
-async function fetchFromS3(
+/**
+ * Fetches the alert-clip manifest from the alert-clips S3 bucket.
+ * Returns the parsed manifest when the materializer has confirmed this clip,
+ * or null when no manifest exists (clip not yet materialized or rolled off).
+ */
+async function fetchManifestFromS3(
   sensor: string,
   tsRounded: Date
-): Promise<Buffer | null> {
-  // The materializer writes alert clips to nvidia-vss-alert-clips at the
-  // canonical key. Key derivation is byte-identical to the Python materializer.
+): Promise<AlertClipManifest | null> {
   const bucket = s3BucketForAlertClips();
   const key = s3KeyForAlertClip(sensor, tsRounded.toISOString());
-
   const client = makeS3Client();
 
   try {
@@ -53,26 +57,24 @@ async function fetchFromS3(
       new GetObjectCommand({ Bucket: bucket, Key: key })
     );
     if (!resp.Body) return null;
-    // Collect stream into buffer.
+
     const chunks: Buffer[] = [];
     for await (const chunk of resp.Body as AsyncIterable<Buffer>) {
       chunks.push(chunk);
     }
-    return Buffer.concat(chunks);
+    const text = Buffer.concat(chunks).toString("utf8");
+    return JSON.parse(text) as AlertClipManifest;
   } catch {
     return null;
   }
 }
 
-async function fetchFromVst(
-  sensor: string,
-  ts: string
-): Promise<Buffer | null> {
-  const vstBase = process.env.VST_MS_URL ?? CLUSTER.vst.msUrl;
-  const start = new Date(new Date(ts).getTime() - 5_000).toISOString();
-  const end = new Date(new Date(ts).getTime() + 5_000).toISOString();
-  const url = `${vstBase}/api/v1/live/sensor/${encodeURIComponent(sensor)}/clip?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
-
+/**
+ * Fetches raw MP4 bytes from a VST clip URL.
+ * Used for both the s3-confirmed path (manifest.vst_clip_url) and the
+ * vst-live fallback (URL constructed inline from sensor + ts).
+ */
+async function fetchMp4FromUrl(url: string): Promise<Buffer | null> {
   try {
     const resp = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     if (!resp.ok) return null;
@@ -81,6 +83,13 @@ async function fetchFromVst(
   } catch {
     return null;
   }
+}
+
+function buildVstLiveUrl(sensor: string, ts: string): string {
+  const vstBase = process.env.VST_MS_URL ?? CLUSTER.vst.msUrl;
+  const start = new Date(new Date(ts).getTime() - 5_000).toISOString();
+  const end = new Date(new Date(ts).getTime() + 5_000).toISOString();
+  return `${vstBase}/api/v1/live/sensor/${encodeURIComponent(sensor)}/clip?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
 }
 
 export async function GET(req: NextRequest, { params }: RouteParams) {
@@ -113,15 +122,22 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   // --- Cache miss — resolve source ---
   const tsRounded = roundTs(ts);
   let mp4Buffer: Buffer | null = null;
-  let source: "s3" | "vst" = "vst";
+  let source: "s3-confirmed" | "vst-live" = "vst-live";
 
-  mp4Buffer = await fetchFromS3(sensor, tsRounded);
-  if (mp4Buffer) {
-    source = "s3";
+  // Branch 1: manifest exists → the materializer confirmed the clip in VST.
+  // Fetch bytes directly from the VST URL recorded in the manifest.
+  const manifest = await fetchManifestFromS3(sensor, tsRounded);
+  if (manifest) {
+    mp4Buffer = await fetchMp4FromUrl(manifest.vst_clip_url);
+    if (mp4Buffer) {
+      source = "s3-confirmed";
+    }
   }
 
+  // Branch 2: no manifest (or VST unreachable via manifest URL) → fetch live
+  // from VST using a freshly computed clip window.
   if (!mp4Buffer) {
-    mp4Buffer = await fetchFromVst(sensor, ts);
+    mp4Buffer = await fetchMp4FromUrl(buildVstLiveUrl(sensor, ts));
   }
 
   if (!mp4Buffer) {
