@@ -43,9 +43,11 @@ export function s3BucketForAlertClips(): string {
 }
 
 /**
- * Derives the canonical S3 key for an alert clip.
+ * Returns the canonical S3 key for an alert-clip MANIFEST. The video bytes
+ * themselves live in the recordings bucket; the manifest at this key tells the
+ * replay route how to fetch them from VST.
  *
- * Key format: `<sensorId>/<ts-rounded-to-10s>.mp4`
+ * Key format: `<sensorId>/<ts-rounded-to-10s>.json`
  * where the timestamp is UTC, rounded to the nearest 10-second boundary using
  * half-up rounding (`Math.round`), and colons are replaced with hyphens.
  *
@@ -54,7 +56,7 @@ export function s3BucketForAlertClips(): string {
  *
  * @param sensorId - The camera/sensor identifier (e.g. "cam-01").
  * @param tsIso    - ISO 8601 timestamp string (UTC or with offset).
- * @returns        S3 object key, e.g. "cam-01/2026-05-15T14-03-30.mp4".
+ * @returns        S3 object key, e.g. "cam-01/2026-05-15T14-03-30.json".
  */
 export function s3KeyForAlertClip(sensorId: string, tsIso: string): string {
   const epochMs = new Date(tsIso).getTime();
@@ -68,7 +70,7 @@ export function s3KeyForAlertClip(sensorId: string, tsIso: string): string {
   const withoutMs = iso.replace(/\.\d{3}Z$/, ""); // "2026-05-15T14:03:30"
   const safe = withoutMs.replace(/:/g, "-"); // "2026-05-15T14-03-30"
 
-  return `${sensorId}/${safe}.mp4`;
+  return `${sensorId}/${safe}.json`;
 }
 
 export function s3Region(): string {
