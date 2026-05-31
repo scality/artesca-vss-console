@@ -16,7 +16,7 @@ For the platform substrate, see the top-level [`CLAUDE.md`](../CLAUDE.md). Desig
 | `/cameras` | Camera registration UI. Writes to `pyramid-ingress` ConfigMap `cameras` + GCS canonical at `gs://scality-isv-labs-config/cameras/<vss-instance>.json`. |
 | `/scenarios` | Alert-keyword scenarios. ConfigMap `scenarios` in ns `alerts`; GCS canonical at `scenarios/<vss-instance>.json`. |
 | `/prompt` | VLM system prompt + model deployment-name swap. Writes to ConfigMap `rtvi-runtime-env`. |
-| `/tuning` | Knobs for VST (recording sink), alerts (cooldown, slack-configured), NIM (KV-cache %, max model len, max num seqs). |
+| `/tuning` | Knobs for VST (recording sink), alerts (cooldown, slack-configured), and the VLM inference path — 7 knobs split across ConfigMap (`max_num_seqs`, `kv_cache_percent`, `max_model_len`, `NIM_MODEL_PROFILE`) and the `rtvi-vlm` Deployment env (`NIM_DISABLE_CUDA_GRAPH`, `VLLM_NUM_SCHEDULER_STEPS`, `VLLM_MAX_NUM_BATCHED_TOKENS`). Save+Restart atomically patches both surfaces and rolls the NIM workload + rtvi-vlm Deployment. The two "advanced" sections (Inference engine, Speculative decoding) are collapsed by default — operator-facing explanations + recommended configs live in [`../docs/vss-performance-tuning.md`](../docs/vss-performance-tuning.md). |
 | `/demo-data` | Synthetic VLM producer controls (replicas / tick rate / match probability) for demoing alerts without live RTSP. |
 | `/profiles` | Operator-defined "scenes" — saved prompt + scenario + tuning bundles. |
 | `/secrets` | View-only status of cluster secrets (rotation hints, lengths, never values). |

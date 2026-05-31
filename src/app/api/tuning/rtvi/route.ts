@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
-import { coreV1, rolloutRestart } from "@/lib/k8s";
+import { coreV1, appsV1, rolloutRestart } from "@/lib/k8s";
 import { withRequestContext } from "@/lib/with-request-context";
 import { patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
@@ -19,6 +19,10 @@ const RtviTuningSchema = z.object({
   maxNumSeqs: z.number().int().positive().optional(),
   kvCachePercent: z.number().min(0).max(1).optional(),
   maxModelLen: z.number().int().positive().optional(),
+  modelProfile: z.string().optional(),
+  disableCudaGraph: z.boolean().optional(),
+  numSchedulerSteps: z.number().int().min(1).max(32).optional(),
+  maxNumBatchedTokens: z.number().int().min(1024).max(32768).optional(),
 }).refine(
   (d) => Object.values(d).some((v) => v !== undefined),
   { message: "At least one tuning field is required" }
@@ -32,6 +36,10 @@ const RTVI_TUNING_DEFAULTS = {
   maxNumSeqs: 4,
   kvCachePct: 0.8,
   maxModelLen: 32768,
+  modelProfile: "",
+  disableCudaGraph: false,
+  numSchedulerSteps: 8,
+  maxNumBatchedTokens: 5120,
 } as const;
 
 function parseIntOrDefault(raw: string | undefined, fallback: number): number {
@@ -44,6 +52,28 @@ function parseFloatOrDefault(raw: string | undefined, fallback: number): number 
   if (raw === undefined || raw === null || raw === "") return fallback;
   const n = parseFloat(raw);
   return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * Read env vars from the rtvi-vlm Deployment (spec.template.spec.containers[0].env).
+ * Returns a record of env var name → value. Missing env vars are absent from the record.
+ */
+async function readVlmDeploymentEnv(): Promise<Record<string, string>> {
+  const ns = CLUSTER.rtvi.vlmNamespace;
+  const name = CLUSTER.rtvi.vlmDeployment;
+  const result: Record<string, string> = {};
+  try {
+    const deployment = await appsV1().readNamespacedDeployment({ name, namespace: ns });
+    const envVars = deployment.spec?.template?.spec?.containers?.[0]?.env ?? [];
+    for (const ev of envVars) {
+      if (ev.name && ev.value !== undefined && ev.value !== null) {
+        result[ev.name] = ev.value;
+      }
+    }
+  } catch {
+    // Non-fatal: return empty record, caller falls back to defaults.
+  }
+  return result;
 }
 
 export async function GET() {
@@ -71,6 +101,10 @@ export async function GET() {
       maxNumSeqs: parseIntOrDefault(env[CLUSTER.rtvi.nimMaxNumSeqsKey], RTVI_TUNING_DEFAULTS.maxNumSeqs),
       kvCachePct: parseFloatOrDefault(env[CLUSTER.rtvi.nimKvCacheKey], RTVI_TUNING_DEFAULTS.kvCachePct),
       maxModelLen: parseIntOrDefault(env[CLUSTER.rtvi.nimMaxModelLenKey], RTVI_TUNING_DEFAULTS.maxModelLen),
+      modelProfile: env[CLUSTER.rtvi.nimModelProfileKey] ?? RTVI_TUNING_DEFAULTS.modelProfile,
+      disableCudaGraph: env["NIM_DISABLE_CUDA_GRAPH"] === "1",
+      numSchedulerSteps: parseIntOrDefault(env["VLLM_NUM_SCHEDULER_STEPS"], RTVI_TUNING_DEFAULTS.numSchedulerSteps),
+      maxNumBatchedTokens: parseIntOrDefault(env["VLLM_MAX_NUM_BATCHED_TOKENS"], RTVI_TUNING_DEFAULTS.maxNumBatchedTokens),
       runtime: "docker",
     });
   }
@@ -95,11 +129,77 @@ export async function GET() {
     );
   }
 
+  // Read deployment env vars for the rtvi-vlm Deployment (separate from NIM).
+  const vlmEnv = await readVlmDeploymentEnv();
+
   return NextResponse.json({
     maxNumSeqs: parseIntOrDefault(data?.[CLUSTER.rtvi.nimMaxNumSeqsKey], RTVI_TUNING_DEFAULTS.maxNumSeqs),
     kvCachePct: parseFloatOrDefault(data?.[CLUSTER.rtvi.nimKvCacheKey], RTVI_TUNING_DEFAULTS.kvCachePct),
     maxModelLen: parseIntOrDefault(data?.[CLUSTER.rtvi.nimMaxModelLenKey], RTVI_TUNING_DEFAULTS.maxModelLen),
+    modelProfile: data?.[CLUSTER.rtvi.nimModelProfileKey] ?? RTVI_TUNING_DEFAULTS.modelProfile,
+    disableCudaGraph: vlmEnv["NIM_DISABLE_CUDA_GRAPH"] === "1",
+    numSchedulerSteps: parseIntOrDefault(vlmEnv["VLLM_NUM_SCHEDULER_STEPS"], RTVI_TUNING_DEFAULTS.numSchedulerSteps),
+    maxNumBatchedTokens: parseIntOrDefault(vlmEnv["VLLM_MAX_NUM_BATCHED_TOKENS"], RTVI_TUNING_DEFAULTS.maxNumBatchedTokens),
   });
+}
+
+/**
+ * Patch the rtvi-vlm Deployment env vars using a strategic merge patch on the
+ * containers array. For NIM_DISABLE_CUDA_GRAPH: presence with value "1" means
+ * disabled; absence means vLLM default (graphs enabled). So toggling OFF removes
+ * the env var by rebuilding the env list without it.
+ */
+async function patchVlmDeploymentEnv(
+  envPatches: Record<string, string | null> // null = remove the env var
+): Promise<void> {
+  const ns = CLUSTER.rtvi.vlmNamespace;
+  const name = CLUSTER.rtvi.vlmDeployment;
+
+  // Read current env list to compute the new merged list.
+  const deployment = await appsV1().readNamespacedDeployment({ name, namespace: ns });
+  const currentEnv = deployment.spec?.template?.spec?.containers?.[0]?.env ?? [];
+
+  // Build a map of existing env vars (preserving those we're not touching).
+  const envMap = new Map<string, string>();
+  for (const ev of currentEnv) {
+    if (ev.name && ev.value !== undefined && ev.value !== null) {
+      envMap.set(ev.name, ev.value);
+    }
+  }
+
+  // Apply patches: set or delete.
+  for (const [key, value] of Object.entries(envPatches)) {
+    if (value === null) {
+      envMap.delete(key);
+    } else {
+      envMap.set(key, value);
+    }
+  }
+
+  // Rebuild env list — only includes plain value entries we manage.
+  // We must preserve valueFrom entries (secretKeyRef, configMapKeyRef) from
+  // the current spec. Re-read and keep those intact.
+  const valueFromEntries = currentEnv.filter((ev) => ev.valueFrom !== undefined);
+  const plainEntries = Array.from(envMap.entries()).map(([name, value]) => ({ name, value }));
+
+  const patch = {
+    spec: {
+      template: {
+        spec: {
+          containers: [
+            {
+              name: "rtvi-vlm",
+              env: [...valueFromEntries, ...plainEntries],
+            },
+          ],
+        },
+      },
+    },
+  };
+
+  await appsV1().patchNamespacedDeployment(
+    { name, namespace: ns, body: patch },
+  );
 }
 
 export const PATCH = withRequestContext(async function (req: NextRequest) {
@@ -128,6 +228,25 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     if (tuning.maxModelLen !== undefined) {
       envPatch[CLUSTER.rtvi.nimMaxModelLenKey] = String(tuning.maxModelLen);
     }
+    if (tuning.modelProfile !== undefined) {
+      envPatch[CLUSTER.rtvi.nimModelProfileKey] = tuning.modelProfile;
+    }
+    if (tuning.disableCudaGraph !== undefined) {
+      if (tuning.disableCudaGraph) {
+        envPatch["NIM_DISABLE_CUDA_GRAPH"] = "1";
+      }
+      // In docker mode we can't "remove" an env var — set to "0" when false.
+      // The container reads absence or "0" as graphs-enabled.
+      else {
+        envPatch["NIM_DISABLE_CUDA_GRAPH"] = "0";
+      }
+    }
+    if (tuning.numSchedulerSteps !== undefined) {
+      envPatch["VLLM_NUM_SCHEDULER_STEPS"] = String(tuning.numSchedulerSteps);
+    }
+    if (tuning.maxNumBatchedTokens !== undefined) {
+      envPatch["VLLM_MAX_NUM_BATCHED_TOKENS"] = String(tuning.maxNumBatchedTokens);
+    }
     try {
       const { id } = await dockerRecreateWithEnv(NIM_CONTAINER, envPatch);
       await auditLog("tuning-rtvi", `docker/${NIM_CONTAINER}`, { patches: envPatch });
@@ -150,16 +269,20 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     }
   }
 
-  const patches: Array<[string, string]> = [];
+  // ── Step 1: ConfigMap patches (NIM tuning CM) ─────────────────────────────
+  const cmPatches: Array<[string, string]> = [];
 
   if (tuning.maxNumSeqs !== undefined) {
-    patches.push([CLUSTER.rtvi.nimMaxNumSeqsKey, String(tuning.maxNumSeqs)]);
+    cmPatches.push([CLUSTER.rtvi.nimMaxNumSeqsKey, String(tuning.maxNumSeqs)]);
   }
   if (tuning.kvCachePercent !== undefined) {
-    patches.push([CLUSTER.rtvi.nimKvCacheKey, String(tuning.kvCachePercent)]);
+    cmPatches.push([CLUSTER.rtvi.nimKvCacheKey, String(tuning.kvCachePercent)]);
   }
   if (tuning.maxModelLen !== undefined) {
-    patches.push([CLUSTER.rtvi.nimMaxModelLenKey, String(tuning.maxModelLen)]);
+    cmPatches.push([CLUSTER.rtvi.nimMaxModelLenKey, String(tuning.maxModelLen)]);
+  }
+  if (tuning.modelProfile !== undefined) {
+    cmPatches.push([CLUSTER.rtvi.nimModelProfileKey, tuning.modelProfile]);
   }
 
   // Helm path: NIM tuning ConfigMap is nvidia-nemotron-nano-9b-v2-nim-env.
@@ -167,22 +290,56 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
   const cmName = CLUSTER.rtvi.nimTuningConfigMap || CLUSTER.rtvi.runtimeEnvCm;
   const cmNs = CLUSTER.rtvi.nimTuningNamespace;
 
-  try {
-    for (const [key, val] of patches) {
-      await patchConfigMapRawKey(cmNs, cmName, key, val);
+  if (cmPatches.length > 0) {
+    try {
+      for (const [key, val] of cmPatches) {
+        await patchConfigMapRawKey(cmNs, cmName, key, val);
+      }
+    } catch (err: unknown) {
+      const { status, message } = extractK8sError(err);
+      return NextResponse.json(
+        { error: message, k8sCode: status },
+        { status }
+      );
     }
-  } catch (err: unknown) {
-    const { status, message } = extractK8sError(err);
-    return NextResponse.json(
-      { error: message, k8sCode: status },
-      { status }
-    );
   }
 
-  // Helm path: NIM is a Deployment; legacy path: StatefulSet.
+  // ── Step 2: rtvi-vlm Deployment env patches ───────────────────────────────
+  const vlmEnvPatches: Record<string, string | null> = {};
+  let hasVlmPatches = false;
+
+  if (tuning.disableCudaGraph !== undefined) {
+    // Absence = graphs enabled (vLLM default). Presence with "1" = disabled.
+    vlmEnvPatches["NIM_DISABLE_CUDA_GRAPH"] = tuning.disableCudaGraph ? "1" : null;
+    hasVlmPatches = true;
+  }
+  if (tuning.numSchedulerSteps !== undefined) {
+    vlmEnvPatches["VLLM_NUM_SCHEDULER_STEPS"] = String(tuning.numSchedulerSteps);
+    hasVlmPatches = true;
+  }
+  if (tuning.maxNumBatchedTokens !== undefined) {
+    vlmEnvPatches["VLLM_MAX_NUM_BATCHED_TOKENS"] = String(tuning.maxNumBatchedTokens);
+    hasVlmPatches = true;
+  }
+
+  if (hasVlmPatches) {
+    try {
+      await patchVlmDeploymentEnv(vlmEnvPatches);
+    } catch (err: unknown) {
+      const { status, message } = extractK8sError(err);
+      return NextResponse.json(
+        { error: `rtvi-vlm deployment patch failed: ${message}`, k8sCode: status },
+        { status }
+      );
+    }
+  }
+
+  // ── Step 3: rollout restart — NIM workload + rtvi-vlm Deployment ──────────
   const nimKind = CLUSTER.legacy ? ("StatefulSet" as const) : ("Deployment" as const);
+  const nimNs = CLUSTER.rtvi.nimTuningNamespace;
+
   try {
-    await rolloutRestart(nimKind, cmNs, CLUSTER.rtvi.nimStatefulSet);
+    await rolloutRestart(nimKind, nimNs, CLUSTER.rtvi.nimStatefulSet);
   } catch (err) {
     return NextResponse.json(
       { error: `NIM rollout restart failed: ${String(err)}` },
@@ -190,16 +347,40 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     );
   }
 
-  const auditTarget = `${nimKind.toLowerCase()}/${CLUSTER.rtvi.nimStatefulSet}`;
+  if (hasVlmPatches || tuning.modelProfile !== undefined) {
+    try {
+      await rolloutRestart("Deployment", CLUSTER.rtvi.vlmNamespace, CLUSTER.rtvi.vlmDeployment);
+    } catch (err) {
+      return NextResponse.json(
+        { error: `rtvi-vlm rollout restart failed: ${String(err)}` },
+        { status: 502 }
+      );
+    }
+  }
+
+  // ── Step 4: audit log ─────────────────────────────────────────────────────
+  const nimAuditTarget = `${nimKind.toLowerCase()}/${CLUSTER.rtvi.nimStatefulSet}`;
+  const allPatches: Record<string, string> = {
+    ...Object.fromEntries(cmPatches),
+    ...Object.fromEntries(
+      Object.entries(vlmEnvPatches).map(([k, v]) => [k, v ?? "(removed)"])
+    ),
+  };
+
   await auditLog(
     "tuning-rtvi",
-    auditTarget,
-    { patches: Object.fromEntries(patches) }
+    nimAuditTarget,
+    { patches: allPatches }
   );
 
   return NextResponse.json({
     ok: true,
-    applied: Object.fromEntries(patches),
-    restarted: auditTarget,
+    applied: allPatches,
+    restarted: [
+      nimAuditTarget,
+      ...(hasVlmPatches || tuning.modelProfile !== undefined
+        ? [`deployment/${CLUSTER.rtvi.vlmDeployment}`]
+        : []),
+    ],
   });
 });
