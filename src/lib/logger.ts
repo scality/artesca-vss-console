@@ -59,7 +59,7 @@ function emit(level: Level, scope: string, baseCtx: Record<string, unknown>, msg
 
   const merged = { ...baseCtx, ...normalizeCtx(ctx) };
 
-  const stream = level === "error" || level === "warn" ? process.stderr : process.stdout;
+  const write = level === "error" || level === "warn" ? console.error : console.log;
 
   let reqId: string | undefined;
   try {
@@ -71,7 +71,7 @@ function emit(level: Level, scope: string, baseCtx: Record<string, unknown>, msg
   if (isPretty()) {
     const reqIdStr = reqId && !merged.reqId ? ` reqId=${reqId}` : "";
     const ctxStr = Object.keys(merged).length ? " " + JSON.stringify(merged) : "";
-    stream.write(`[${level}] [${scope}]${reqIdStr} ${msg}${ctxStr}\n`);
+    write(`[${level}] [${scope}]${reqIdStr} ${msg}${ctxStr}`);
     return;
   }
 
@@ -83,7 +83,7 @@ function emit(level: Level, scope: string, baseCtx: Record<string, unknown>, msg
     ...(reqId ? { reqId } : {}),
     ...merged,  // call-site ctx still last to win
   };
-  stream.write(JSON.stringify(record) + "\n");
+  write(JSON.stringify(record));
 }
 
 function makeLogger(scope: string, baseCtx: Record<string, unknown>): Logger {

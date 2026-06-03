@@ -489,7 +489,19 @@ export function VstStoragePanel() {
     );
   }
 
-  const d = data!;
+  // Guard: isFetched becomes true after the first failed attempt in RQ v5
+  // (before retries complete), so isLoading && !isFetched may be false while
+  // data is still undefined. Render nothing until data arrives.
+  if (!data) {
+    return (
+      <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        <span className="text-sm">Loading VST storage metrics…</span>
+      </div>
+    );
+  }
+
+  const d = data;
 
   // MB/s for display — note: display label stays "MB/s" (industry convention for network
   // throughput; the sparkline also tracks MiB/s under the hood but the label says MB/s
