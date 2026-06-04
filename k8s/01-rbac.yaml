@@ -42,7 +42,48 @@ subjects:
   namespace: console
 
 ---
-# Role + RoleBinding for namespace: vst
+# Role + RoleBinding for Helm layout: namespace vss-base (default profile).
+# deploy-console.sh renders the actual namespace from SCALITY_BP_PROFILE
+# (vss-<profile>). The Role name is intentionally generic so the binding
+# applies to whichever namespace is used.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: console-writer
+  namespace: vss-base
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["get", "list", "patch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "delete", "get", "list"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: console-writer-binding
+  namespace: vss-base
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: console-writer
+subjects:
+- kind: ServiceAccount
+  name: console-sa
+  namespace: console
+
+---
+# Role + RoleBinding for namespace: vst (legacy pre-Helm layout,
+# CONSOLE_LEGACY_NAMESPACES=1). Retained for instances running
+# the legacy manifest path.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -78,7 +119,7 @@ subjects:
   namespace: console
 
 ---
-# Role + RoleBinding for namespace: rtvi
+# Role + RoleBinding for namespace: rtvi (legacy pre-Helm layout)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -114,7 +155,7 @@ subjects:
   namespace: console
 
 ---
-# Role + RoleBinding for namespace: agent
+# Role + RoleBinding for namespace: agent (legacy pre-Helm layout)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -150,7 +191,7 @@ subjects:
   namespace: console
 
 ---
-# Role + RoleBinding for namespace: alerts
+# Role + RoleBinding for namespace: alerts (legacy pre-Helm layout)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -186,7 +227,7 @@ subjects:
   namespace: console
 
 ---
-# Role + RoleBinding for namespace: demo-data
+# Role + RoleBinding for namespace: demo-data (operator-authored, both paths)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -222,7 +263,7 @@ subjects:
   namespace: console
 
 ---
-# Role + RoleBinding for namespace: pyramid-ingress
+# Role + RoleBinding for namespace: pyramid-ingress (operator-authored, both paths)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

@@ -12,7 +12,7 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/k8s", () => ({
   coreV1: vi.fn(() => ({})),
   appsV1: vi.fn(() => ({})),
-  watchedNamespaces: vi.fn(() => ["vst", "rtvi", "agent", "alerts", "demo-data", "pyramid-ingress"]),
+  watchedNamespaces: vi.fn(() => ["vss-base", "demo-data", "pyramid-ingress"]),
   listAllPodsInNs: vi.fn().mockResolvedValue([]),
 }));
 
@@ -33,9 +33,9 @@ vi.mock("@/lib/s3", () => ({
 
 vi.mock("@/lib/cluster-refs", () => ({
   CLUSTER: {
-    legacy: true,
-    vssNamespace: "vst",
-    vst: { sensorListUrl: "http://vst-svc/sensors" },
+    legacy: false,
+    vssNamespace: "vss-base",
+    vst: { sensorListUrl: "http://vss-vios-sensor.vss-base.svc.cluster.local:30000/api/v1/live/sensor/list" },
   },
 }));
 
@@ -50,7 +50,7 @@ import { GET } from "@/app/api/topology/route";
 beforeEach(() => {
   vi.mocked(auth).mockReset().mockResolvedValue({ user: { name: "operator" } } as never);
   vi.mocked(watchedNamespaces).mockReset().mockReturnValue([
-    "vst", "rtvi", "agent", "alerts", "demo-data", "pyramid-ingress",
+    "vss-base", "demo-data", "pyramid-ingress",
   ]);
   vi.mocked(listAllPodsInNs).mockReset().mockResolvedValue([]);
   fetchMock.mockReset().mockResolvedValue({
@@ -100,12 +100,12 @@ describe("GET /api/topology", () => {
   });
 
   it("pod with Running+Ready phase → component health resolved to 'ok'", async () => {
-    // Inject a Running+Ready pod for the sensor-ms deployment in the vst namespace.
+    // Inject a Running+Ready pod for the vss-vios-sensor deployment in vss-base (Helm path).
     vi.mocked(listAllPodsInNs).mockImplementation(async (_api, ns: string) => {
-      if (ns === "vst") {
+      if (ns === "vss-base") {
         return [
           {
-            metadata: { name: "sensor-ms-abc123" },
+            metadata: { name: "vss-vios-sensor-abc123" },
             status: {
               phase: "Running",
               conditions: [{ type: "Ready", status: "True" }],
@@ -120,14 +120,14 @@ describe("GET /api/topology", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    const sensorNode = body.nodes.find((n: { id: string }) => n.id === "sensor-ms");
+    const sensorNode = body.nodes.find((n: { id: string }) => n.id === "vss-vios-sensor");
     expect(sensorNode).toBeDefined();
     expect(sensorNode.health).toBe("ok");
   });
 
   it("one namespace fails: topology still returns nodes from other namespaces, failure captured in warnings", async () => {
     vi.mocked(listAllPodsInNs).mockImplementation(async (_api, ns: string) => {
-      if (ns === "rtvi") throw new Error("API timeout");
+      if (ns === "vss-base") throw new Error("API timeout");
       return [];
     });
 
@@ -139,7 +139,7 @@ describe("GET /api/topology", () => {
     expect(body.nodes.length).toBeGreaterThan(0);
 
     // The failure is captured as a warning string
-    expect(body.warnings.some((w: string) => w.includes("rtvi"))).toBe(true);
+    expect(body.warnings.some((w: string) => w.includes("vss-base"))).toBe(true);
   });
 
   it("all namespace probes fail: still returns the static COMPONENTS nodes with health=unknown", async () => {

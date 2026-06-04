@@ -16,6 +16,12 @@ vi.mock("@/lib/k8s", () => ({
     patchNamespacedConfigMap: vi.fn(),
     replaceNamespacedConfigMap: vi.fn(),
   })),
+  appsV1: vi.fn(() => ({
+    readNamespacedDeployment: vi.fn().mockResolvedValue({
+      spec: { template: { spec: { containers: [{ name: "rtvi-vlm", env: [] }] } } },
+    }),
+    patchNamespacedDeployment: vi.fn().mockResolvedValue({}),
+  })),
   rolloutRestart: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -30,7 +36,10 @@ vi.mock("@/lib/cluster-refs", () => ({
       nimMaxNumSeqsKey: "NIM_MAX_NUM_SEQS",
       nimKvCacheKey: "VLM_NIM_KVCACHE_PERCENT",
       nimMaxModelLenKey: "NIM_MAX_MODEL_LEN",
+      nimModelProfileKey: "NIM_MODEL_PROFILE",
       nimStatefulSet: "cosmos-reason2-8b",
+      vlmDeployment: "rtvi-vlm",
+      vlmNamespace: "rtvi",
     },
   },
 }));
@@ -264,7 +273,8 @@ describe("PATCH /api/tuning/rtvi", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.applied).toBeDefined();
-    expect(body.restarted).toMatch(/cosmos-reason2-8b/);
+    expect(Array.isArray(body.restarted)).toBe(true);
+    expect(body.restarted.some((s: string) => s.includes("cosmos-reason2-8b"))).toBe(true);
 
     expect(patchConfigMapRawKey).toHaveBeenCalledWith(
       "rtvi",
