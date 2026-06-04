@@ -21,17 +21,17 @@ vi.mock("@/lib/cluster-refs", () => ({
   CLUSTER: {
     vst: {
       sensorUrl:
-        "http://sensor-ms.vst.svc.cluster.local:30000/api/v1/live/sensor",
+        "http://vss-vios-sensor.vss-base.svc.cluster.local:30000/api/v1/live/sensor",
       sensorListUrl:
-        "http://sensor-ms.vst.svc.cluster.local:30000/api/v1/live/sensor/list",
+        "http://vss-vios-sensor.vss-base.svc.cluster.local:30000/api/v1/live/sensor/list",
       sensorAddUrl:
-        "http://vst-ingress.vst.svc.cluster.local:30888/vst/api/v1/sensor/add",
+        "http://vss-vios-ingress.vss-base.svc.cluster.local:30888/vst/api/v1/sensor/add",
       proxyStreamAddUrl: "",
-      namespace: "vst",
-      configMap: "vst-config",
+      namespace: "vss-base",
+      configMap: "vss-vios-sensor-configs",
       configKey: "vst_config.json",
-      sensorDeployment: "sensor-ms",
-      streamProcessingDeployment: "streamprocessing-ms",
+      sensorDeployment: "vss-vios-sensor",
+      streamProcessingDeployment: "vss-vios-streamprocessing",
     },
   },
 }));

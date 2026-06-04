@@ -9,7 +9,7 @@ vi.mock("@/lib/auth", () => ({
 // incidents route reads CLUSTER.alertWorker.url from cluster-refs
 vi.mock("@/lib/cluster-refs", () => ({
   CLUSTER: {
-    alertWorker: { url: "http://alert-worker.alerts.svc.cluster.local:9100" },
+    alertWorker: { url: "http://vss-video-analytics-api.vss-base.svc.cluster.local:8081" },
   },
 }));
 
