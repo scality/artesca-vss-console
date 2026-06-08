@@ -10,13 +10,11 @@ describe("logger", () => {
   beforeEach(() => {
     writes = [];
     vi.resetModules();
-    stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
-      writes.push({ stream: "out", chunk: String(chunk) });
-      return true;
+    stdoutSpy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      writes.push({ stream: "out", chunk: String(args[0]) + "\n" });
     });
-    stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
-      writes.push({ stream: "err", chunk: String(chunk) });
-      return true;
+    stderrSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      writes.push({ stream: "err", chunk: String(args[0]) + "\n" });
     });
   });
 

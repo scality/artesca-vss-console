@@ -157,7 +157,7 @@ describe("POST /api/settings/sg", () => {
     vi.mocked(authorizeSgIngress).mockRejectedValue(awsError);
 
     const stderrWrites: string[] = [];
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((c) => { stderrWrites.push(String(c)); return true; });
+    const stderrSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => { stderrWrites.push(String(args[0])); });
     vi.stubEnv("LOG_PRETTY", "0");
 
     const req = makePostRequest({ cidr: VALID_CIDR, label: VALID_LABEL });
@@ -273,7 +273,7 @@ describe("DELETE /api/settings/sg/[id]", () => {
     vi.mocked(revokeSgIngress).mockRejectedValue(awsError);
 
     const stderrWrites: string[] = [];
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((c) => { stderrWrites.push(String(c)); return true; });
+    const stderrSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => { stderrWrites.push(String(args[0])); });
     vi.stubEnv("LOG_PRETTY", "0");
 
     const req = new Request(`http://localhost/api/settings/sg/${ENTRY_ID}`, { method: "DELETE" });

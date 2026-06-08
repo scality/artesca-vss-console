@@ -168,11 +168,10 @@ beforeEach(() => {
     update: vi.fn().mockReturnThis(),
     sign: vi.fn().mockReturnValue("fake-sig"),
   }));
-  // Suppress / capture structured logger output (goes to process.stderr.write).
+  // Suppress / capture structured logger output (goes to console.error).
   stderrWrites = [];
-  stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((c) => {
-    stderrWrites.push(String(c));
-    return true;
+  stderrSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    stderrWrites.push(String(args[0]));
   });
   vi.stubEnv("LOG_PRETTY", "0");
   clearCredentials();

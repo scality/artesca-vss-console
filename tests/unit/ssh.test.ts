@@ -38,13 +38,13 @@ const { mockClientInstances, ClientMock, readFileSyncMock } = vi.hoisted(() => {
     connect = vi.fn();
   }
 
-  const makeMockClient = (): MockClientCls => {
+  function makeMockClient(): MockClientCls {
     const c = new MockClientCls();
     mockClientInstances.push(c);
     return c;
-  };
+  }
 
-  const ClientMock = vi.fn().mockImplementation(makeMockClient);
+  const ClientMock = vi.fn().mockImplementation(function () { return makeMockClient(); });
   const readFileSyncMock = vi.fn(() => Buffer.from("FAKE_PRIVATE_KEY"));
 
   return { mockClientInstances, ClientMock, readFileSyncMock };
@@ -444,8 +444,8 @@ describe("hostVerifier", () => {
     // getConnectConfig() fires the warn on the first connect() call.
     const freshStderrWrites: string[] = [];
     const freshStderrSpy = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation((c) => { freshStderrWrites.push(String(c)); return true; });
+      .spyOn(console, "error")
+      .mockImplementation((...args: unknown[]) => { freshStderrWrites.push(String(args[0])); });
 
     vi.resetModules();
     vi.doMock("ssh2", () => ({ Client: ClientMock }));

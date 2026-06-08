@@ -25,9 +25,9 @@ const mockConsumer = {
   },
 };
 
-const MockKafka = vi.fn().mockImplementation(() => ({
-  consumer: vi.fn(() => mockConsumer),
-}));
+const MockKafka = vi.fn().mockImplementation(function () {
+  return { consumer: vi.fn(() => mockConsumer) };
+});
 
 vi.mock("kafkajs", () => ({ Kafka: MockKafka }));
 
@@ -52,7 +52,7 @@ beforeEach(() => {
   mockConsumer.subscribe.mockResolvedValue(undefined);
   mockConsumer.run.mockResolvedValue(undefined);
   mockConsumer.disconnect.mockResolvedValue(undefined);
-  MockKafka.mockImplementation(() => ({ consumer: vi.fn(() => mockConsumer) }));
+  MockKafka.mockImplementation(function () { return { consumer: vi.fn(() => mockConsumer) }; });
 
   // Clear the HMR singleton between tests.
   (globalThis as Record<string, unknown>).__kafka = undefined;
@@ -178,9 +178,8 @@ describe("consumeTopic()", () => {
     vi.stubEnv("LOG_PRETTY", "0");
 
     const stderrWrites: string[] = [];
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((c) => {
-      stderrWrites.push(String(c));
-      return true;
+    const stderrSpy = vi.spyOn(console, "error").mockImplementation((...args) => {
+      stderrWrites.push(String(args[0]));
     });
 
     const { consumeTopic } = await freshImport();

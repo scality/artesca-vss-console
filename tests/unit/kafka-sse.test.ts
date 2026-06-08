@@ -36,9 +36,8 @@ describe("kafka-sse", () => {
     mockKafkaInstance.consumer.mockClear();
 
     stderrWrites = [];
-    stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((c: unknown) => {
-      stderrWrites.push(String(c));
-      return true;
+    stderrSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      stderrWrites.push(String(args[0]));
     });
     vi.stubEnv("LOG_PRETTY", "0");
 
