@@ -31,13 +31,15 @@ const {
 } = vi.hoisted(() => {
   const mockAuth = vi.fn();
   const mockLogLog = vi.fn().mockResolvedValue(new AbortController());
-  const mockKubeConfigCtor = vi.fn().mockImplementation(() => ({
-    loadFromCluster: vi.fn(),
-    loadFromDefault: vi.fn(),
-  }));
-  const MockLogClass = vi.fn().mockImplementation(() => ({
-    log: mockLogLog,
-  }));
+  const mockKubeConfigCtor = vi.fn().mockImplementation(function () {
+    return {
+      loadFromCluster: vi.fn(),
+      loadFromDefault: vi.fn(),
+    };
+  });
+  const MockLogClass = vi.fn().mockImplementation(function () {
+    return { log: mockLogLog };
+  });
   const mockCreateSseResponse = vi.fn().mockReturnValue(
     new Response(null, {
       status: 200,

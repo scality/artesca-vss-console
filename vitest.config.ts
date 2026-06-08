@@ -7,10 +7,8 @@ export default defineConfig({
     environment: "node",
     include: ["tests/unit/**/*.test.ts"],
     exclude: ["tests/e2e/**", "node_modules/**"],
-    environmentMatchGlobs: [
-      // Use jsdom for React component tests (none in unit suite yet)
-      ["**/*.component.test.ts", "jsdom"],
-    ],
+    // Default environment is node. A React component test that needs the DOM
+    // opts in per-file with a `// @vitest-environment jsdom` docblock.
     setupFiles: ["./tests/setup.ts"],
     coverage: {
       provider: "v8",

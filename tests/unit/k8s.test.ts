@@ -24,9 +24,9 @@ const {
   const mockPatchNamespacedStatefulSet = vi.fn();
 
   const mockExecFn = vi.fn();
-  const MockExec = vi.fn().mockImplementation(() => ({
-    exec: mockExecFn,
-  }));
+  const MockExec = vi.fn().mockImplementation(function () {
+    return { exec: mockExecFn };
+  });
 
   // Stub API classes — identity matters for makeApiClient dispatch
   function MockCoreV1Api() {}
@@ -49,11 +49,13 @@ const {
   const mockLoadFromCluster = vi.fn();
   const mockLoadFromDefault = vi.fn();
 
-  const MockKubeConfig = vi.fn().mockImplementation(() => ({
-    loadFromCluster: mockLoadFromCluster,
-    loadFromDefault: mockLoadFromDefault,
-    makeApiClient: mockMakeApiClient,
-  }));
+  const MockKubeConfig = vi.fn().mockImplementation(function () {
+    return {
+      loadFromCluster: mockLoadFromCluster,
+      loadFromDefault: mockLoadFromDefault,
+      makeApiClient: mockMakeApiClient,
+    };
+  });
 
   return {
     mockLoadFromCluster,
@@ -100,18 +102,19 @@ let stderrSpy: any;
 beforeEach(() => {
   vi.resetAllMocks();
   stderrWrites = [];
-  stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((c) => {
-    stderrWrites.push(String(c));
-    return true;
+  stderrSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    stderrWrites.push(String(args[0]));
   });
   vi.stubEnv("LOG_PRETTY", "0");
 
   // Re-apply default implementations cleared by resetAllMocks
-  MockKubeConfig.mockImplementation(() => ({
-    loadFromCluster: mockLoadFromCluster,
-    loadFromDefault: mockLoadFromDefault,
-    makeApiClient: mockMakeApiClient,
-  }));
+  MockKubeConfig.mockImplementation(function () {
+    return {
+      loadFromCluster: mockLoadFromCluster,
+      loadFromDefault: mockLoadFromDefault,
+      makeApiClient: mockMakeApiClient,
+    };
+  });
 
   mockMakeApiClient.mockImplementation((ApiClass: unknown) => {
     if (ApiClass === MockCoreV1Api) {
@@ -126,7 +129,7 @@ beforeEach(() => {
     return {};
   });
 
-  MockExec.mockImplementation(() => ({ exec: mockExecFn }));
+  MockExec.mockImplementation(function () { return { exec: mockExecFn }; });
 });
 
 afterEach(() => {

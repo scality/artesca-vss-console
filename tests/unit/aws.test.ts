@@ -9,9 +9,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const { mockEc2Send, MockEC2Client, mockS3Send, mockMakeS3Client } =
   vi.hoisted(() => {
     const mockEc2Send = vi.fn();
-    const MockEC2Client = vi.fn().mockImplementation((_config: unknown) => ({
-      send: mockEc2Send,
-    }));
+    const MockEC2Client = vi.fn().mockImplementation(function (_config: unknown) {
+      return { send: mockEc2Send };
+    });
     const mockS3Send = vi.fn();
     const mockMakeS3Client = vi
       .fn()
@@ -64,9 +64,9 @@ import {
 beforeEach(() => {
   vi.clearAllMocks();
   // Re-apply default implementations after clearAllMocks resets them.
-  MockEC2Client.mockImplementation((_config: unknown) => ({
-    send: mockEc2Send,
-  }));
+  MockEC2Client.mockImplementation(function (_config: unknown) {
+    return { send: mockEc2Send };
+  });
   mockMakeS3Client.mockReturnValue({ send: mockS3Send });
 });
 
@@ -346,7 +346,7 @@ describe("EC2Client region resolution", () => {
 
     MockEC2Client.mockClear();
     const freshSend = vi.fn().mockResolvedValue({ SecurityGroups: [] });
-    MockEC2Client.mockImplementation(() => ({ send: freshSend }));
+    MockEC2Client.mockImplementation(function () { return { send: freshSend }; });
 
     const { listSgIngress: listFresh } = await import("@/lib/aws");
     await listFresh("sg-x", 443);
@@ -362,7 +362,7 @@ describe("EC2Client region resolution", () => {
 
     MockEC2Client.mockClear();
     const freshSend = vi.fn().mockResolvedValue({ SecurityGroups: [] });
-    MockEC2Client.mockImplementation(() => ({ send: freshSend }));
+    MockEC2Client.mockImplementation(function () { return { send: freshSend }; });
 
     const { listSgIngress: listFresh } = await import("@/lib/aws");
     await listFresh("sg-y", 443);
@@ -380,7 +380,7 @@ describe("EC2Client region resolution", () => {
 
     MockEC2Client.mockClear();
     const freshSend = vi.fn().mockResolvedValue({ SecurityGroups: [] });
-    MockEC2Client.mockImplementation(() => ({ send: freshSend }));
+    MockEC2Client.mockImplementation(function () { return { send: freshSend }; });
 
     try {
       const { listSgIngress: listFresh } = await import("@/lib/aws");
@@ -404,7 +404,7 @@ describe("EC2Client region resolution", () => {
 
     MockEC2Client.mockClear();
     const freshSend = vi.fn().mockResolvedValue({ SecurityGroups: [] });
-    MockEC2Client.mockImplementation(() => ({ send: freshSend }));
+    MockEC2Client.mockImplementation(function () { return { send: freshSend }; });
 
     try {
       const { listSgIngress: listFresh } = await import("@/lib/aws");

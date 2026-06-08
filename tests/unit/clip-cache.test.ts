@@ -270,9 +270,8 @@ describe("evictLru", () => {
     real.mkdirSync(cacheRoot, { recursive: true });
 
     const stderrWrites: string[] = [];
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((c) => {
-      stderrWrites.push(String(c));
-      return true;
+    const stderrSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      stderrWrites.push(String(args[0]));
     });
     vi.stubEnv("LOG_PRETTY", "0");
 
