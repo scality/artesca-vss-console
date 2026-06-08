@@ -180,14 +180,10 @@ describe("watchedNamespaces", () => {
 
 describe("coreV1 / appsV1 — kubeconfig selection", () => {
   it("uses loadFromCluster when it succeeds (no throw)", async () => {
+    // The top-level vi.mock("@kubernetes/client-node") is hoisted module-wide
+    // and survives resetModules(), so the fresh dynamic import below still gets
+    // the mocked module — no need to re-declare the mock here.
     vi.resetModules();
-    vi.mock("@kubernetes/client-node", () => ({
-      KubeConfig: MockKubeConfig,
-      CoreV1Api: MockCoreV1Api,
-      AppsV1Api: MockAppsV1Api,
-      BatchV1Api: MockBatchV1Api,
-      Exec: MockExec,
-    }));
 
     mockLoadFromCluster.mockImplementation(() => { /* no-op — success */ });
     mockLoadFromDefault.mockImplementation(() => { /* no-op */ });
@@ -201,13 +197,6 @@ describe("coreV1 / appsV1 — kubeconfig selection", () => {
 
   it("falls back to loadFromDefault when loadFromCluster throws", async () => {
     vi.resetModules();
-    vi.mock("@kubernetes/client-node", () => ({
-      KubeConfig: MockKubeConfig,
-      CoreV1Api: MockCoreV1Api,
-      AppsV1Api: MockAppsV1Api,
-      BatchV1Api: MockBatchV1Api,
-      Exec: MockExec,
-    }));
 
     mockLoadFromCluster.mockImplementation(() => {
       throw new Error("not in cluster");
