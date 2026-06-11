@@ -32,6 +32,22 @@ Architecture note that drove the design: all RTVI / VST / alerts / demo-data pod
 
 The exported `CLUSTER` object covers: kafka brokers + topic names, redis URL, VST endpoints (sensor list / sensor add / proxy stream add), mediamtx API, prometheus, alert-worker, RTVI ConfigMap keys, NIM preview endpoint, scenarios CM, alerts tuning CM, cameras CM + register-job prefix, demo-data deployment, S3 bucket + endpoint, restartable component map.
 
+## VSS 3.2 Helm compatibility
+
+The Helm path is the default and targets the NVIDIA VSS 3.2 chart (internal version `3.2.0-26.05.5`; clone at `../refs/video-search-and-summarization` @ `dev-26.06.1-2`). Most object names match the chart as-deployed: namespace `vss-base` (via `VSS_NAMESPACE`), `vss-vios-{sensor,streamprocessing,ingress}`, `vss-rtvi-vlm`, `vss-agent`, broker `kafka-kafka` (Confluent Kafka KRaft), `redis`, the `VLM_SYSTEM_PROMPT` env on the VLM Deployment, and NIM tuning keys `NIM_KVCACHE_PERCENT` / `NIM_MAX_MODEL_LEN` / `NIM_MAX_NUM_SEQS`.
+
+Five values diverge from the 3.2 chart defaults. Each reads `process.env` first, so a deploy corrects it via [`k8s/console/11-configmap-env.yaml`](../k8s/console/11-configmap-env.yaml) with no code change; confirm the live name with `kubectl get svc,cm -n <vss-ns>` before editing `cluster-refs.ts`, since some may be intentional deploy overrides.
+
+| What | Console value | 3.2 chart | Env override |
+| ---- | ------------- | --------- | ------------ |
+| RTVI embed | collapsed onto `vss-rtvi-vlm` ([cluster-refs.ts:191](src/lib/cluster-refs.ts#L191)); topology + secrets still model legacy `rtvi-embed`/ns `rtvi` | `vss-rtvi-embed` is a distinct Deployment/Service (Cosmos Embed1) in the base profile | — |
+| VLM NIM tuning CM | `nvidia-nemotron-nano-9b-v2-nim-env` (the LLM) ([cluster-refs.ts:204](src/lib/cluster-refs.ts#L204)) | VLM is `nvidia-cosmos-reason2-8b` → tuning CM `nvidia-cosmos-reason2-8b-nim-env` | `NIM_TUNING_CONFIG_MAP` |
+| Kafka topics | aggregator subscribes `vision-llm-errors` + `vision-embed-messages` ([cluster-refs.ts:56](src/lib/cluster-refs.ts#L56)) | 3.2 topics are `mdx-*` (`mdx-vlm`, `mdx-vlm-incidents`, `mdx-embed`, `mdx-embed-filtered`, …) | `KAFKA_BROKERS` only; topic names are code |
+| `NIM_MODEL_PROFILE` | tuning form offers fixed `cosmos-reason2-8b`/L40S profile hashes ([RtviTuningForm.tsx:44](src/components/tuning/RtviTuningForm.tsx#L44)) | chart selects the profile via `gpuType`; the hashes are model- and NIM-version-specific | — |
+| NIM preview endpoint | default `nvila-lite-preview.<ns>:8000` ([cluster-refs.ts:213](src/lib/cluster-refs.ts#L213)) | `nvila` is a pre-3.x VLM; the 3.2 VLM is `nvidia-cosmos-reason2-8b` | `NIM_PREVIEW_ENDPOINT` |
+
+`CONSOLE_LEGACY_NAMESPACES=1` switches the whole layout back to the pre-Helm per-namespace scheme (`vst`/`rtvi`/`agent`/`alerts`) for fixture instances.
+
 ## Data-fetching pattern
 
 Server components import collectors from [`src/lib/overview-collector.ts`](src/lib/overview-collector.ts) directly — **no server-to-self HTTP, no Zod re-parse**. `collectOverviewSnapshot()` and `collectPodSummaries()` always resolve with a degraded snapshot + `warnings[]` rather than throwing, so a single broken probe doesn't take down the page.
