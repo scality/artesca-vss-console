@@ -15,6 +15,7 @@ import { IncidentSchema } from "@/lib/schemas";
 import { glob2regex } from "@/lib/utils";
 import type { Incident, Scenario } from "@/lib/types";
 import { z } from "zod";
+import { useIncidentStream } from "./use-incident-stream";
 
 const TIME_WINDOW_MS: Record<TimeWindow, number> = {
   "15m": 15 * 60 * 1000,
@@ -57,12 +58,37 @@ function filterIncidents(incidents: Incident[], filters: FilterState): Incident[
   });
 }
 
+/** Parse the /api/incidents response, which may be a plain array or { incidents: [] } */
+function parseIncidentsResponse(data: unknown): Incident[] {
+  const rows: unknown[] = Array.isArray(data)
+    ? data
+    : Array.isArray((data as { incidents?: unknown[] })?.incidents)
+    ? (data as { incidents: unknown[] }).incidents
+    : [];
+  return rows
+    .map((r) => {
+      try { return IncidentSchema.parse(r); } catch { return null; }
+    })
+    .filter(Boolean) as Incident[];
+}
+
 export default function IncidentsPage() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [selected, setSelected] = useState<Incident | null>(null);
-  const sseRef = useRef<EventSource | null>(null);
   const preloadFiredRef = useRef(false);
+
+  /** Merge a new incident into state: prepend, deduplicate by ts+sensorId. */
+  const mergeIncident = useCallback((inc: Incident) => {
+    setIncidents((prev) => {
+      const key = `${inc.ts}::${inc.sensorId}`;
+      if (prev.some((i) => `${i.ts}::${i.sensorId}` === key)) return prev;
+      return [inc, ...prev];
+    });
+  }, []);
+
+  // SSE subscription with exponential back-off reconnect (topology-mirrored pattern).
+  const { streamStatus, sseFailed } = useIncidentStream({ onIncident: mergeIncident });
 
   // Initial fetch (SSR-style client fetch on mount)
   useQuery<Incident[]>({
@@ -70,12 +96,8 @@ export default function IncidentsPage() {
     queryFn: async () => {
       const res = await fetch("/api/incidents?limit=50");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const raw: unknown[] = await res.json();
-      const parsed = raw
-        .map((r) => {
-          try { return IncidentSchema.parse(r); } catch { return null; }
-        })
-        .filter(Boolean) as Incident[];
+      const data: unknown = await res.json();
+      const parsed = parseIncidentsResponse(data);
       setIncidents(parsed);
       return parsed;
     },
@@ -97,27 +119,25 @@ export default function IncidentsPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // SSE subscription for real-time appends
-  useEffect(() => {
-    const es = new EventSource("/api/incidents/live");
-    sseRef.current = es;
-
-    es.onmessage = (event) => {
-      try {
-        const parsed = IncidentSchema.parse(JSON.parse(event.data)) as Incident;
-        setIncidents((prev) => {
-          // Prepend newest, deduplicate by ts+sensorId
-          const key = `${parsed.ts}::${parsed.sensorId}`;
-          if (prev.some((i) => `${i.ts}::${i.sensorId}` === key)) return prev;
-          return [parsed, ...prev];
-        });
-      } catch {
-        // ignore malformed events
-      }
-    };
-
-    return () => es.close();
-  }, []);
+  // Polling fallback: while SSE is down, poll every 10 s so the timeline keeps
+  // updating. Enabled only when sseFailed=true (SSE is active when false).
+  useQuery<Incident[]>({
+    queryKey: ["incidents-poll"],
+    queryFn: async () => {
+      const res = await fetch("/api/incidents?limit=50");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: unknown = await res.json();
+      const parsed = parseIncidentsResponse(data);
+      // Merge each polled incident so we don't drop items received via SSE
+      // before the fallback kicked in. setIncidents full-replace would lose
+      // SSE-received items that aren't yet in the server window.
+      parsed.forEach(mergeIncident);
+      return parsed;
+    },
+    refetchInterval: 10_000,
+    staleTime: 0,
+    enabled: sseFailed,
+  });
 
   const filtered = useMemo(
     () => filterIncidents(incidents, filters),
@@ -157,12 +177,30 @@ export default function IncidentsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 text-xs text-green-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-              Live
-            </span>
+            {streamStatus === "connected" ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-green-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                Live
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs text-amber-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Reconnecting…
+              </span>
+            )}
           </div>
         </div>
+
+        {/* Kiosk-friendly reconnect banner — non-modal, auto-clears when SSE recovers */}
+        {streamStatus !== "connected" && (
+          <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-pulse" />
+            <span>
+              Live stream interrupted — reconnecting
+              {sseFailed ? " (polling for updates)" : "…"}
+            </span>
+          </div>
+        )}
 
         {/* Filters */}
         <IncidentsFilters

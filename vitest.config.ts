@@ -5,7 +5,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: ["tests/unit/**/*.test.ts"],
+    include: ["tests/unit/**/*.test.ts", "tests/unit/**/*.test.tsx"],
     exclude: ["tests/e2e/**", "node_modules/**"],
     // Default environment is node. A React component test that needs the DOM
     // opts in per-file with a `// @vitest-environment jsdom` docblock.

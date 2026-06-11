@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import { isKioskAllowed, isApiOrInternal } from "@/lib/kiosk";
 
 const PUBLIC_PATHS = [
   "/sign-in",
@@ -48,6 +49,15 @@ export default auth((req) => {
   if (!req.auth) {
     const signInUrl = new URL("/sign-in", req.url);
     return withRequestId(NextResponse.redirect(signInUrl), reqId);
+  }
+
+  // Server-side kiosk page guard: block navigation to operator-config pages.
+  // API routes are exempt — data fetching on allowed pages must keep working;
+  // mutating API routes are already guarded by rejectIfKiosk() in each handler.
+  const isKiosk = req.cookies.get("kiosk")?.value === "1";
+  if (isKiosk && !isApiOrInternal(pathname) && !isKioskAllowed(pathname)) {
+    const homeUrl = new URL("/", req.url);
+    return withRequestId(NextResponse.redirect(homeUrl), reqId);
   }
 
   const response = NextResponse.next({
