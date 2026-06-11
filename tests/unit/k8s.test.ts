@@ -98,11 +98,16 @@ import {
 let stderrWrites: string[] = [];
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let stderrSpy: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let warnSpy: any;
 
 beforeEach(() => {
   vi.resetAllMocks();
   stderrWrites = [];
   stderrSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    stderrWrites.push(String(args[0]));
+  });
+  warnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
     stderrWrites.push(String(args[0]));
   });
   vi.stubEnv("LOG_PRETTY", "0");
@@ -134,6 +139,7 @@ beforeEach(() => {
 
 afterEach(() => {
   stderrSpy.mockRestore();
+  warnSpy.mockRestore();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   delete process.env.KUBE_NAMESPACES;

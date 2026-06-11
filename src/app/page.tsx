@@ -24,7 +24,7 @@ export default async function OverviewPage() {
     collectOverviewSnapshot(),
     collectPodSummaries(),
   ]);
-  const { snapshot: overview, mode, warnings } = overviewResult;
+  const { snapshot: overview, mode } = overviewResult;
   const dockerMode = mode === "docker";
   const pods = podsResult.pods;
 
@@ -85,27 +85,6 @@ export default async function OverviewPage() {
             <p className="mt-1 text-sky-300/80">
               Run <code>scripts/stacks/nvidia-vss/bootstrap-compose.sh</code> on the workspace to bring up the stack.
               KPIs and topology populate automatically once containers are running.
-            </p>
-          </div>
-        )}
-
-        {/* Degraded-collector hint: shown only when probes failed AND we
-            have nothing to render. Healthy probes that produce partial
-            data don't trigger this — warnings stay in pod logs. */}
-        {!hasOverviewData && warnings.length > 0 && (
-          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 space-y-2">
-            <p className="text-sm font-medium text-yellow-300">
-              Overview probes failed — no data to show yet.
-            </p>
-            <ul className="text-xs text-yellow-400/80 font-mono space-y-0.5 max-h-32 overflow-y-auto">
-              {warnings.slice(0, 8).map((w, i) => (
-                <li key={i} className="break-all">{w}</li>
-              ))}
-            </ul>
-            <p className="text-xs text-yellow-400/80">
-              The page polls every 5 s and recovers automatically once probes succeed.
-              For deeper diagnosis: <code>kubectl logs -n console -l app=console --tail=100</code>{" "}
-              (k8s) or <code>docker logs vss-console</code> (compose).
             </p>
           </div>
         )}
@@ -210,8 +189,8 @@ export default async function OverviewPage() {
           </section>
         )}
 
-        {/* Row 6 — Camera-sim card (k8s mode only — compose path doesn't yet wire camera-sim probes) */}
-        {!dockerMode && (
+        {/* Row 6 — Camera-sim card (k8s mode only; hidden when unreachable) */}
+        {!dockerMode && overview.cameraSim.instanceState !== "unreachable" && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Camera Simulator

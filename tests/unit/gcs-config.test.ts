@@ -160,6 +160,8 @@ const VALID_SCENARIOS_CONFIG: ScenariosConfig = {
 let stderrWrites: string[] = [];
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let stderrSpy: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let warnSpy: any;
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -168,9 +170,13 @@ beforeEach(() => {
     update: vi.fn().mockReturnThis(),
     sign: vi.fn().mockReturnValue("fake-sig"),
   }));
-  // Suppress / capture structured logger output (goes to console.error).
+  // Suppress / capture structured logger output (goes to console.error for
+  // error-level and console.warn for warn-level).
   stderrWrites = [];
   stderrSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    stderrWrites.push(String(args[0]));
+  });
+  warnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
     stderrWrites.push(String(args[0]));
   });
   vi.stubEnv("LOG_PRETTY", "0");
@@ -179,6 +185,7 @@ beforeEach(() => {
 
 afterEach(() => {
   stderrSpy.mockRestore();
+  warnSpy.mockRestore();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();

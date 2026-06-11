@@ -5,6 +5,8 @@ describe("logger", () => {
   let stdoutSpy: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let stderrSpy: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let warnSpy: any;
   let writes: { stream: "out" | "err"; chunk: string }[];
 
   beforeEach(() => {
@@ -16,11 +18,15 @@ describe("logger", () => {
     stderrSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
       writes.push({ stream: "err", chunk: String(args[0]) + "\n" });
     });
+    warnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      writes.push({ stream: "err", chunk: String(args[0]) + "\n" });
+    });
   });
 
   afterEach(() => {
     stdoutSpy.mockRestore();
     stderrSpy.mockRestore();
+    warnSpy.mockRestore();
     vi.unstubAllEnvs();
   });
 

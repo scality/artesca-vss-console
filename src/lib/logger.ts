@@ -59,7 +59,7 @@ function emit(level: Level, scope: string, baseCtx: Record<string, unknown>, msg
 
   const merged = { ...baseCtx, ...normalizeCtx(ctx) };
 
-  const write = level === "error" || level === "warn" ? console.error : console.log;
+  const write = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
 
   let reqId: string | undefined;
   try {
