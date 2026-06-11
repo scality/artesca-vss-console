@@ -24,6 +24,8 @@ vi.mock("@/lib/kafka", () => ({
 describe("kafka-sse", () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let stderrSpy: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let stdwarnSpy: any;
   let stderrWrites: string[];
 
   beforeEach(() => {
@@ -39,6 +41,9 @@ describe("kafka-sse", () => {
     stderrSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
       stderrWrites.push(String(args[0]));
     });
+    stdwarnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      stderrWrites.push(String(args[0]));
+    });
     vi.stubEnv("LOG_PRETTY", "0");
 
     const g = globalThis as Record<string, unknown>;
@@ -48,6 +53,7 @@ describe("kafka-sse", () => {
 
   afterEach(() => {
     stderrSpy.mockRestore();
+    stdwarnSpy.mockRestore();
     vi.unstubAllEnvs();
   });
 

@@ -7,6 +7,7 @@ import { Shell } from "@/components/Shell";
 import { DiagnosticCard, type DiagnosticTest } from "@/components/diagnostics/DiagnosticCard";
 import { DiagnosticOutputDrawer } from "@/components/diagnostics/DiagnosticOutputDrawer";
 import { VstStoragePanel } from "@/components/diagnostics/VstStoragePanel";
+import { ConnectivityPanel } from "@/components/diagnostics/ConnectivityPanel";
 import { useToast } from "@/hooks/use-toast";
 
 const AVAILABLE_TESTS: Array<{ id: string; label: string; description: string }> = [
@@ -138,6 +139,12 @@ export default function DiagnosticsPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             On-demand cluster health checks and smoke tests.
           </p>
+        </div>
+
+        {/* Backend connectivity panel */}
+        <div className="rounded-lg border border-border p-5">
+          <h2 className="text-lg font-semibold mb-4">Backend connectivity</h2>
+          <ConnectivityPanel />
         </div>
 
         {/* VST Storage panel */}

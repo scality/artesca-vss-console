@@ -446,6 +446,9 @@ describe("hostVerifier", () => {
     const freshStderrSpy = vi
       .spyOn(console, "error")
       .mockImplementation((...args: unknown[]) => { freshStderrWrites.push(String(args[0])); });
+    const freshWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation((...args: unknown[]) => { freshStderrWrites.push(String(args[0])); });
 
     vi.resetModules();
     vi.doMock("ssh2", () => ({ Client: ClientMock }));
@@ -489,5 +492,6 @@ describe("hostVerifier", () => {
     await p1.catch(() => void 0);
     await p2.catch(() => void 0);
     freshStderrSpy.mockRestore();
+    freshWarnSpy.mockRestore();
   });
 });
