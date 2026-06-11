@@ -1,6 +1,6 @@
 # Console — development context
 
-The **console** is the in-cluster post-install operator UI for the VSS+ARTESCA stack. Next.js 16, port **:8800**, runs as a K8s pod in namespace `console` (manifests at [`../k8s/console/`](../k8s/console/)). Distinct from [`../deployer/`](../deployer/) on :5002, which is laptop-side pre-install provisioning — the console assumes the cluster is up and running.
+The **console** is the in-cluster post-install operator UI for the ARTESCA+ VSS stack. Next.js 16, port **:8800**, runs as a K8s pod in namespace `console` (manifests at [`../k8s/console/`](../k8s/console/)). Distinct from [`../deployer/`](../deployer/) on :5002, which is laptop-side pre-install provisioning — the console assumes the cluster is up and running.
 
 For the platform substrate, see the top-level [`CLAUDE.md`](../CLAUDE.md). Design rationale + page spec (the operator-facing intent of each page): [`../docs/console-design.md`](../docs/console-design.md).
 
