@@ -83,25 +83,24 @@ export function IncidentDetail({ incident, onClose }: IncidentDetailProps) {
           <div>
             <p className="text-xs text-muted-foreground mb-1.5">Clip</p>
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span>Replay</span>
-                <span
-                  className={
-                    incident.clipStatus === "ready"
-                      ? "text-green-400"
-                      : incident.clipStatus === "failed"
-                      ? "text-red-400"
-                      : "text-yellow-400 animate-pulse"
-                  }
-                >
-                  {incident.clipStatus === "ready"
-                    ? "● clip ready (S3)"
-                    : incident.clipStatus === "failed"
-                    ? "● clip unavailable — live VST fallback"
-                    : "● materializing…"}
-                </span>
-              </div>
-              <ClipPlayer src={clipUrl} seekOffset={SEEK_OFFSET} />
+              {incident.clipStatus === "ready" && (
+                <div className="flex items-center justify-between text-xs">
+                  <span>Replay</span>
+                  <span className="text-green-400">● clip ready (S3)</span>
+                </div>
+              )}
+              <ClipPlayer
+                src={clipUrl}
+                seekOffset={SEEK_OFFSET}
+                clipStatus={incident.clipStatus}
+                fallbackMeta={{
+                  ts: incident.ts,
+                  sensorId: incident.sensorId,
+                  severity: incident.severity,
+                  summary: incident.summary,
+                  scenarioName: incident.scenarioName,
+                }}
+              />
             </div>
           </div>
 
