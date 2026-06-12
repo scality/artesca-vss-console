@@ -17,15 +17,22 @@ import { createLogger } from "@/lib/logger";
 
 const log = createLogger("instrumentation");
 
-const globalForInstrumentation = globalThis as unknown as {
-  __started?: boolean;
-};
+// Idempotency guard keyed on globalThis so it survives module re-evaluation
+// under `next dev` HMR — a module-level flag would reset on hot reload and
+// double-start the background watchers / reconcile loop.
+const globalForInstrumentation = globalThis as unknown as { __started?: boolean };
 
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
   if (globalForInstrumentation.__started) return;
   globalForInstrumentation.__started = true;
+
+  if (process.env.RECONCILE_AGENT === "1") {
+    const { startReconcileLoop } = await import("@/lib/reconcile-agent");
+    await startReconcileLoop();
+    return;
+  }
 
   const required = ["AUTH_SECRET"];
   const missing = required.filter((k) => !process.env[k]);
