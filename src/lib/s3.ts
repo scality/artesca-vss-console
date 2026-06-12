@@ -23,6 +23,8 @@
 
 import { S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
+import { Agent } from "node:https";
+import type { LookupFunction } from "node:net";
 import { CLUSTER } from "@/lib/cluster-refs";
 
 const AWS_HOST_PATTERN = /(^|\.)s3([.-][a-z0-9-]+)?\.amazonaws\.com$/i;
@@ -93,10 +95,49 @@ export function isAwsNativeEndpoint(endpoint?: string): boolean {
   }
 }
 
+/**
+ * Builds an https.Agent when the deployment needs to reach an ARTESCA S3
+ * endpoint whose vhost FQDN (e.g. `s3.artesca.isv-lab.local`) isn't
+ * publicly resolvable and/or is fronted by a self-signed cert. Returns
+ * undefined when neither override is set, so AWS-native / in-cluster paths
+ * use the SDK's default agent unchanged.
+ *
+ *   OBJECTSTORE_ENDPOINT_IP   pin the endpoint host's DNS resolution to this
+ *                             IP (the signed Host header stays the FQDN, so
+ *                             SigV4 still matches — only the TCP target moves).
+ *   OBJECTSTORE_TLS_INSECURE  skip TLS cert verification (ARTESCA demo cert
+ *                             is signed for *.<base-domain>, not the IP).
+ */
+function makeArtescaAgent(): Agent | undefined {
+  const pinnedIp = process.env.OBJECTSTORE_ENDPOINT_IP?.trim();
+  const insecure = /^(1|true|yes)$/i.test(process.env.OBJECTSTORE_TLS_INSECURE ?? "");
+  if (!pinnedIp && !insecure) return undefined;
+
+  const lookup: LookupFunction | undefined = pinnedIp
+    ? (_hostname, options, cb) => {
+        // dns.lookup is called either (host, cb) or (host, options, cb), and
+        // with options.all the callback expects an array of {address,family}.
+        const callback = (typeof options === "function" ? options : cb) as (
+          ...args: unknown[]
+        ) => void;
+        const all = typeof options === "object" && options?.all;
+        return all
+          ? callback(null, [{ address: pinnedIp, family: 4 }])
+          : callback(null, pinnedIp, 4);
+      }
+    : undefined;
+
+  return new Agent({
+    ...(insecure ? { rejectUnauthorized: false } : {}),
+    ...(lookup ? { lookup } : {}),
+  });
+}
+
 export function makeS3Client(): S3Client {
   const endpoint = s3Endpoint();
   const region = s3Region();
   const forcePathStyle = !isAwsNativeEndpoint(endpoint);
+  const httpsAgent = makeArtescaAgent();
 
   const config: S3ClientConfig = {
     region,
@@ -105,6 +146,7 @@ export function makeS3Client(): S3Client {
     requestHandler: new NodeHttpHandler({
       connectionTimeout: 3_000,
       requestTimeout: 8_000,
+      ...(httpsAgent ? { httpsAgent } : {}),
     }),
   };
 
