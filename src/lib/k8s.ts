@@ -1,18 +1,27 @@
 import { KubeConfig, CoreV1Api, AppsV1Api, BatchV1Api, Exec, type V1Pod } from "@kubernetes/client-node";
 import { Writable } from "node:stream";
+import { existsSync } from "node:fs";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger("k8s");
 
 let _kc: KubeConfig | null = null;
 
+// In-cluster service-account token — present only inside a pod.
+const IN_CLUSTER_TOKEN = "/var/run/secrets/kubernetes.io/serviceaccount/token";
+
 function getKubeConfig(): KubeConfig {
   if (_kc) return _kc;
   _kc = new KubeConfig();
-  try {
+  // Use the in-cluster service account ONLY when actually running in a pod.
+  // @kubernetes/client-node's loadFromCluster() no longer throws off-cluster —
+  // it builds an unusable `https://undefined:undefined` server from the absent
+  // KUBERNETES_SERVICE_* env, so the old try/catch never fell back to the
+  // local kubeconfig (every call then failed with "Invalid URL"). Gate on the
+  // SA token file so local / remote-console runs use $KUBECONFIG / ~/.kube/config.
+  if (existsSync(IN_CLUSTER_TOKEN)) {
     _kc.loadFromCluster();
-  } catch {
-    // Fall back to local kubeconfig for dev
+  } else {
     _kc.loadFromDefault();
   }
   return _kc;
