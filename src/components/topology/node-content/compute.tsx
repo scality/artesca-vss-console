@@ -108,15 +108,19 @@ function PodStatusBlock({ pod }: { pod?: PodState }) {
   );
 }
 
-/** Minimal GPU util + VRAM bar for a single GPU. */
-function GpuBlock({ gpu, label }: { gpu?: GpuStateShort; label: string }) {
+/** Minimal GPU util + VRAM bar for a single GPU. The card number is taken from
+ *  the runtime gpu.index (the physical card is assigned dynamically via CDI/MPS,
+ *  so a hardcoded index would be wrong on a non-4-GPU box). */
+function GpuBlock({ gpu, note }: { gpu?: GpuStateShort; note?: string }) {
+  const heading = `${gpu ? `GPU ${gpu.index}` : "GPU"}${note ? ` · ${note}` : ""}`;
   if (!gpu) {
     return (
       <p className="text-sm text-muted-foreground mt-3">
-        {label}: no GPU data.
+        {heading}: no GPU data.
       </p>
     );
   }
+  const label = heading;
   const vramPct = gpu.memTotalGiB > 0
     ? Math.round((gpu.memUsedGiB / gpu.memTotalGiB) * 100)
     : 0;
@@ -181,12 +185,13 @@ function Sparkline({
 function GpuSparklines({
   nodeId,
   gpu,
-  label,
+  note,
 }: {
   nodeId: string;
   gpu?: GpuStateShort;
-  label: string;
+  note?: string;
 }) {
+  const label = `${gpu ? `GPU ${gpu.index}` : "GPU"}${note ? ` · ${note}` : ""}`;
   const utilKey = `${nodeId}:gpu-util`;
   const vramKey = `${nodeId}:gpu-vram`;
 
@@ -266,7 +271,7 @@ function SensorMsStatus({ runtimeState, snapshot }: { runtimeState?: NodeRuntime
   return (
     <div className="space-y-4">
       <PodStatusBlock pod={runtimeState?.pod} />
-      <GpuBlock gpu={runtimeState?.gpu} label="GPU 3 (shared with streamprocessing-ms)" />
+      <GpuBlock gpu={runtimeState?.gpu} note="co-located under MPS" />
       {registeredFeeds !== null && (
         <p className="text-sm">
           Registered feeds: <span className="font-mono">{registeredFeeds}</span>
@@ -286,7 +291,7 @@ function SensorMsConfig() {
 }
 
 function SensorMsMetrics({ nodeId, runtimeState }: { nodeId: string; runtimeState?: NodeRuntimeState }) {
-  return <GpuSparklines nodeId={nodeId} gpu={runtimeState?.gpu} label="GPU 3" />;
+  return <GpuSparklines nodeId={nodeId} gpu={runtimeState?.gpu} />;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -297,7 +302,7 @@ function StreamProcessingStatus({ runtimeState }: { runtimeState?: NodeRuntimeSt
   return (
     <div className="space-y-4">
       <PodStatusBlock pod={runtimeState?.pod} />
-      <GpuBlock gpu={runtimeState?.gpu} label="GPU 3 (shared with sensor-ms)" />
+      <GpuBlock gpu={runtimeState?.gpu} note="co-located under MPS" />
       <p className="text-sm text-muted-foreground">
         Stream count: <span className="font-mono">—</span>
       </p>
@@ -306,7 +311,7 @@ function StreamProcessingStatus({ runtimeState }: { runtimeState?: NodeRuntimeSt
 }
 
 function StreamProcessingMetrics({ nodeId, runtimeState }: { nodeId: string; runtimeState?: NodeRuntimeState }) {
-  return <GpuSparklines nodeId={nodeId} gpu={runtimeState?.gpu} label="GPU 3" />;
+  return <GpuSparklines nodeId={nodeId} gpu={runtimeState?.gpu} />;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -317,7 +322,7 @@ function RtviVlmStatus({ runtimeState }: { runtimeState?: NodeRuntimeState }) {
   return (
     <div className="space-y-4">
       <PodStatusBlock pod={runtimeState?.pod} />
-      <GpuBlock gpu={runtimeState?.gpu} label="GPU 1" />
+      <GpuBlock gpu={runtimeState?.gpu} />
       <p className="text-xs text-muted-foreground mt-1">
         Pulls RTSP frames from sensor-ms on localhost.
       </p>
@@ -337,7 +342,7 @@ function RtviVlmConfig() {
 }
 
 function RtviVlmMetrics({ nodeId, runtimeState }: { nodeId: string; runtimeState?: NodeRuntimeState }) {
-  return <GpuSparklines nodeId={nodeId} gpu={runtimeState?.gpu} label="GPU 1" />;
+  return <GpuSparklines nodeId={nodeId} gpu={runtimeState?.gpu} />;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -348,13 +353,13 @@ function RtviEmbedStatus({ runtimeState }: { runtimeState?: NodeRuntimeState }) 
   return (
     <div className="space-y-4">
       <PodStatusBlock pod={runtimeState?.pod} />
-      <GpuBlock gpu={runtimeState?.gpu} label="GPU 2" />
+      <GpuBlock gpu={runtimeState?.gpu} />
     </div>
   );
 }
 
 function RtviEmbedMetrics({ nodeId, runtimeState }: { nodeId: string; runtimeState?: NodeRuntimeState }) {
-  return <GpuSparklines nodeId={nodeId} gpu={runtimeState?.gpu} label="GPU 2" />;
+  return <GpuSparklines nodeId={nodeId} gpu={runtimeState?.gpu} />;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -366,7 +371,7 @@ function NimStatus({ runtimeState }: { runtimeState?: NodeRuntimeState }) {
   return (
     <div className="space-y-4">
       <PodStatusBlock pod={runtimeState?.pod} />
-      <GpuBlock gpu={runtimeState?.gpu} label="GPU 0" />
+      <GpuBlock gpu={runtimeState?.gpu} />
       {nim && (
         <>
           {/* Primary: tokens/sec + P95 latency as large stat tiles */}
@@ -481,7 +486,7 @@ function NimMetrics({ nodeId, runtimeState }: { nodeId: string; runtimeState?: N
             : "—"}
         </p>
       </div>
-      <GpuSparklines nodeId={nodeId} gpu={runtimeState?.gpu} label="GPU 0" />
+      <GpuSparklines nodeId={nodeId} gpu={runtimeState?.gpu} />
     </div>
   );
 }
