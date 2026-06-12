@@ -151,10 +151,14 @@ const _GRAFANA_HOST_IP = process.env.OBJECTSTORE_ENDPOINT_IP ?? "";
 const GRAFANA_URL =
   process.env.GRAFANA_URL ??
   (_GRAFANA_HOST_IP ? `https://${_GRAFANA_HOST_IP}:8443/` : "");
-// Login surfaced to the operator. Grafana sits behind ARTESCA's :8443 SSO, so by
-// default the login is the ARTESCA admin (same as the :8443 UI). Username is
-// shown; the password is NOT embedded — set GRAFANA_LOGIN_HINT to override.
+// Login surfaced to the operator. Grafana sits behind ARTESCA's :8443 SSO, so the
+// login is the ARTESCA admin (same as the :8443 UI). Username is always shown.
+// The password is only surfaced when GRAFANA_PASSWORD is set — local dev-console
+// populates it from the node's Keycloak admin secret; the in-cluster ConfigMap
+// leaves it unset (no admin secret baked into a cluster ConfigMap) and the UI
+// shows the hint instead.
 const GRAFANA_USER = process.env.GRAFANA_USER ?? "admin";
+const GRAFANA_PASSWORD = process.env.GRAFANA_PASSWORD ?? "";
 const GRAFANA_LOGIN_HINT =
   process.env.GRAFANA_LOGIN_HINT ??
   "ARTESCA admin (same login as the :8443 UI) → Monitoring → Grafana → \"ARTESCA+ VSS — GPU Metrics\"";
@@ -456,6 +460,7 @@ export const CLUSTER = {
   grafana: {
     url: GRAFANA_URL,
     user: GRAFANA_USER,
+    password: GRAFANA_PASSWORD,
     loginHint: GRAFANA_LOGIN_HINT,
   },
   alertWorker: {

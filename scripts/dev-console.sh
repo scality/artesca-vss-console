@@ -165,6 +165,12 @@ say "Writing $ENVF"
   [[ -n "${KAFKA_IP:-}" ]] && echo "KAFKA_BROKERS=kafka-kafka:${KAFKA_PORT}"
   [[ -n "${CAMSIM_HOST:-}" ]] && echo "CAMERA_SIM_HOST=$CAMSIM_HOST"
   [[ -n "${PROM_IP:-}" ]] && echo "PROMETHEUS_URL=http://127.0.0.1:${PROM_PORT}"
+  # Grafana SSO login surfaced on the console Overview. Grafana sits behind
+  # ARTESCA's :8443 Keycloak SSO, so the login is the ARTESCA admin. Pull it from
+  # the node's initial-admin secret so the local console shows the creds in clear
+  # (lab/demo convenience — the in-cluster ConfigMap leaves this unset).
+  GRAFANA_PW="$(rsh "sudo -n kubectl --kubeconfig=/etc/kubernetes/admin.conf -n artesca-auth get secret artesca-kc-initial-admin -o jsonpath='{.data.password}' 2>/dev/null | base64 -d" 2>/dev/null || true)"
+  [[ -n "$GRAFANA_PW" ]] && echo "GRAFANA_PASSWORD=$GRAFANA_PW"
 } > "$ENVF"
 
 # ── 4. /etc/hosts alias for Kafka. Redpanda advertises itself as `kafka-kafka:9092`,
