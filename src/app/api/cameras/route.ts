@@ -335,7 +335,30 @@ export const POST = withRequestContext(async (req: NextRequest) => {
     );
   }
 
-  // 3. Persist to GCS (best-effort — VST add is already done).
+  // 3a. k8s path: write-through to Firestore + reconcile apply.
+  if (!DOCKER_MODE) {
+    const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+    const { reconcileCameras } = await import("@/lib/reconcile/cameras");
+    const entry = {
+      id: cameraId,
+      rtspUrl: parsed.data.rtspUrl ?? "",
+      ...(role ? { role } : {}),
+      ...(description ? { description } : {}),
+    };
+    try {
+      const ctx = await makeReconcileContext();
+      await ctx.store.upsertCamera(ctx.instance, entry, session.user?.email ?? "console");
+      const result = await reconcileCameras([entry], ctx.adapter, { prune: false });
+      result.failed.forEach((f) => warnings.push(`apply ${f.id}: ${f.warning ?? "failed"}`));
+    } catch (err) {
+      const msg = err instanceof ReconcileContextError ? err.message : String(err);
+      warnings.push(`config store write failed (camera created on camera-sim): ${msg}`);
+    }
+    await auditLog("camera-add", `camera/${cameraId}`, { cameraId, source: primary.fileName });
+    return NextResponse.json({ ok: true, cameraId, warnings });
+  }
+
+  // 3b. Docker path: persist to GCS (best-effort — VST add is already done).
   if (VSS_INSTANCE_NAME) {
     const email = session.user?.email ?? "console";
     const gcsWarning = await writeToGcs(
