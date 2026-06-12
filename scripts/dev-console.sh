@@ -54,7 +54,8 @@ die()  { printf '\033[1;31mFAIL\033[0m %s\n' "$*" >&2; exit 1; }
 K8S_PORT=16443
 KAFKA_PORT=9092
 PROM_PORT=19090
-for p in "$DEV_PORT" "$K8S_PORT" "$KAFKA_PORT" "$PROM_PORT"; do
+VST_PORT=13000
+for p in "$DEV_PORT" "$K8S_PORT" "$KAFKA_PORT" "$PROM_PORT" "$VST_PORT"; do
   if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then
     [[ "$p" == "$DEV_PORT" && "$START_DEV" -eq 0 ]] && continue
     echo "error: port $p already in use." >&2
@@ -95,7 +96,10 @@ KAFKA_IP="$(rsh "$K -n $VSS_NS get svc kafka-kafka -o jsonpath='{.spec.clusterIP
 # artesca-monitoring's does NOT). Its svc is headless, so forward a prometheus
 # POD IP (re-discovered each run, like KAFKA_IP).
 PROM_IP="$(rsh "$K -n metalk8s-monitoring get pod -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].status.podIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
-say "ns=$VSS_NS  kafka=${KAFKA_IP:-?}  prometheus=${PROM_IP:-?}  (K8s→:$K8S_PORT, Kafka→:$KAFKA_PORT, Prom→:$PROM_PORT)"
+# VST HTTP sensor API (vss-vios-sensor:30000) — the console's sensor list/get
+# probe. Off-cluster its svc DNS doesn't resolve, so forward the ClusterIP.
+VST_IP="$(rsh "$K -n $VSS_NS get svc vss-vios-sensor -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
+say "ns=$VSS_NS  kafka=${KAFKA_IP:-?}  prometheus=${PROM_IP:-?}  vst=${VST_IP:-?}  (K8s→:$K8S_PORT, Kafka→:$KAFKA_PORT, Prom→:$PROM_PORT, VST→:$VST_PORT)"
 
 # ── 2b. Discover camera-sim host + auto-authorize this laptop on its SG :9997 ──
 # The camera-sim is a separate instance; the console probes its mediamtx REST API
@@ -176,6 +180,12 @@ say "Writing $ENVF"
   [[ -n "${KAFKA_IP:-}" ]] && echo "KAFKA_BROKERS=kafka-kafka:${KAFKA_PORT}"
   [[ -n "${CAMSIM_HOST:-}" ]] && echo "CAMERA_SIM_HOST=$CAMSIM_HOST"
   [[ -n "${PROM_IP:-}" ]] && echo "PROMETHEUS_URL=http://127.0.0.1:${PROM_PORT}"
+  # VST sensor API via the local forward (cluster-refs builds these from env).
+  # Path is /api/v1/sensor[...] — verified against this build's vss-vios-sensor.
+  if [[ -n "${VST_IP:-}" ]]; then
+    echo "VST_SENSOR_URL=http://127.0.0.1:${VST_PORT}/api/v1/sensor"
+    echo "VST_SENSOR_LIST_URL=http://127.0.0.1:${VST_PORT}/api/v1/sensor/list"
+  fi
   # Grafana SSO login surfaced on the console Overview. Grafana sits behind
   # ARTESCA's :8443 Keycloak SSO, so the login is the ARTESCA admin. Pull it from
   # the node's initial-admin secret so the local console shows the creds in clear
@@ -206,6 +216,7 @@ fi
 FWD=( -L "${K8S_PORT}:${PRIV_IP}:6443" )
 [[ -n "${KAFKA_IP:-}" ]] && FWD+=( -L "${KAFKA_PORT}:${KAFKA_IP}:9092" )
 [[ -n "${PROM_IP:-}" ]] && FWD+=( -L "${PROM_PORT}:${PROM_IP}:9090" )
+[[ -n "${VST_IP:-}" ]] && FWD+=( -L "${VST_PORT}:${VST_IP}:30000" )
 say "Opening SSH forwards → $REMOTE_SSH_TARGET"
 # LogLevel=QUIET suppresses the node's pre-auth login Banner (the long
 # "authorized users only" block) that otherwise floods the menubar logs.
@@ -228,6 +239,7 @@ say "  ✓ K8s API reachable via the tunnel"
 cat <<NOTE
 
   ✓ K8s API + S3 wired. Kafka: $([[ "$HOSTS_OK" -eq 1 ]] && echo "kafka-kafka alias present → reachable" || echo "unreachable — run once with --with-hosts to add the persistent 127.0.0.1 kafka-kafka alias (sudo)")
+  $([[ -n "${VST_IP:-}" ]] && echo "✓ VST sensor API → forwarded (127.0.0.1:$VST_PORT)" || echo "⚠ VST sensor svc (vss-vios-sensor) not found — VST stays unreachable")
   ⚠ Prometheus stays unreachable (ARTESCA auth; console sends no creds).
   $([[ -n "${CAMSIM_HOST:-}" ]] \
     && echo "✓ camera-sim → $CAMSIM_HOST:9997 (this laptop's /32 is auto-authorized on the camera-sim SG :9997, self-healing on IP drift)" \
