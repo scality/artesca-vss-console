@@ -295,6 +295,30 @@ export const PATCH = withRequestContext(async function (
     );
   }
 
+  // k8s path: upsert the updated entry to Firestore + apply to cluster.
+  if (process.env.CONSOLE_RUNTIME !== "docker") {
+    const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+    const { reconcileCameras } = await import("@/lib/reconcile/cameras");
+    const rtspBase = process.env.CAMERA_SIM_HOST ? `rtsp://${process.env.CAMERA_SIM_HOST}:8554/${id}` : "";
+    const entry = { id, rtspUrl: rtspBase, ...(update.role ? { role: update.role } : {}), ...(newDescription ? { description: newDescription } : {}) };
+    try {
+      const ctx = await makeReconcileContext();
+      const existing = (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
+      const merged = {
+        ...entry,
+        ...(existing?.scenarioIds ? { scenarioIds: existing.scenarioIds } : {}),
+        ...(existing?.recording ? { recording: existing.recording } : {}),
+        ...(existing?.rtspUrl && !rtspBase ? { rtspUrl: existing.rtspUrl } : {}),
+      };
+      await ctx.store.upsertCamera(ctx.instance, merged, session.user?.email ?? "console");
+      const result = await reconcileCameras([merged], ctx.adapter, { prune: false });
+      result.failed.forEach((f) => warnings.push(`apply ${f.id}: ${f.warning ?? "failed"}`));
+    } catch (err) {
+      const msg = err instanceof ReconcileContextError ? err.message : String(err);
+      warnings.push(`config store update failed (camera-sim already updated): ${msg}`);
+    }
+  }
+
   await auditLog("camera-update", `camera/${id}`, { update });
 
   return NextResponse.json({ ok: true, cameraId: id, warnings });

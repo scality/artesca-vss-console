@@ -62,6 +62,10 @@ vi.mock("@/lib/reconcile/context", () => ({
   makeReconcileContext: vi.fn(),
 }));
 
+vi.mock("@/lib/reconcile/cameras", () => ({
+  reconcileCameras: vi.fn().mockResolvedValue({ added: [], alreadyPresent: ["cam01"], failed: [], pruned: [], drift: [] }),
+}));
+
 import type { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import {
@@ -182,6 +186,10 @@ describe("GET /api/cameras/[id]", () => {
 // ── PATCH ─────────────────────────────────────────────────────────────────────
 
 describe("PATCH /api/cameras/[id]", () => {
+  beforeEach(() => {
+    process.env.CONSOLE_RUNTIME = "docker";
+  });
+
   it("auth missing → 401, no camsim calls", async () => {
     vi.mocked(auth).mockResolvedValue(null as never);
 
@@ -239,6 +247,25 @@ describe("PATCH /api/cameras/[id]", () => {
   it.todo(
     "PATCH with fileBase64: uploads file to camsim before delete+re-add — testing file upload flow requires Buffer assertions and is covered by camsim-control.test.ts",
   );
+});
+
+// ── PATCH (k8s) ───────────────────────────────────────────────────────────────
+
+describe("PATCH /api/cameras/[id] (k8s)", () => {
+  it("re-adds on camsim then upserts the updated entry to Firestore + applies", async () => {
+    delete process.env.CONSOLE_RUNTIME;
+    const upsertCamera = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(makeReconcileContext).mockResolvedValue({
+      instance: "inst-1", adapter: {} as never, refs: {} as never, store: { upsertCamera, readCameras: vi.fn().mockResolvedValue([]) } as never,
+    } as never);
+    vi.mocked(camsimListCameras).mockResolvedValue([{ name: "cam01", source: "entrance.ts", description: "Entrance", staged: false }]);
+    const req = makeRequest("PATCH", { description: "Updated entrance" });
+    const res = await PATCH(req, makeParams("cam01"));
+    expect(res.status).toBe(200);
+    expect(camsimDeleteCamera).toHaveBeenCalledWith("cam01");
+    expect(camsimAddCamera).toHaveBeenCalled();
+    expect(upsertCamera).toHaveBeenCalledWith("inst-1", expect.objectContaining({ id: "cam01", description: "Updated entrance" }), expect.any(String));
+  });
 });
 
 // ── PUT (docker) ─────────────────────────────────────────────────────────────
