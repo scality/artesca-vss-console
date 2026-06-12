@@ -81,6 +81,25 @@ export function s3Region(): string {
 }
 
 /**
+ * Turn an opaque S3 SDK failure into an operator-actionable message.
+ *
+ * The classic case on a misconfigured endpoint: the host serves an HTML page
+ * (the ARTESCA/MetalK8s UI, an ingress, or a redirect), so a GET like
+ * ListObjectsV2 parses the body `<!doctype html>` as XML and dies with
+ * "char 'd' is not expected.:1:3". A HEAD (HeadBucket) hides this — it only
+ * reads the status code — so reachability can read "ok" while listing fails.
+ * When we see that signature, say *why* and name the endpoint.
+ */
+export function describeS3Error(err: unknown): string {
+  const raw = String(err);
+  const ep = s3Endpoint() ?? "(SDK-default AWS endpoint)";
+  if (/is not expected|Deserialization|non-whitespace|Unexpected (token|character)/i.test(raw)) {
+    return `endpoint ${ep} returned a non-XML (HTML?) body — OBJECTSTORE_ENDPOINT likely points at a web UI / ingress, not the S3 API. [${raw}]`;
+  }
+  return `${raw} (endpoint ${ep})`;
+}
+
+/**
  * True when the configured endpoint is an AWS-native S3 endpoint (or
  * unset, meaning the SDK will compute one). False for ARTESCA / MinIO /
  * any custom endpoint — those need path-style addressing.
