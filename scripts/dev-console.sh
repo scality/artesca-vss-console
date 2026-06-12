@@ -53,7 +53,8 @@ die()  { printf '\033[1;31mFAIL\033[0m %s\n' "$*" >&2; exit 1; }
 # Local forward ports.
 K8S_PORT=16443
 KAFKA_PORT=9092
-for p in "$DEV_PORT" "$K8S_PORT" "$KAFKA_PORT"; do
+PROM_PORT=19090
+for p in "$DEV_PORT" "$K8S_PORT" "$KAFKA_PORT" "$PROM_PORT"; do
   if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then
     [[ "$p" == "$DEV_PORT" && "$START_DEV" -eq 0 ]] && continue
     echo "error: port $p already in use." >&2
@@ -90,7 +91,11 @@ chmod 600 "$KCFG"
 K="sudo -n kubectl --kubeconfig=/etc/kubernetes/admin.conf"
 VSS_NS="${STACK_ID:+vss-${SCALITY_BP_PROFILE:-alerts}}"; VSS_NS="${VSS_NS:-vss-alerts}"
 KAFKA_IP="$(rsh "$K -n $VSS_NS get svc kafka-kafka -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
-say "ns=$VSS_NS  kafka=${KAFKA_IP:-?}  (K8s→127.0.0.1:$K8S_PORT, Kafka→127.0.0.1:$KAFKA_PORT)"
+# Prometheus lives in metalk8s-monitoring (the instance that scrapes DCGM/GPU —
+# artesca-monitoring's does NOT). Its svc is headless, so forward a prometheus
+# POD IP (re-discovered each run, like KAFKA_IP).
+PROM_IP="$(rsh "$K -n metalk8s-monitoring get pod -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].status.podIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
+say "ns=$VSS_NS  kafka=${KAFKA_IP:-?}  prometheus=${PROM_IP:-?}  (K8s→:$K8S_PORT, Kafka→:$KAFKA_PORT, Prom→:$PROM_PORT)"
 
 # ── 2b. Discover camera-sim host + auto-authorize this laptop on its SG :9997 ──
 # The camera-sim is a separate instance; the console probes its mediamtx REST API
@@ -159,6 +164,7 @@ say "Writing $ENVF"
   # 127.0.0.1 → the local forward. Bootstrap uses the same name for consistency.
   [[ -n "${KAFKA_IP:-}" ]] && echo "KAFKA_BROKERS=kafka-kafka:${KAFKA_PORT}"
   [[ -n "${CAMSIM_HOST:-}" ]] && echo "CAMERA_SIM_HOST=$CAMSIM_HOST"
+  [[ -n "${PROM_IP:-}" ]] && echo "PROMETHEUS_URL=http://127.0.0.1:${PROM_PORT}"
 } > "$ENVF"
 
 # ── 4. /etc/hosts alias for Kafka. Redpanda advertises itself as `kafka-kafka:9092`,
@@ -182,6 +188,7 @@ fi
 # (the footgun that broke -L tunnels before — see lib-kubectl.sh).
 FWD=( -L "${K8S_PORT}:${PRIV_IP}:6443" )
 [[ -n "${KAFKA_IP:-}" ]] && FWD+=( -L "${KAFKA_PORT}:${KAFKA_IP}:9092" )
+[[ -n "${PROM_IP:-}" ]] && FWD+=( -L "${PROM_PORT}:${PROM_IP}:9090" )
 say "Opening SSH forwards → $REMOTE_SSH_TARGET"
 # LogLevel=QUIET suppresses the node's pre-auth login Banner (the long
 # "authorized users only" block) that otherwise floods the menubar logs.

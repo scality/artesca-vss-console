@@ -131,10 +131,16 @@ const MEDIAMTX_API_URL =
   `http://${process.env.CAMERA_SIM_HOST ?? "camera-sim-host"}:9997`;
 
 // ─── Prometheus ───────────────────────────────────────────────────────────────
-// Unchanged — ARTESCA's kube-prometheus-stack remains in artesca-monitoring.
+// Point at metalk8s-monitoring, NOT artesca-monitoring. ARTESCA ships two
+// kube-prometheus-stack instances: artesca-monitoring (app/Zenko metrics, and
+// its Prometheus CR has serviceMonitorSelector=null → it does NOT discover
+// ServiceMonitors) and metalk8s-monitoring (node-exporter, kube-state-metrics,
+// and the one that actually discovers our observability/ DCGM ServiceMonitor).
+// The GPU metrics (DCGM_FI_DEV_GPU_*) only exist in metalk8s-monitoring's
+// Prometheus — verified on ap-vss-val-4 (2 GPU series there, 0 in artesca-monitoring).
 const PROMETHEUS_URL =
   process.env.PROMETHEUS_URL ??
-  "http://prometheus-operated.artesca-monitoring.svc.cluster.local:9090";
+  "http://prometheus-operated.metalk8s-monitoring.svc.cluster.local:9090";
 
 // ─── Alert bridge ────────────────────────────────────────────────────────────
 // Helm:   vss-video-analytics-api Deployment in vss-<profile>, port 8081.
