@@ -42,14 +42,21 @@ export async function register() {
   if (missing.length) log.warn(`missing env vars: ${missing.join(", ")}`);
 
   const instance = process.env.VSS_INSTANCE_NAME;
-  if (instance) {
+  const dockerMode = process.env.CONSOLE_RUNTIME === "docker";
+
+  if (instance && !dockerMode) {
+    // k8s full-console: converge from Firestore (replaces the GCS restore watcher).
+    const { startReconcileLoop } = await import("@/lib/reconcile-agent");
+    await startReconcileLoop();
+  } else if (instance) {
+    // docker: GCS-backed camera restore after compose restarts.
     const { startCameraRestoreWatcher } = await import(
       "@/lib/camera-restore-watcher"
     );
     startCameraRestoreWatcher(instance);
   }
 
-  if (process.env.CONSOLE_RUNTIME === "docker") {
+  if (dockerMode) {
     const { startCaptionBridge } = await import("@/lib/caption-bridge");
     startCaptionBridge();
   }

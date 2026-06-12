@@ -68,6 +68,18 @@ export class FirestoreConfigStore implements ConfigStore {
     }
   }
 
+  async upsertCamera(instance: string, camera: CameraEntry, updatedBy: string): Promise<void> {
+    const { id, ...rest } = camera;
+    await this.db
+      .collection(camerasPath(instance))
+      .doc(id)
+      .set({ ...rest, updatedBy, updatedAt: new Date().toISOString() });
+  }
+
+  async deleteCamera(instance: string, id: string, _updatedBy: string): Promise<void> {
+    await this.db.collection(camerasPath(instance)).doc(id).delete();
+  }
+
   async readStatus(instance: string): Promise<ReconcileStatus | null> {
     const snap = await this.db.doc(instanceDocPath(instance)).get();
     if (!snap.exists) return null;

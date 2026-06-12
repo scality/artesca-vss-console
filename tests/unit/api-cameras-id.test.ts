@@ -57,6 +57,15 @@ vi.mock("@/lib/helpers/audit", () => ({
   auditLog: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/reconcile/context", () => ({
+  ReconcileContextError: class extends Error {},
+  makeReconcileContext: vi.fn(),
+}));
+
+vi.mock("@/lib/reconcile/cameras", () => ({
+  reconcileCameras: vi.fn().mockResolvedValue({ added: [], alreadyPresent: ["cam01"], failed: [], pruned: [], drift: [] }),
+}));
+
 import type { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import {
@@ -67,11 +76,12 @@ import {
   CamsimControlError,
 } from "@/lib/helpers/camsim-control";
 import { vstDeleteSensor } from "@/lib/helpers/vst";
-import { getCameraOverride, deleteCameraOverride } from "@/lib/db";
+import { getCameraOverride, upsertCameraOverride, deleteCameraOverride } from "@/lib/db";
 import { auditLog } from "@/lib/helpers/audit";
 import { writeToGcs } from "@/app/api/cameras/route";
+import { makeReconcileContext } from "@/lib/reconcile/context";
 
-import { GET, PATCH, DELETE } from "@/app/api/cameras/[id]/route";
+import { GET, PUT, PATCH, DELETE } from "@/app/api/cameras/[id]/route";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -122,11 +132,16 @@ beforeEach(() => {
   vi.mocked(auditLog).mockReset().mockResolvedValue(undefined);
 
   delete process.env.VSS_INSTANCE_NAME;
+  delete process.env.CONSOLE_RUNTIME;
 });
 
 // ── GET ──────────────────────────────────────────────────────────────────────
 
 describe("GET /api/cameras/[id]", () => {
+  beforeEach(() => {
+    process.env.CONSOLE_RUNTIME = "docker";
+  });
+
   it("auth missing → 401", async () => {
     vi.mocked(auth).mockResolvedValue(null as never);
 
@@ -172,9 +187,47 @@ describe("GET /api/cameras/[id]", () => {
   });
 });
 
+// ── GET (k8s) ─────────────────────────────────────────────────────────────────
+
+describe("GET /api/cameras/[id] (k8s)", () => {
+  it("reads override from Firestore camera doc, not SQLite", async () => {
+    delete process.env.CONSOLE_RUNTIME;
+    const readCameras = vi.fn().mockResolvedValue([
+      {
+        id: "cam01",
+        rtspUrl: "rtsp://x/cam01",
+        scenarioIds: ["fall"],
+        recording: { enabled: true, policy: "always", retentionDays: 7 },
+      },
+    ]);
+    vi.mocked(makeReconcileContext).mockResolvedValue({
+      instance: "inst-1",
+      adapter: {} as never,
+      refs: {} as never,
+      store: { readCameras } as never,
+    } as never);
+
+    const req = makeRequest("GET");
+    const res = await GET(req, makeParams("cam01"));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.cameraId).toBe("cam01");
+    expect(body.override).toBeDefined();
+    expect(body.override.scenarioIds).toEqual(["fall"]);
+    expect(body.override.recordingPolicy).toBe("always");
+    // SQLite must not be called on k8s path
+    expect(getCameraOverride).not.toHaveBeenCalled();
+  });
+});
+
 // ── PATCH ─────────────────────────────────────────────────────────────────────
 
 describe("PATCH /api/cameras/[id]", () => {
+  beforeEach(() => {
+    process.env.CONSOLE_RUNTIME = "docker";
+  });
+
   it("auth missing → 401, no camsim calls", async () => {
     vi.mocked(auth).mockResolvedValue(null as never);
 
@@ -234,9 +287,120 @@ describe("PATCH /api/cameras/[id]", () => {
   );
 });
 
+// ── PATCH (k8s) ───────────────────────────────────────────────────────────────
+
+describe("PATCH /api/cameras/[id] (k8s)", () => {
+  it("re-adds on camsim then upserts the updated entry to Firestore + applies", async () => {
+    delete process.env.CONSOLE_RUNTIME;
+    const upsertCamera = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(makeReconcileContext).mockResolvedValue({
+      instance: "inst-1", adapter: {} as never, refs: {} as never, store: { upsertCamera, readCameras: vi.fn().mockResolvedValue([]) } as never,
+    } as never);
+    vi.mocked(camsimListCameras).mockResolvedValue([{ name: "cam01", source: "entrance.ts", description: "Entrance", staged: false }]);
+    const req = makeRequest("PATCH", { description: "Updated entrance" });
+    const res = await PATCH(req, makeParams("cam01"));
+    expect(res.status).toBe(200);
+    expect(camsimDeleteCamera).toHaveBeenCalledWith("cam01");
+    expect(camsimAddCamera).toHaveBeenCalled();
+    expect(upsertCamera).toHaveBeenCalledWith("inst-1", expect.objectContaining({ id: "cam01", description: "Updated entrance" }), expect.any(String));
+  });
+});
+
+// ── PUT (docker) ─────────────────────────────────────────────────────────────
+
+describe("PUT /api/cameras/[id] overrides (docker)", () => {
+  beforeEach(() => {
+    process.env.CONSOLE_RUNTIME = "docker";
+  });
+
+  it("auth missing → 401", async () => {
+    vi.mocked(auth).mockResolvedValue(null as never);
+
+    const req = makeRequest("PUT", { scenarioIds: ["fall"] });
+    const res = await PUT(req, makeParams("cam01"));
+
+    expect(res.status).toBe(401);
+  });
+
+  it("invalid body → 400", async () => {
+    const req = makeRequest("PUT", { scenarioIds: "not-an-array" });
+    const res = await PUT(req, makeParams("cam01"));
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/validation/i);
+  });
+
+  it("both fields absent/null → clears override (deleteCameraOverride), audit logged", async () => {
+    const req = makeRequest("PUT", {});
+    const res = await PUT(req, makeParams("cam01"));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.cleared).toBe(true);
+    expect(deleteCameraOverride).toHaveBeenCalledWith("cam01");
+    expect(upsertCameraOverride).not.toHaveBeenCalled();
+    expect(auditLog).toHaveBeenCalledWith("camera-override-clear", "camera/cam01", {});
+  });
+
+  it("upserts override into SQLite when scenarioIds provided", async () => {
+    const req = makeRequest("PUT", { scenarioIds: ["fall", "fire"], recording: { enabled: true, policy: "always", retentionDays: 7 } });
+    const res = await PUT(req, makeParams("cam01"));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(upsertCameraOverride).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cameraId: "cam01",
+        scenarioIds: ["fall", "fire"],
+        recordingEnabled: true,
+        recordingPolicy: "always",
+        recordingRetentionDays: 7,
+        updatedBy: "operator@test.com",
+      }),
+    );
+    expect(auditLog).toHaveBeenCalledWith(
+      "camera-override-update",
+      "camera/cam01",
+      expect.any(Object),
+    );
+  });
+});
+
+// ── PUT (k8s) ─────────────────────────────────────────────────────────────────
+
+describe("PUT /api/cameras/[id] overrides (k8s)", () => {
+  it("merges scenarioIds + recording into the Firestore camera doc", async () => {
+    delete process.env.CONSOLE_RUNTIME;
+    const upsertCamera = vi.fn().mockResolvedValue(undefined);
+    const readCameras = vi.fn().mockResolvedValue([{ id: "cam01", rtspUrl: "rtsp://x/cam01", description: "Entrance" }]);
+    vi.mocked(makeReconcileContext).mockResolvedValue({
+      instance: "inst-1", adapter: {} as never, refs: {} as never, store: { upsertCamera, readCameras } as never,
+    } as never);
+    const req = makeRequest("PUT", { scenarioIds: ["fall"], recording: { enabled: true, policy: "always", retentionDays: 7 } });
+    const res = await PUT(req, makeParams("cam01"));
+    expect(res.status).toBe(200);
+    expect(upsertCamera).toHaveBeenCalledWith(
+      "inst-1",
+      expect.objectContaining({
+        id: "cam01", rtspUrl: "rtsp://x/cam01",
+        scenarioIds: ["fall"],
+        recording: { enabled: true, policy: "always", retentionDays: 7 },
+      }),
+      expect.any(String),
+    );
+  });
+});
+
 // ── DELETE ────────────────────────────────────────────────────────────────────
 
 describe("DELETE /api/cameras/[id]", () => {
+  beforeEach(() => {
+    process.env.CONSOLE_RUNTIME = "docker";
+  });
+
   it("auth missing → 401, no camsim calls", async () => {
     vi.mocked(auth).mockResolvedValue(null as never);
 
@@ -333,4 +497,22 @@ describe("DELETE /api/cameras/[id]", () => {
   it.todo(
     "DELETE: camsimDeleteFile throws a non-404 error → warning appended to warnings[] — file deletion is step 3 (best-effort); the response is still 200",
   );
+});
+
+// ── DELETE (k8s) ──────────────────────────────────────────────────────────────
+
+describe("DELETE /api/cameras/[id] (k8s)", () => {
+  it("deletes from Firestore + unregisters VST, does not call writeToGcs", async () => {
+    delete process.env.CONSOLE_RUNTIME;
+    const deleteCamera = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(makeReconcileContext).mockResolvedValue({
+      instance: "inst-1", adapter: {} as never, refs: {} as never, store: { deleteCamera } as never,
+    } as never);
+    const req = makeRequest("DELETE");
+    const res = await DELETE(req, makeParams("cam01"));
+    expect(res.status).toBe(200);
+    expect(deleteCamera).toHaveBeenCalledWith("inst-1", "cam01", expect.any(String));
+    expect(vstDeleteSensor).toHaveBeenCalledWith("cam01");
+    expect(writeToGcs).not.toHaveBeenCalled();
+  });
 });

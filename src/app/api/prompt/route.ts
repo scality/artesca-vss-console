@@ -7,12 +7,8 @@ import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/prompt");
 import { z } from "zod";
-import { coreV1, appsV1, rolloutRestart } from "@/lib/k8s";
-import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
-import { patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
-import { CLUSTER } from "@/lib/cluster-refs";
 import {
   gcsPromptGet,
   gcsPromptPut,
@@ -71,12 +67,11 @@ export async function GET() {
 
   const warnings: string[] = [];
 
-  // Fetch GCS state in parallel with the live read.
-  const gcsPromise = VSS_INSTANCE_NAME
-    ? gcsPromptGet(VSS_INSTANCE_NAME)
-    : Promise.resolve(null);
-
   if (DOCKER_MODE) {
+    // Fetch GCS state in parallel with the live docker read.
+    const gcsPromise = VSS_INSTANCE_NAME
+      ? gcsPromptGet(VSS_INSTANCE_NAME)
+      : Promise.resolve(null);
     const defaultPrompt = readDefaultPrompt();
     try {
       const [env, gcsCfg] = await Promise.all([
@@ -106,56 +101,17 @@ export async function GET() {
     }
   }
 
-  // Helm path: VLM_SYSTEM_PROMPT is a direct env var on the vss-rtvi-vlm Deployment.
-  // Legacy path: prompt lives in ConfigMap rtvi-runtime-env under key RTVI_VLM_SYSTEM_PROMPT.
-  if (!CLUSTER.rtvi.runtimeEnvCm) {
-    // Helm path — read from Deployment env
+  // k8s path: Firestore is the source of truth for the desired prompt.
+  {
+    const { makeReconcileContext } = await import("@/lib/reconcile/context");
     try {
-      const [deploy, gcsCfg] = await Promise.all([
-        appsV1().readNamespacedDeployment({
-          name: CLUSTER.rtvi.vlmDeployment,
-          namespace: CLUSTER.rtvi.nimNamespace,
-        }),
-        gcsPromise,
-      ]);
-      const envVars = deploy.spec?.template?.spec?.containers?.[0]?.env ?? [];
-      const promptEnv = envVars.find((e) => e.name === CLUSTER.rtvi.promptKey);
-      const modelEnv = envVars.find((e) => e.name === CLUSTER.rtvi.modelKey);
-      const prompt = promptEnv?.value ?? "";
-      const model = modelEnv?.value ?? "";
-      if (gcsCfg && !prompt) {
-        warnings.push("GCS-persisted prompt not yet applied — restart will pick it up");
-      }
-      return NextResponse.json({ prompt, model, resourceVersion: undefined, gcs: buildGcsField(gcsCfg), warnings });
+      const ctx = await makeReconcileContext();
+      const doc = await ctx.store.readPrompt(ctx.instance);
+      return NextResponse.json({ prompt: doc?.prompt ?? "", model: doc?.model ?? "", gcs: { available: false }, warnings });
     } catch (err) {
-      warnings.push(`${CLUSTER.rtvi.vlmDeployment} unreadable: ${String(err)}`);
-      const gcsCfg = await gcsPromise.catch(() => null);
-      return NextResponse.json({ prompt: "", model: "", gcs: buildGcsField(gcsCfg), warnings }, { status: 502 });
+      warnings.push(`config store unavailable: ${err instanceof Error ? err.message : String(err)}`);
+      return NextResponse.json({ prompt: "", model: "", gcs: { available: false }, warnings });
     }
-  }
-
-  try {
-    const [cm, gcsCfg] = await Promise.all([
-      coreV1().readNamespacedConfigMap({
-        name: CLUSTER.rtvi.runtimeEnvCm,
-        namespace: CLUSTER.rtvi.nimNamespace,
-      }),
-      gcsPromise,
-    ]);
-
-    const prompt = cm.data?.[CLUSTER.rtvi.promptKey] ?? "";
-    const model = cm.data?.[CLUSTER.rtvi.modelKey] ?? "";
-    const resourceVersion = cm.metadata?.resourceVersion;
-
-    if (gcsCfg && !prompt) {
-      warnings.push("GCS-persisted prompt not yet applied — restart will pick it up");
-    }
-
-    return NextResponse.json({ prompt, model, resourceVersion, gcs: buildGcsField(gcsCfg), warnings });
-  } catch (err) {
-    warnings.push(`rtvi-runtime-env unreadable: ${String(err)}`);
-    const gcsCfg = await gcsPromise.catch(() => null);
-    return NextResponse.json({ prompt: "", model: "", gcs: buildGcsField(gcsCfg), warnings }, { status: 502 });
   }
 }
 
@@ -228,113 +184,21 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
     }
   }
 
-  const { prompt, model } = parsed.data;
-  const ifMatch = req.headers.get("If-Match") ?? undefined;
-
-  if (!CLUSTER.rtvi.runtimeEnvCm) {
-    // Helm path — patch env vars directly on the Deployment
+  {
+    const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+    const { reconcilePrompt } = await import("@/lib/reconcile/prompt");
+    const { prompt, model } = parsed.data;
     try {
-      const deploy = await appsV1().readNamespacedDeployment({
-        name: CLUSTER.rtvi.vlmDeployment,
-        namespace: CLUSTER.rtvi.nimNamespace,
-      });
-      const containers = deploy.spec?.template?.spec?.containers ?? [];
-      const container = containers[0];
-      if (!container) throw new Error(`No containers in ${CLUSTER.rtvi.vlmDeployment}`);
-      const envPatch = container.env ? [...container.env] : [];
-      const setEnv = (key: string, value: string) => {
-        const idx = envPatch.findIndex((e) => e.name === key);
-        if (idx >= 0) envPatch[idx] = { name: key, value };
-        else envPatch.push({ name: key, value });
-      };
-      setEnv(CLUSTER.rtvi.promptKey, prompt);
-      if (model) setEnv(CLUSTER.rtvi.modelKey, model);
-      await appsV1().patchNamespacedDeployment({
-        name: CLUSTER.rtvi.vlmDeployment,
-        namespace: CLUSTER.rtvi.nimNamespace,
-        body: { spec: { template: { spec: { containers: [{ name: container.name, env: envPatch }] } } } },
-      });
-    } catch (err: unknown) {
-      const { status } = extractK8sError(err);
-      return NextResponse.json(
-        { error: `Deployment env patch failed: ${String(err)}` },
-        { status }
-      );
-    }
-  } else {
-    // Legacy path — patch ConfigMap
-    try {
-      let resourceVersion = ifMatch;
-      if (!resourceVersion) {
-        const cm = await coreV1().readNamespacedConfigMap({
-          name: CLUSTER.rtvi.runtimeEnvCm,
-          namespace: CLUSTER.rtvi.nimNamespace,
-        });
-        resourceVersion = cm.metadata?.resourceVersion;
-      }
-      await patchConfigMapRawKey(
-        CLUSTER.rtvi.nimNamespace,
-        CLUSTER.rtvi.runtimeEnvCm,
-        CLUSTER.rtvi.promptKey,
-        prompt,
-        resourceVersion
-      );
-      if (model) {
-        await patchConfigMapRawKey(CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.runtimeEnvCm, CLUSTER.rtvi.modelKey, model);
-      }
-    } catch (err: unknown) {
-      const { status } = extractK8sError(err);
-      if (status === 409) {
-        return NextResponse.json(
-          { error: "Config modified by another operator — reload and retry" },
-          { status: 409 }
-        );
-      }
-      return NextResponse.json(
-        { error: `ConfigMap patch failed: ${String(err)}` },
-        { status: 502 }
-      );
+      const ctx = await makeReconcileContext();
+      await ctx.store.writePrompt(ctx.instance, { prompt, ...(model ? { model } : {}) }, session.user?.email ?? "console");
+      const res = await reconcilePrompt({ prompt, ...(model ? { model } : {}) }, ctx.adapter, ctx.refs.prompt);
+      await auditLog("prompt-update", `firestore/${ctx.instance}`, { promptLength: prompt.length, modelChanged: !!model });
+      return NextResponse.json({ ok: true, ...(res.error ? { warnings: [res.error] } : {}) });
+    } catch (err) {
+      const msg = err instanceof ReconcileContextError ? err.message : String(err);
+      return NextResponse.json({ error: `config store write failed: ${msg}` }, { status: 502 });
     }
   }
-
-  // Rollout-restart VLM deployment (and NIM if model changed)
-  const restartErrors: string[] = [];
-  try {
-    await rolloutRestart("Deployment", CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.vlmDeployment);
-  } catch (err) {
-    restartErrors.push(`${CLUSTER.rtvi.vlmDeployment} restart failed: ${String(err)}`);
-  }
-
-  if (model) {
-    const nimKind = CLUSTER.legacy ? ("StatefulSet" as const) : ("Deployment" as const);
-    try {
-      await rolloutRestart(nimKind, CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.nimStatefulSet);
-    } catch {
-      // Best-effort — NIM restart may be disallowed by RBAC or timing
-    }
-  }
-
-  const auditTarget = CLUSTER.rtvi.runtimeEnvCm
-    ? `configmap/${CLUSTER.rtvi.runtimeEnvCm}`
-    : `deployment/${CLUSTER.rtvi.vlmDeployment}`;
-  await auditLog("prompt-update", auditTarget, {
-    promptLength: prompt.length,
-    modelChanged: !!model,
-    newModel: model,
-  });
-
-  // Persist to GCS (best-effort — live update already done).
-  const gcsWarnings: string[] = [];
-  if (VSS_INSTANCE_NAME) {
-    const gcsWarning = await persistPromptToGcs(prompt, model, session.user?.email ?? "console");
-    if (gcsWarning) gcsWarnings.push(gcsWarning);
-  }
-
-  return NextResponse.json({
-    ok: true,
-    restartErrors: restartErrors.length ? restartErrors : undefined,
-    ...(gcsWarnings.length ? { gcsWarnings } : {}),
-  });
 });
 
 // ─── GCS write helper ─────────────────────────────────────────────────────────

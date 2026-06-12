@@ -10,6 +10,8 @@ function fakeStore(cameras: CameraEntry[]): { store: ConfigStore; written: Recon
   const store: ConfigStore = {
     readCameras: async () => cameras,
     writeCameras: async () => {},
+    upsertCamera: async () => {},
+    deleteCamera: async () => {},
     readStatus: async () => null,
     writeStatus: async (_i, s) => {
       written.push(s);
@@ -84,6 +86,8 @@ describe("reconcileInstanceCameras", () => {
     const store: ConfigStore = {
       readCameras: async () => [cam("aisle-1")],
       writeCameras: async () => {},
+      upsertCamera: async () => {},
+      deleteCamera: async () => {},
       readStatus: async () => null,
       writeStatus: async () => {
         throw new Error("Firestore unavailable");
@@ -115,6 +119,8 @@ describe("reconcileInstanceCameras", () => {
     const store: ConfigStore = {
       readCameras: async () => [],
       writeCameras: async () => {},
+      upsertCamera: async () => {},
+      deleteCamera: async () => {},
       readStatus: async () => null,
       writeStatus: async () => {},
       readPrompt: async () => ({ prompt: "New prompt text" }),

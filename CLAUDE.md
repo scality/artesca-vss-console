@@ -56,17 +56,20 @@ The `/api/status/overview` and `/api/pods` routes are thin auth + JSON wrappers 
 
 This means: when adding a new server-rendered page, import the collector function directly. When adding a client component that needs live updates, hit the API route.
 
+Routes for `/cameras`, `/prompt`, and `/scenarios` branch on `CONSOLE_RUNTIME`: the k8s path reads/writes Firestore (`instances/<instance>/{cameras,prompt,scenarios}` in GCP project `isv-alliances`) via `makeReconcileContext()` + write-through `reconcile-core`; the docker path uses the legacy GCS/ConfigMap path.
+
 ## Persistence layers
 
-| What | Where | Why there |
-| ---- | ----- | --------- |
-| Sessions, profiles, audit log | SQLite on PVC `console-data` (5 Gi) | Lightweight, no separate DB pod needed; 5 Gi is multi-year of metadata. |
-| Camera registrations | ConfigMap `cameras` in ns `pyramid-ingress` + GCS `cameras/<vss-instance>.json` | ConfigMap drives the in-cluster `register-cameras` Job; GCS is the cross-laptop / cross-deploy canonical. |
-| VLM system prompt | ConfigMap `rtvi-runtime-env` (key `RTVI_VLM_SYSTEM_PROMPT`) + GCS `prompt/<vss-instance>.json` | ConfigMap drives the live VLM; GCS preserves prompts across re-installs. |
-| Alert scenarios | ConfigMap `scenarios` (key `scenarios.yaml`) + GCS `scenarios/<vss-instance>.json` | Same shape as cameras/prompt — live cluster state mirrored to versioned GCS object. |
-| K8s secrets | `console-auth`, `console-aws`, `console-ssh` (3 required before first apply) | Standard K8s secret store. |
+| What | k8s path | docker path |
+| ---- | --------- | ----------- |
+| Sessions, profiles, audit log | SQLite on PVC `console-data` (5 Gi) | SQLite on PVC `console-data` (5 Gi) |
+| Camera registrations | Firestore `instances/<instance>/cameras` (GCP project `isv-alliances`); reconcile loop converges the in-cluster `register-cameras` Job from Firestore. | ConfigMap `cameras` in ns `pyramid-ingress` + GCS canonical `cameras/<vss-instance>.json`; `camera-restore-watcher` keeps them in sync. |
+| VLM system prompt | Firestore `instances/<instance>/prompt` (GCP project `isv-alliances`); reconcile loop converges ConfigMap `rtvi-runtime-env`. | ConfigMap `rtvi-runtime-env` (key `RTVI_VLM_SYSTEM_PROMPT`) + GCS canonical `prompt/<vss-instance>.json`. |
+| Alert scenarios | Firestore `instances/<instance>/scenarios` (GCP project `isv-alliances`); reconcile loop converges ConfigMap `scenarios`. | ConfigMap `scenarios` (key `scenarios.yaml`) + GCS canonical `scenarios/<vss-instance>.json`. |
+| Per-camera overrides (`scenarioIds`, `recording`) | Firestore camera doc fields. | SQLite `camera_overrides` table on PVC `console-data`. |
+| K8s secrets | `console-auth`, `console-aws`, `console-ssh` (3 required before first apply) | `console-auth`, `console-aws`, `console-ssh` (3 required before first apply) |
 
-`bootstrap-compose-console.sh` auto-restores cameras + prompt + scenarios from GCS on every docker restart. Manual restore: `scripts/sync-cameras.sh --restore`, `scripts/sync-prompt.sh --restore`, `scripts/sync-scenarios.sh --restore` (each takes `--instance <name> --nvidia-vss-host <ip>`).
+On the docker path, `bootstrap-compose-console.sh` auto-restores cameras + prompt + scenarios from GCS on every restart. Manual restore: `scripts/sync-cameras.sh --restore`, `scripts/sync-prompt.sh --restore`, `scripts/sync-scenarios.sh --restore` (each takes `--instance <name> --nvidia-vss-host <ip>`).
 
 ## Build pipeline
 
