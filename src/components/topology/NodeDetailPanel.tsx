@@ -4,7 +4,7 @@
 // Slide-in side panel (right edge) replacing NodeDetailDialog for the topology page.
 // Hand-rolled with Tailwind — no shadcn Sheet available in this project.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createElement, useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useKiosk } from "@/components/KioskProvider";
@@ -206,7 +206,12 @@ export function NodeDetailPanel({
                     {runtimeState === undefined ? (
                       <TabSkeleton />
                     ) : renderer && nodeId ? (
-                      renderer({ nodeId, runtimeState, snapshot })
+                      // Render as a component element (not a bare function call) so
+                      // each tab renderer gets its own fiber + hook scope. Several
+                      // renderers call hooks (useToast, useState); invoking them as
+                      // `renderer(props)` leaked those into NodeDetailPanel's hook
+                      // sequence, which changed order per node type (Rules of Hooks).
+                      createElement(renderer, { nodeId, runtimeState, snapshot })
                     ) : (
                       <TabSkeleton />
                     )}
