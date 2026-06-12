@@ -4,6 +4,7 @@ coverage
 .env.local
 tsconfig.tsbuildinfo
 *.tsbuildinfo
+next-env.d.ts
 .vitest/
 playwright-report/
 test-results/
