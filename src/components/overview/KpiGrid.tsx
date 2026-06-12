@@ -50,27 +50,23 @@ export function KpiGrid({ data }: KpiGridProps) {
         }
       />
 
-      <div className="rounded-lg border border-border bg-card p-4 space-y-1">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          NIM Warmup
-        </p>
-        <div className="flex items-baseline gap-2">
-          <p className="text-2xl font-bold tabular-nums">
-            {data.nim.warmupPct}%
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <StatusBadge
-            health={data.nim.ready ? "ok" : "warn"}
-            label={data.nim.ready ? "Ready" : "Warming"}
-          />
-          {data.nim.queueDepth > 0 && (
-            <span className="text-xs text-muted-foreground">
-              q:{data.nim.queueDepth}
-            </span>
-          )}
-        </div>
-      </div>
+      <KpiCard
+        label="NIM Warmup"
+        value={`${data.nim.warmupPct}%`}
+        footer={
+          <div className="flex items-center gap-1.5">
+            <StatusBadge
+              health={data.nim.ready ? "ok" : "warn"}
+              label={data.nim.ready ? "Ready" : "Warming"}
+            />
+            {data.nim.queueDepth > 0 && (
+              <span className="text-xs text-muted-foreground">
+                q:{data.nim.queueDepth}
+              </span>
+            )}
+          </div>
+        }
+      />
 
       <KpiCard
         label="GPU Util (avg)"
@@ -101,26 +97,22 @@ export function KpiGrid({ data }: KpiGridProps) {
         trend="up"
       />
 
-      <div className="rounded-lg border border-border bg-card p-4 space-y-1">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Camera Sim
-        </p>
-        <div className="flex items-baseline gap-2">
-          <p className="text-2xl font-bold tabular-nums">
-            {data.cameraSim.pathsReady}/{data.cameraSim.pathsTotal}
-          </p>
-        </div>
-        <StatusBadge
-          health={
-            data.cameraSim.instanceState === "running"
-              ? "ok"
-              : data.cameraSim.instanceState === "stopped"
-                ? "warn"
-                : "fail"
-          }
-          label={data.cameraSim.instanceState}
-        />
-      </div>
+      <KpiCard
+        label="Camera Sim"
+        value={`${data.cameraSim.pathsReady}/${data.cameraSim.pathsTotal}`}
+        footer={
+          <StatusBadge
+            health={
+              data.cameraSim.instanceState === "running"
+                ? "ok"
+                : data.cameraSim.instanceState === "stopped"
+                  ? "warn"
+                  : "fail"
+            }
+            label={data.cameraSim.instanceState}
+          />
+        }
+      />
     </div>
   );
 }

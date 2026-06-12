@@ -16,7 +16,7 @@ import {
 } from "@/lib/helpers/docker-sock";
 import { getKafka } from "@/lib/kafka";
 import { s3Stats } from "@/lib/aws";
-import { s3BucketForRecordings } from "@/lib/s3";
+import { s3BucketForRecordings, describeS3Error } from "@/lib/s3";
 import { promQuery } from "@/lib/helpers/prometheus";
 import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
 import type { OverviewSnapshot, GpuState, PodSummary } from "@/lib/types";
@@ -171,7 +171,7 @@ async function collectDockerOverview(
         ]);
         return { ...stats, growth24h: 0 };
       } catch (err) {
-        warnings.push(`S3 stats failed: ${String(err)}`);
+        warnings.push(`S3 stats failed: ${describeS3Error(err)}`);
         return { bucket, objectCount: 0, bytesTotal: 0, growth24h: 0 };
       }
     })(),
@@ -390,7 +390,7 @@ async function collectK8sOverview(
     const stats = await s3Stats(bucket);
     s3 = { ...stats, growth24h: 0 };
   } catch (err) {
-    warnings.push(`S3 stats failed: ${String(err)}`);
+    warnings.push(`S3 stats failed: ${describeS3Error(err)}`);
   }
 
   let cameraSim: OverviewSnapshot["cameraSim"] = {

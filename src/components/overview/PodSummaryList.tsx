@@ -2,6 +2,7 @@ import Link from "next/link";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { PodSummary } from "@/lib/types";
 import type { Health } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 interface NamespaceGroup {
   namespace: string;
@@ -23,13 +24,57 @@ function podHealth(pod: PodSummary): Health {
   return "unknown";
 }
 
-function NamespaceCard({ group }: { group: NamespaceGroup }) {
+// Worst-first, so anything needing attention sits at the top of any list.
+const HEALTH_RANK: Record<Health, number> = { fail: 0, warn: 1, unknown: 2, ok: 3 };
+
+function podLabel(pod: PodSummary): string {
+  // Running-but-not-ready is the common "still coming up" case — keep it
+  // distinct from a clean Running so the breakdown line isn't misleading.
+  if (pod.phase === "Running" && !pod.ready) return "NotReady";
+  return pod.phase;
+}
+
+function statusBreakdown(pods: PodSummary[]): string {
+  const counts = new Map<string, number>();
+  for (const pod of pods) {
+    const key = podLabel(pod);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([label, n]) => `${n} ${label}`)
+    .join(" · ");
+}
+
+function PodRow({ pod }: { pod: PodSummary }) {
+  return (
+    <Link
+      href={`/logs?ns=${encodeURIComponent(pod.namespace)}&pod=${encodeURIComponent(pod.name)}`}
+      className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs hover:bg-accent/50 transition-colors"
+    >
+      <span className="font-mono truncate">{pod.name}</span>
+      <div className="flex items-center gap-2 shrink-0">
+        {pod.restarts > 0 && (
+          <span className="text-yellow-400 tabular-nums">r:{pod.restarts}</span>
+        )}
+        <StatusBadge health={podHealth(pod)} label={pod.phase} />
+      </div>
+    </Link>
+  );
+}
+
+function NamespaceCard({ group, wide }: { group: NamespaceGroup; wide: boolean }) {
   const nsHealth: Health =
     group.ready === group.total
       ? "ok"
       : group.ready < group.total * 0.5
         ? "fail"
         : "warn";
+
+  const sorted = [...group.pods].sort(
+    (a, b) => HEALTH_RANK[podHealth(a)] - HEALTH_RANK[podHealth(b)]
+  );
+  const unhealthy = sorted.filter((p) => podHealth(p) !== "ok");
+  const hasPods = sorted.length > 0;
 
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
@@ -48,25 +93,39 @@ function NamespaceCard({ group }: { group: NamespaceGroup }) {
         </div>
       </div>
 
-      <div className="space-y-1">
-        {group.pods.map((pod) => (
-          <Link
-            key={pod.name}
-            href={`/logs?ns=${encodeURIComponent(pod.namespace)}&pod=${encodeURIComponent(pod.name)}`}
-            className="flex items-center justify-between rounded px-2 py-1 text-xs hover:bg-accent/50 transition-colors"
-          >
-            <span className="font-mono truncate max-w-[200px]">{pod.name}</span>
-            <div className="flex items-center gap-2 shrink-0">
-              {pod.restarts > 0 && (
-                <span className="text-yellow-400 tabular-nums">
-                  r:{pod.restarts}
-                </span>
-              )}
-              <StatusBadge health={podHealth(pod)} label={pod.phase} />
+      {hasPods && (
+        <>
+          <p className="text-xs text-muted-foreground">{statusBreakdown(sorted)}</p>
+
+          {/* Pods needing attention are always visible — that's what an operator
+              scans for. The healthy majority stays folded behind the toggle. */}
+          {unhealthy.length > 0 && (
+            <div className="space-y-1">
+              {unhealthy.map((pod) => (
+                <PodRow key={pod.name} pod={pod} />
+              ))}
             </div>
-          </Link>
-        ))}
-      </div>
+          )}
+
+          <details>
+            <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
+              All {sorted.length} pods
+            </summary>
+            <div
+              className={cn(
+                "mt-2 grid gap-x-4 gap-y-0.5",
+                wide
+                  ? "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                  : "grid-cols-1"
+              )}
+            >
+              {sorted.map((pod) => (
+                <PodRow key={pod.name} pod={pod} />
+              ))}
+            </div>
+          </details>
+        </>
+      )}
     </div>
   );
 }
@@ -78,10 +137,15 @@ export function PodSummaryList({ groups }: PodSummaryListProps) {
     );
   }
 
+  // A single namespace (the Helm `alerts`-profile reality, where everything
+  // lives in `vss-alerts`) gets the full row so its pod list can flow into
+  // multiple columns instead of one tall stack. Multiple namespaces tile.
+  const solo = groups.length === 1;
+
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className={solo ? "" : "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"}>
       {groups.map((group) => (
-        <NamespaceCard key={group.namespace} group={group} />
+        <NamespaceCard key={group.namespace} group={group} wide={solo} />
       ))}
     </div>
   );
