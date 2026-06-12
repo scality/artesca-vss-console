@@ -29,12 +29,12 @@ describe("instrumentation register() — agent mode", () => {
     expect(startCameraRestoreWatcher).not.toHaveBeenCalled();
   });
 
-  it("without RECONCILE_AGENT, the camera watcher runs and the loop does not", async () => {
+  it("without RECONCILE_AGENT, k8s mode runs the reconcile loop (not the camera watcher)", async () => {
     delete process.env.RECONCILE_AGENT;
     process.env.VSS_INSTANCE_NAME = "inst-1";
     const { register } = await import("@/instrumentation");
     await register();
-    expect(startReconcileLoop).not.toHaveBeenCalled();
-    expect(startCameraRestoreWatcher).toHaveBeenCalledTimes(1);
+    expect(startReconcileLoop).toHaveBeenCalledTimes(1);
+    expect(startCameraRestoreWatcher).not.toHaveBeenCalled();
   });
 });
