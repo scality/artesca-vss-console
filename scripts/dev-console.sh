@@ -124,7 +124,11 @@ fi
 
 # ── 5. Start sshuttle (routes the cluster network through the node) ───────────
 say "Starting sshuttle → $REMOTE_SSH_TARGET ($NODE_SUBNET $POD_CIDR $SVC_CIDR) — sudo prompt follows"
-SSH_CMD="ssh ${REMOTE_SSH_OPTS[*]}"
+# Force ControlMaster off for sshuttle's own SSH: REMOTE_SSH_OPTS enables
+# connection multiplexing (ControlMaster=auto/ControlPath), and grafting
+# sshuttle's long-lived channel onto a shared master derails it — the same
+# footgun that broke `ssh -L` tunnels (see lib-kubectl.sh). First value wins.
+SSH_CMD="ssh -o ControlMaster=no -o ControlPath=none ${REMOTE_SSH_OPTS[*]}"
 sshuttle --ssh-cmd "$SSH_CMD" -r "$REMOTE_SSH_TARGET" "$NODE_SUBNET" "$POD_CIDR" "$SVC_CIDR" --daemon --pidfile "$INST_DIR/.dev-console-sshuttle.pid"
 cleanup_sshuttle() {
   [[ -f "$INST_DIR/.dev-console-sshuttle.pid" ]] && sudo kill "$(cat "$INST_DIR/.dev-console-sshuttle.pid")" 2>/dev/null || true
