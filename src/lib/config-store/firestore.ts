@@ -1,7 +1,13 @@
 import "server-only";
 
 import type { Firestore } from "@google-cloud/firestore";
-import type { ConfigStore, CameraEntry, ReconcileStatus } from "@/lib/config-store/types";
+import type {
+  ConfigStore,
+  CameraEntry,
+  ReconcileStatus,
+  PromptDoc,
+  ScenarioEntry,
+} from "@/lib/config-store/types";
 
 /**
  * The narrow slice of the Firestore API this store uses. Declaring it as a port
@@ -24,6 +30,7 @@ export interface FirestoreLike {
 
 const camerasPath = (instance: string) => `instances/${instance}/cameras`;
 const instanceDocPath = (instance: string) => `instances/${instance}`;
+const scenariosPath = (instance: string) => `instances/${instance}/scenarios`;
 
 /**
  * Firestore-backed ConfigStore. Data model:
@@ -70,6 +77,59 @@ export class FirestoreConfigStore implements ConfigStore {
 
   async writeStatus(instance: string, status: ReconcileStatus): Promise<void> {
     await this.db.doc(instanceDocPath(instance)).set({ reconcileStatus: status }, { merge: true });
+  }
+
+  async readPrompt(instance: string): Promise<PromptDoc | null> {
+    const snap = await this.db.doc(instanceDocPath(instance)).get();
+    if (!snap.exists) return null;
+    const raw = (snap.data() ?? {}).prompt as Record<string, unknown> | undefined;
+    if (!raw || typeof raw.prompt !== "string") return null;
+    const doc: PromptDoc = { prompt: raw.prompt };
+    if (typeof raw.model === "string") doc.model = raw.model;
+    return doc;
+  }
+
+  async writePrompt(instance: string, prompt: PromptDoc, updatedBy: string): Promise<void> {
+    await this.db.doc(instanceDocPath(instance)).set(
+      {
+        prompt: {
+          prompt: prompt.prompt,
+          ...(prompt.model ? { model: prompt.model } : {}),
+          updatedBy,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+      { merge: true },
+    );
+  }
+
+  async readScenarios(instance: string): Promise<ScenarioEntry[]> {
+    const snap = await this.db.collection(scenariosPath(instance)).get();
+    return snap.docs.map((d) => {
+      const data = d.data() as Omit<ScenarioEntry, "id">;
+      return { ...data, id: d.id } as ScenarioEntry;
+    });
+  }
+
+  async writeScenarios(
+    instance: string,
+    scenarios: ScenarioEntry[],
+    updatedBy: string,
+  ): Promise<void> {
+    const col = this.db.collection(scenariosPath(instance));
+    const desiredIds = new Set(scenarios.map((s) => s.id));
+
+    // Non-atomic replace: read-delete-upsert (same semantics as writeCameras).
+    const existing = await col.get();
+    for (const d of existing.docs) {
+      if (!desiredIds.has(d.id)) await col.doc(d.id).delete();
+    }
+
+    const updatedAt = new Date().toISOString();
+    for (const scenario of scenarios) {
+      const { id, ...rest } = scenario;
+      await col.doc(id).set({ ...rest, updatedBy, updatedAt });
+    }
   }
 }
 

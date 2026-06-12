@@ -12,6 +12,10 @@ function fakeStore(cameras: CameraEntry[]): { store: ConfigStore; written: Recon
     writeStatus: async (_i, s) => {
       written.push(s);
     },
+    readPrompt: async () => null,
+    writePrompt: async () => {},
+    readScenarios: async () => [],
+    writeScenarios: async () => {},
   };
   return { store, written };
 }
@@ -82,6 +86,10 @@ describe("reconcileInstanceCameras", () => {
       writeStatus: async () => {
         throw new Error("Firestore unavailable");
       },
+      readPrompt: async () => null,
+      writePrompt: async () => {},
+      readScenarios: async () => [],
+      writeScenarios: async () => {},
     };
     const adapter: ClusterAdapter = {
       listSensors: async () => [],
