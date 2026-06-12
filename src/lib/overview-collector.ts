@@ -329,7 +329,11 @@ async function collectK8sOverview(
 
   const { instance: kafkaInstance } = getKafka();
   if (kafkaInstance) {
-    try {
+    // Hard cap the whole Kafka probe — an unreachable broker otherwise retries
+    // for minutes and hangs the overview page (same guard as the S3 stats
+    // above). On timeout the topics read null = "unreachable", never a false 0.
+    const KAFKA_PROBE_MS = 6_000;
+    const probeKafka = async () => {
       const admin = kafkaInstance.admin();
       await admin.connect();
       try {
@@ -345,14 +349,22 @@ async function collectK8sOverview(
           kafka[topic] = { topic, consumerLagMsgs: lag };
         }
       } finally {
-        await admin.disconnect();
+        admin.disconnect().catch(() => {});
       }
+    };
+    try {
+      await Promise.race([
+        probeKafka(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Kafka probe timeout after ${KAFKA_PROBE_MS}ms`)), KAFKA_PROBE_MS)
+        ),
+      ]);
     } catch (err) {
-      // Broker unreachable — lag is unknown, NOT zero. Surfacing 0 here would
-      // render a false "OK" while the cluster is actually disconnected.
+      // Broker unreachable / timed out — lag is unknown, NOT zero. Surfacing 0
+      // here would render a false "OK" while the cluster is actually down.
       warnings.push(`Kafka admin failed: ${String(err)}`);
       for (const topic of topics) {
-        kafka[topic] = { topic, consumerLagMsgs: null };
+        if (!kafka[topic]) kafka[topic] = { topic, consumerLagMsgs: null };
       }
     }
   } else {
