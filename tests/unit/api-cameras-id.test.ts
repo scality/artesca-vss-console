@@ -57,6 +57,11 @@ vi.mock("@/lib/helpers/audit", () => ({
   auditLog: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/reconcile/context", () => ({
+  ReconcileContextError: class extends Error {},
+  makeReconcileContext: vi.fn(),
+}));
+
 import type { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import {
@@ -70,6 +75,7 @@ import { vstDeleteSensor } from "@/lib/helpers/vst";
 import { getCameraOverride, deleteCameraOverride } from "@/lib/db";
 import { auditLog } from "@/lib/helpers/audit";
 import { writeToGcs } from "@/app/api/cameras/route";
+import { makeReconcileContext } from "@/lib/reconcile/context";
 
 import { GET, PATCH, DELETE } from "@/app/api/cameras/[id]/route";
 
@@ -237,6 +243,10 @@ describe("PATCH /api/cameras/[id]", () => {
 // ── DELETE ────────────────────────────────────────────────────────────────────
 
 describe("DELETE /api/cameras/[id]", () => {
+  beforeEach(() => {
+    process.env.CONSOLE_RUNTIME = "docker";
+  });
+
   it("auth missing → 401, no camsim calls", async () => {
     vi.mocked(auth).mockResolvedValue(null as never);
 
@@ -333,4 +343,22 @@ describe("DELETE /api/cameras/[id]", () => {
   it.todo(
     "DELETE: camsimDeleteFile throws a non-404 error → warning appended to warnings[] — file deletion is step 3 (best-effort); the response is still 200",
   );
+});
+
+// ── DELETE (k8s) ──────────────────────────────────────────────────────────────
+
+describe("DELETE /api/cameras/[id] (k8s)", () => {
+  it("deletes from Firestore + unregisters VST, does not call writeToGcs", async () => {
+    delete process.env.CONSOLE_RUNTIME;
+    const deleteCamera = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(makeReconcileContext).mockResolvedValue({
+      instance: "inst-1", adapter: {} as never, refs: {} as never, store: { deleteCamera } as never,
+    } as never);
+    const req = makeRequest("DELETE");
+    const res = await DELETE(req, makeParams("cam01"));
+    expect(res.status).toBe(200);
+    expect(deleteCamera).toHaveBeenCalledWith("inst-1", "cam01", expect.any(String));
+    expect(vstDeleteSensor).toHaveBeenCalledWith("cam01");
+    expect(writeToGcs).not.toHaveBeenCalled();
+  });
 });

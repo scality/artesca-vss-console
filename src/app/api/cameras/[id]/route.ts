@@ -322,9 +322,19 @@ export const DELETE = withRequestContext(async function (
     }
   }
 
-  // 4. Remove from GCS persistence (best-effort).
+  // 4. Persist removal: Firestore (k8s) or GCS (docker).
+  const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
   const instanceName = process.env.VSS_INSTANCE_NAME ?? "";
-  if (instanceName) {
+  if (!DOCKER_MODE) {
+    const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+    try {
+      const ctx = await makeReconcileContext();
+      await ctx.store.deleteCamera(ctx.instance, id, session.user?.email ?? "console");
+    } catch (err) {
+      const msg = err instanceof ReconcileContextError ? err.message : String(err);
+      warnings.push(`config store delete failed (camera removed from camera-sim): ${msg}`);
+    }
+  } else if (instanceName) {
     const email = session?.user?.email ?? "console";
     const gcsWarning = await writeToGcs(id, null, email, "remove");
     if (gcsWarning) warnings.push(gcsWarning);
