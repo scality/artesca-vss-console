@@ -5,7 +5,7 @@ import { CLUSTER } from "@/lib/cluster-refs";
 import { promQuery } from "@/lib/helpers/prometheus";
 import { getKafka } from "@/lib/kafka";
 import { ListObjectsV2Command } from "@aws-sdk/client-s3";
-import { makeS3Client } from "@/lib/s3";
+import { makeS3Client, s3Endpoint } from "@/lib/s3";
 import type {
   PipelineSnapshot,
   NodeRuntimeState,
@@ -281,6 +281,7 @@ async function collectS3(warnings: string[]): Promise<S3State | null> {
 
     return {
       bucket,
+      endpoint: s3Endpoint() ?? null,
       objectCount,
       bytesTotal,
       putRateMBps,

@@ -47,6 +47,21 @@ function formatAge(secs: number): string {
   return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
 }
 
+// ─── Tier-context strip ────────────────────────────────────────────────────────
+// VST storage is two-tier: a hot local-disk cache buffers recorded segments,
+// which VST then offloads to ARTESCA S3 (the durable backend). Surfacing the
+// relationship on both panels so an operator reading either one understands
+// where its data goes / comes from.
+
+function TierNote({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+      <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground" />
+      <p className="text-[11px] leading-relaxed text-muted-foreground">{children}</p>
+    </div>
+  );
+}
+
 // ─── Ceiling gauge ─────────────────────────────────────────────────────────────
 
 function CeilingGauge({ s3 }: { s3: S3State }) {
@@ -69,10 +84,7 @@ function CeilingGauge({ s3 }: { s3: S3State }) {
       </div>
       <Progress value={Math.min(100, pct)} className={`h-2 ${colorClass}`} />
       <p className="text-[11px] text-muted-foreground">
-        {pct.toFixed(1)}% of {ceilingGiB} GiB ceiling (demo profile) ·{" "}
-        <a href="#" className="underline underline-offset-2 opacity-60 hover:opacity-100">
-          read more
-        </a>
+        {pct.toFixed(1)}% of {ceilingGiB} GiB ceiling (demo profile)
       </p>
     </div>
   );
@@ -284,6 +296,12 @@ function ArtescaS3Status({ runtimeState }: TabRendererProps) {
 
   return (
     <div className="space-y-4">
+      <TierNote>
+        <span className="font-medium text-foreground">Durable tier.</span> VST
+        offloads recorded segments here from the local cache; this bucket is the
+        long-term store, retained up to the {s3.ceilingGiB} GiB ceiling.
+      </TierNote>
+
       {/* Primary: PUT rate headline */}
       <div className="rounded-lg border border-border bg-muted/10 px-4 py-3">
         <p className="text-xs text-muted-foreground mb-1">PUT rate</p>
@@ -377,15 +395,21 @@ function ArtescaS3Config({ runtimeState }: TabRendererProps) {
           </dd>
         </div>
         <div className="grid grid-cols-3 gap-2">
-          <dt className="text-xs text-muted-foreground self-center">Region</dt>
-          <dd className="col-span-2 font-mono text-xs bg-muted/30 px-2 py-1 rounded">
-            {process.env.NEXT_PUBLIC_AWS_REGION ?? "us-east-1"}
+          <dt className="text-xs text-muted-foreground self-center">Endpoint</dt>
+          <dd
+            className="col-span-2 font-mono text-xs bg-muted/30 px-2 py-1 rounded truncate"
+            title={s3?.endpoint ?? undefined}
+          >
+            {s3?.endpoint ?? "AWS-native (SDK default)"}
           </dd>
         </div>
         <div className="grid grid-cols-3 gap-2">
-          <dt className="text-xs text-muted-foreground self-center">Endpoint</dt>
-          <dd className="col-span-2 font-mono text-xs bg-muted/30 px-2 py-1 rounded truncate">
-            (in-cluster — read from S3_ENDPOINT env)
+          <dt className="text-xs text-muted-foreground self-center">Region</dt>
+          <dd className="col-span-2 font-mono text-xs bg-muted/30 px-2 py-1 rounded">
+            {process.env.NEXT_PUBLIC_AWS_REGION ?? "us-east-1"}
+            <span className="ml-1.5 text-[10px] text-muted-foreground/70 font-sans">
+              (nominal — ARTESCA ignores region)
+            </span>
           </dd>
         </div>
       </dl>
@@ -439,7 +463,7 @@ function ArtescaS3Actions(_props: TabRendererProps) {
 
 // ─── vst-local-cache — Status tab ────────────────────────────────────────────
 
-function VstLocalCacheStatus({ runtimeState }: TabRendererProps) {
+function VstLocalCacheStatus({ runtimeState, snapshot }: TabRendererProps) {
   const cache: CacheState | undefined = runtimeState?.cache;
 
   if (!cache) {
@@ -461,9 +485,22 @@ function VstLocalCacheStatus({ runtimeState }: TabRendererProps) {
   const dropRate = cache.frameDropRatePerMin;
   const dropCount = cache.frameDropCount;
   const isDropCrit = dropRate !== null && dropRate >= 5;
+  // Distinguish "0 drops" from "metric unavailable": both fields null means
+  // the Prometheus scrape failed (e.g. running the console off-cluster), not
+  // that there were zero drops. Showing a bare "—" reads like zero.
+  const dropsUnavailable = dropRate === null && dropCount === null;
+  const offloadBucket = snapshot?.nodes["artesca-s3"]?.s3?.bucket;
 
   return (
     <div className="space-y-4">
+      <TierNote>
+        <span className="font-medium text-foreground">Hot tier.</span> Recorded
+        segments are buffered on local node disk, then offloaded to ARTESCA S3
+        {offloadBucket ? <> (<span className="font-mono">{offloadBucket}</span>)</> : null}.
+        At {cache.thresholdPct}% fill, segments already in S3 are evicted from
+        disk — so this gauge stays bounded while S3 holds the retention.
+      </TierNote>
+
       {/* Fill gauge */}
       <div className="space-y-1">
         <div className="flex items-center justify-between text-xs">
@@ -490,23 +527,32 @@ function VstLocalCacheStatus({ runtimeState }: TabRendererProps) {
       {/* Frame drops */}
       <div className="rounded-lg border border-border bg-muted/10 p-3 space-y-1">
         <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Frame drops</p>
-        <div className="flex items-center gap-2">
-          {isDropCrit ? (
-            <AlertOctagon className="h-4 w-4 text-red-400" />
-          ) : dropRate !== null && dropRate > 0 ? (
-            <AlertTriangle className="h-4 w-4 text-yellow-400" />
-          ) : null}
-          <span
-            className={`text-xl font-mono font-semibold ${
-              isDropCrit ? "text-red-400" : dropRate !== null && dropRate > 0 ? "text-yellow-400" : ""
-            }`}
-          >
-            {dropRate !== null ? dropRate.toFixed(1) : dropCount !== null ? dropCount.toLocaleString() : "—"}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {dropRate !== null ? "drops/min" : dropCount !== null ? "total drops" : ""}
-          </span>
-        </div>
+        {dropsUnavailable ? (
+          <div className="flex items-center gap-2">
+            <span className="text-base font-mono text-muted-foreground/60">—</span>
+            <span className="text-[11px] text-muted-foreground">
+              Unavailable — needs Prometheus (in-cluster metric)
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            {isDropCrit ? (
+              <AlertOctagon className="h-4 w-4 text-red-400" />
+            ) : dropRate !== null && dropRate > 0 ? (
+              <AlertTriangle className="h-4 w-4 text-yellow-400" />
+            ) : null}
+            <span
+              className={`text-xl font-mono font-semibold ${
+                isDropCrit ? "text-red-400" : dropRate !== null && dropRate > 0 ? "text-yellow-400" : ""
+              }`}
+            >
+              {dropRate !== null ? dropRate.toFixed(1) : dropCount!.toLocaleString()}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {dropRate !== null ? "drops/min" : "total drops"}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -514,9 +560,32 @@ function VstLocalCacheStatus({ runtimeState }: TabRendererProps) {
 
 // ─── vst-local-cache — Config tab ────────────────────────────────────────────
 
-function VstLocalCacheConfig(_props: TabRendererProps) {
+function VstLocalCacheConfig({ snapshot }: TabRendererProps) {
+  const cache = snapshot?.nodes["vst-local-cache"]?.cache;
+  const offloadBucket = snapshot?.nodes["artesca-s3"]?.s3?.bucket;
+
   return (
     <div className="space-y-3 text-sm">
+      <dl className="space-y-2">
+        <div className="grid grid-cols-3 gap-2">
+          <dt className="text-xs text-muted-foreground self-center">Disk size</dt>
+          <dd className="col-span-2 font-mono text-xs bg-muted/30 px-2 py-1 rounded">
+            {cache?.sizeGiB ?? "—"} GiB (local node disk)
+          </dd>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <dt className="text-xs text-muted-foreground self-center">Evict at</dt>
+          <dd className="col-span-2 font-mono text-xs bg-muted/30 px-2 py-1 rounded">
+            {cache?.thresholdPct ?? 90}% fill
+          </dd>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <dt className="text-xs text-muted-foreground self-center">Offload to</dt>
+          <dd className="col-span-2 font-mono text-xs bg-muted/30 px-2 py-1 rounded truncate">
+            {offloadBucket ? `ARTESCA S3 · ${offloadBucket}` : "ARTESCA S3"}
+          </dd>
+        </div>
+      </dl>
       <p className="text-xs text-muted-foreground">
         Storage threshold and monitoring frequency are managed in the tuning page.
       </p>
