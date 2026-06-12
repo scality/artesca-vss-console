@@ -142,6 +142,23 @@ const PROMETHEUS_URL =
   process.env.PROMETHEUS_URL ??
   "http://prometheus-operated.metalk8s-monitoring.svc.cluster.local:9090";
 
+// ─── Grafana (historical GPU graphs) ──────────────────────────────────────────
+// ARTESCA's Grafana lives behind the :8443 shell-UI ingress. Dynamic per
+// instance: explicit GRAFANA_URL wins, else derive from the node public IP the
+// console already knows (OBJECTSTORE_ENDPOINT_IP) → https://<ip>:8443/. Empty
+// when neither is set → the UI link is simply hidden.
+const _GRAFANA_HOST_IP = process.env.OBJECTSTORE_ENDPOINT_IP ?? "";
+const GRAFANA_URL =
+  process.env.GRAFANA_URL ??
+  (_GRAFANA_HOST_IP ? `https://${_GRAFANA_HOST_IP}:8443/` : "");
+// Login surfaced to the operator. Grafana sits behind ARTESCA's :8443 SSO, so by
+// default the login is the ARTESCA admin (same as the :8443 UI). Username is
+// shown; the password is NOT embedded — set GRAFANA_LOGIN_HINT to override.
+const GRAFANA_USER = process.env.GRAFANA_USER ?? "admin";
+const GRAFANA_LOGIN_HINT =
+  process.env.GRAFANA_LOGIN_HINT ??
+  "ARTESCA admin (same login as the :8443 UI) → Monitoring → Grafana → \"ARTESCA+ VSS — GPU Metrics\"";
+
 // ─── Alert bridge ────────────────────────────────────────────────────────────
 // Helm:   vss-video-analytics-api Deployment in vss-<profile>, port 8081.
 //         No HTTP health endpoint exposed by the console — only Kafka consumers.
@@ -435,6 +452,11 @@ export const CLUSTER = {
   },
   prometheus: {
     url: PROMETHEUS_URL,
+  },
+  grafana: {
+    url: GRAFANA_URL,
+    user: GRAFANA_USER,
+    loginHint: GRAFANA_LOGIN_HINT,
   },
   alertWorker: {
     url: ALERT_WORKER_URL,

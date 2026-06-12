@@ -368,6 +368,9 @@ if [[ -f "$OBJECTSTORE_ENV_FILE" ]]; then
   echo "==> objectstore=$OBJECTSTORE_ENV_FILE (mode=${OBJECTSTORE_MODE:-?})"
 fi
 BASE_DOMAIN="${ARTESCA_BASE_DOMAIN:-artesca.isv-lab.local}"
+# Grafana (:8443 ARTESCA UI) link surfaced on the console Overview. Operators
+# reach :8443 by the node public IP; fall back to the base domain.
+GRAFANA_URL_VALUE="https://${PUB_IP:-${PUBLIC_IP:-$BASE_DOMAIN}}:8443/"
 if [[ -z "$S3_ENDPOINT_VALUE" ]]; then
   S3_ENDPOINT_VALUE="https://s3.${BASE_DOMAIN}"
 fi
@@ -405,6 +408,7 @@ s3_endpoint_value = sys.argv[4]
 s3_bucket_value = sys.argv[5]
 vss_namespace_value = sys.argv[6]
 console_legacy_namespaces = sys.argv[7]
+grafana_url_value = sys.argv[8]
 docs = list(yaml.safe_load_all(sys.stdin))
 for d in docs:
     if not d:
@@ -430,6 +434,9 @@ for d in docs:
         s3_endpoint = data.get("S3_ENDPOINT", "") or ""
         if s3_endpoint == "" or "<base-domain>" in s3_endpoint:
             data["S3_ENDPOINT"] = s3_endpoint_value
+        grafana_url = data.get("GRAFANA_URL", "") or ""
+        if grafana_url == "" or "<base-domain>" in grafana_url:
+            data["GRAFANA_URL"] = grafana_url_value
         s3_bucket = data.get("S3_BUCKET", "") or ""
         if s3_bucket in ("", "nvidia-vss-video"):
             data["S3_BUCKET"] = s3_bucket_value
@@ -442,7 +449,7 @@ for d in docs:
         data["CONSOLE_LEGACY_NAMESPACES"] = console_legacy_namespaces
 yaml.safe_dump_all([d for d in docs if d], sys.stdout, default_flow_style=False)
 ' "$IMAGE_REPO" "$NODE_HOSTNAME" "$CAMSIM_PUB_IP" "$S3_ENDPOINT_VALUE" "$S3_BUCKET_VALUE" \
-  "$VSS_NAMESPACE_VALUE" "$CONSOLE_LEGACY_NAMESPACES" \
+  "$VSS_NAMESPACE_VALUE" "$CONSOLE_LEGACY_NAMESPACES" "$GRAFANA_URL_VALUE" \
   | kubectl apply -f -
 
 # Resolve the image tag used by the just-applied manifest for the state file.
