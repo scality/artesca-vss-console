@@ -9,7 +9,35 @@ const log = createLogger("caption-bridge");
 const RTVI_BASE = process.env.RTVI_VLM_URL ?? "http://127.0.0.1:8018";
 const JSONL_PATH =
   process.env.SYNTHETIC_EVENTS_PATH ?? "/data/synthetic-events.jsonl";
-const MODEL = process.env.VLM_MODEL ?? "nvidia/cosmos-reason2-8b";
+// The VLM model id carries a build-specific version suffix (e.g.
+// nim_nvidia_cosmos-reason2-8b_hf-1208) and generate_captions hard-rejects a
+// wrong name with 400 "No such model". Resolve it live from /v1/models rather
+// than hardcoding; VLM_MODEL env still wins, and a same-family default backs
+// the case where /v1/models is briefly unreachable.
+const MODEL_FALLBACK =
+  process.env.VLM_MODEL ?? "nim_nvidia_cosmos-reason2-8b_hf-1208";
+let _resolvedModel: string | null = null;
+
+async function resolveModel(): Promise<string> {
+  if (process.env.VLM_MODEL) return process.env.VLM_MODEL;
+  if (_resolvedModel) return _resolvedModel;
+  try {
+    const r = await fetch(`${RTVI_BASE}/v1/models`, {
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (r.ok) {
+      const d = (await r.json()) as { data?: Array<{ id?: string }> };
+      const id = d.data?.[0]?.id;
+      if (id) {
+        _resolvedModel = id;
+        return id;
+      }
+    }
+  } catch {
+    /* fall through to the family default */
+  }
+  return MODEL_FALLBACK;
+}
 const PROMPT =
   process.env.VLM_PROMPT ??
   "Describe what you see in this video. Focus on people, objects, and activities.";
@@ -56,20 +84,33 @@ async function consumeOneCaptionCycle(stream: StreamInfo): Promise<void> {
   const payload = {
     id: streamId,
     prompt: PROMPT,
-    model: MODEL,
+    model: await resolveModel(),
     stream: true,
     max_tokens: 256,
     chunk_duration: CHUNK_DURATION_S,
   };
 
-  const response = await fetch(`${RTVI_BASE}/v1/generate_captions_alerts`, {
+  // /v1/generate_captions is the live-stream caption trigger this VLM build
+  // exposes (the older /v1/generate_captions_alerts is 404 here). Posting it
+  // with stream:true flips inference_active=true and runs the VLM as a
+  // background task that persists after this client disconnects.
+  const response = await fetch(`${RTVI_BASE}/v1/generate_captions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(CAPTION_TIMEOUT_MS),
   });
 
-  if (!response.ok || !response.body) return;
+  // Throw on a non-ok response so the tick logs it loudly instead of failing
+  // silently — a quiet `return` here is exactly what hid the 404
+  // (/generate_captions_alerts) + 400 (wrong model) that left the VLM idle.
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `generate_captions HTTP ${response.status} for ${streamId} (${liveStreamUrl}): ${detail.slice(0, 200)}`,
+    );
+  }
+  if (!response.body) return;
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
