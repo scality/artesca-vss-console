@@ -334,6 +334,29 @@ const S3 = {
 // Legacy: secrets scattered across rtvi / alerts / console namespaces.
 const SECRETS_NS = LEGACY ? undefined : VSS_NS;
 
+// ─── RTVI-CV (perception / MV3DT) ────────────────────────────────────────────
+// Warehouse-MV3DT profile perception+embeddings microservice (object detection,
+// tracking, behavior analytics, text embeddings). REST API at :9000 /api/v1.
+// NOT deployed on the alerts/base showroom profile — opt-in via RTVI_CV_* env.
+const RTVI_CV_SERVICE = process.env.RTVI_CV_SERVICE ?? "vss-rtvi-cv-mv3dt";
+const RTVI_CV_NS = process.env.RTVI_CV_NAMESPACE ?? VSS_NS;
+const RTVI_CV_PORT = Number(process.env.RTVI_CV_PORT ?? 9000);
+const RTVI_CV = {
+  enabled:
+    process.env.RTVI_CV_ENABLED === "1" ||
+    !!process.env.RTVI_CV_SERVICE ||
+    !!process.env.RTVI_CV_ENDPOINT,
+  service: RTVI_CV_SERVICE,
+  namespace: RTVI_CV_NS,
+  port: RTVI_CV_PORT,
+  apiBase: "/api/v1",
+  endpoint:
+    process.env.RTVI_CV_ENDPOINT ??
+    `http://${RTVI_CV_SERVICE}.${RTVI_CV_NS}.svc.cluster.local:${RTVI_CV_PORT}`,
+  healthPath: process.env.RTVI_CV_HEALTH_PATH ?? "/api/v1/health/ready",
+  embeddingsPath: "/api/v1/generate_text_embeddings",
+} as const;
+
 // ─── Restartable components ───────────────────────────────────────────────────
 // Maps console component IDs → { namespace, kind, name }.
 // Helm: all VSS components in VSS_NS; NIM is a Deployment (not StatefulSet).
@@ -434,6 +457,15 @@ export const RESTARTABLE: Record<string, ComponentSpec> = LEGACY
         kind: "Deployment",
         name: "nvila-lite-preview",
       },
+      ...(RTVI_CV.enabled
+        ? {
+            [RTVI_CV_SERVICE]: {
+              namespace: RTVI_CV_NS,
+              kind: "Deployment" as const,
+              name: RTVI_CV_SERVICE,
+            },
+          }
+        : {}),
     };
 
 // ─── Unified export ───────────────────────────────────────────────────────────
@@ -479,6 +511,7 @@ export const CLUSTER = {
   nim: {
     previewEndpoint: NIM_PREVIEW_ENDPOINT,
   },
+  rtviCv: RTVI_CV,
   scenarios: SCENARIOS,
   alertsTuning: ALERTS_TUNING,
   cameras: CAMERAS,
