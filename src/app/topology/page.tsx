@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { useQuery } from "@tanstack/react-query";
+import Dagre from "@dagrejs/dagre";
 import {
   ReactFlow,
   Background,
@@ -166,6 +167,43 @@ function mergeTopologyEdges(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Auto-layout — left→right layered DAG (dagre)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Node positions are computed from the dependency edges instead of being
+// hand-placed in the API: dagre ranks nodes by pipeline depth (RTSP source →
+// VST ingest → VLM/NIM → agent/alerts → storage), spaces them evenly, and
+// minimises edge crossings — no overlapping nodes or label-on-node collisions.
+// A user's manual drag (savedPositions) always wins; "Reset layout" clears
+// those and the graph snaps back to this computed layout.
+
+const NODE_W = 200;
+const NODE_H = 68;
+
+function applyDagreLayout(
+  nodes: Node<TopologyNodeData>[],
+  edges: Edge[],
+  savedPositions: Record<string, { x: number; y: number }>,
+): Node<TopologyNodeData>[] {
+  if (nodes.length === 0) return nodes;
+  const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: "LR", nodesep: 56, ranksep: 130, marginx: 32, marginy: 32 });
+  const ids = new Set(nodes.map((n) => n.id));
+  nodes.forEach((n) => g.setNode(n.id, { width: NODE_W, height: NODE_H }));
+  edges.forEach((e) => {
+    if (ids.has(e.source) && ids.has(e.target)) g.setEdge(e.source, e.target);
+  });
+  Dagre.layout(g);
+  return nodes.map((n) => {
+    if (savedPositions[n.id]) return n; // honour user drag
+    const p = g.node(n.id);
+    if (!p) return n;
+    // dagre returns node centres; React Flow positions are top-left.
+    return { ...n, position: { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 } };
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // React import (needed for NODE_TYPES cast)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -317,13 +355,15 @@ export default function TopologyPage() {
   const prevNodeIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const merged = mergeTopologyData(topologyPayload ?? null, snapshot, savedPositionsRef.current);
-    const mergedIds = new Set(merged.map((n) => n.id));
+    const mergedEdges = mergeTopologyEdges(topologyPayload ?? null, snapshot);
+    const laidOut = applyDagreLayout(merged, mergedEdges, savedPositionsRef.current);
+    const mergedIds = new Set(laidOut.map((n) => n.id));
     for (const prevId of prevNodeIdsRef.current) {
       if (!mergedIds.has(prevId)) clearNodeSparklines(prevId);
     }
     prevNodeIdsRef.current = mergedIds;
-    setNodes(merged);
-    setEdges(mergeTopologyEdges(topologyPayload ?? null, snapshot));
+    setNodes(laidOut);
+    setEdges(mergedEdges);
     if ((topologyPayload?.nodes?.length ?? 0) > 0) {
       // reason: monotonic boolean latch (false→true only); depends on async
       // query data so lazy initializer is not an option. No cascading risk
