@@ -10,10 +10,14 @@
 # listener resolves to a routable address. One transparent route beats N tunnels.
 #
 # Usage:
-#   scripts/dev-console.sh --instance <name> [--no-dev] [--with-hosts]
+#   scripts/dev-console.sh --instance <name> [--port N] [--no-dev] [--with-hosts]
 #
 #   --instance <name>   instance under scripts/instances/<name>/ (required)
-#   --no-dev            set everything up but don't start `npm run dev`
+#   --port <N>          dev-server port (default 5003). Use another (e.g. 5013)
+#                       to run ALONGSIDE the menubar-managed console on :5003.
+#   --no-dev            set up sshuttle + .env.local + hosts but don't start a
+#                       server — then restart the menubar console so it reloads
+#                       .env.local and uses the wiring.
 #   --with-hosts        append the Kafka advertised-name alias to /etc/hosts
 #                       (sudo; removed on exit). Without it, Kafka stays
 #                       "unreachable" — see the printed note.
@@ -35,13 +39,16 @@ source "$HERE/lib-remote.sh"
 INSTANCE=""
 START_DEV=1
 WITH_HOSTS=0
+DEV_PORT=5003
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --instance) INSTANCE="$2"; shift 2 ;;
     --instance=*) INSTANCE="${1#--instance=}"; shift ;;
     --no-dev) START_DEV=0; shift ;;
     --with-hosts) WITH_HOSTS=1; shift ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    --port) DEV_PORT="$2"; shift 2 ;;
+    --port=*) DEV_PORT="${1#--port=}"; shift ;;
+    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -52,13 +59,17 @@ INST_DIR="$REPO_ROOT/scripts/instances/$INSTANCE"
 
 command -v sshuttle >/dev/null || { echo "error: sshuttle not installed (brew install sshuttle)" >&2; exit 2; }
 
-# Pre-flight the dev-server port BEFORE any setup, so a stale server doesn't make
-# us mount sshuttle + the hosts alias only to have `npm run dev` fail (its exit
-# would then trigger the teardown trap, undoing all of it).
-DEV_PORT=5003
+# Pre-flight the dev-server port BEFORE any setup, so a busy port doesn't make us
+# mount sshuttle + the hosts alias only to have the dev server fail (its exit
+# would then trigger the teardown trap, undoing all of it). :5003 is normally
+# owned by the menubar-managed console (KeepAlive — it respawns when killed), so
+# don't fight it: run alongside on another port, or wire the env for it.
 if [[ "$START_DEV" -eq 1 ]] && lsof -nP -iTCP:"$DEV_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "error: port $DEV_PORT already in use (a console dev server is running)." >&2
-  echo "       stop it first:  lsof -ti :$DEV_PORT | xargs kill" >&2
+  echo "error: port $DEV_PORT already in use (likely the menubar-managed console)." >&2
+  echo "       choose one:" >&2
+  echo "         • run alongside on another port:   $0 --instance $INSTANCE --with-hosts --port 5013" >&2
+  echo "         • or wire sshuttle + .env.local for the menubar's server, then restart it from the menubar:" >&2
+  echo "                                            $0 --instance $INSTANCE --with-hosts --no-dev" >&2
   exit 2
 fi
 
@@ -158,10 +169,12 @@ cat <<NOTE
 NOTE
 
 if [[ "$START_DEV" -eq 1 ]]; then
-  say "Starting console dev server (Ctrl-C stops it + tears down sshuttle/hosts)"
+  say "Starting console dev server on http://localhost:$DEV_PORT (Ctrl-C stops it + tears down sshuttle/hosts)"
   cd "$REPO_ROOT/console"
-  npm run dev
+  npx next dev --port "$DEV_PORT"
 else
-  say "Setup complete (--no-dev). sshuttle running; press Enter to tear down."
+  say "Setup complete (--no-dev): sshuttle + .env.local + hosts are in place."
+  say "Restart the menubar-managed console (:5003) so it reloads .env.local."
+  say "Keeping sshuttle up — press Enter to tear it down."
   read -r _
 fi
