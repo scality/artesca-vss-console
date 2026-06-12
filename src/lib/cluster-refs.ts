@@ -76,18 +76,22 @@ const REDIS_URL = LEGACY
 //   vss-vios-ingress           port 30888 — nginx ingress for sensor add
 //   vss-vios-streamprocessing  ports 30001/30554
 // Legacy: sensor-ms:30000, vst-ingress:30888, streamprocessing-ms:30001
+//
+// Helm VST sensor API path is /api/v1/sensor[...] — verified against a live
+// vss-vios-sensor:30000 (returns the sensor array). The /api/v1/live/... form
+// 404s on this build; the legacy sensor-ms keeps its own /live/ path.
 
 const VST_SENSOR_URL = LEGACY
   ? (process.env.VST_SENSOR_URL ??
       "http://sensor-ms.vst.svc.cluster.local:30000/api/v1/live/sensor")
   : (process.env.VST_SENSOR_URL ??
-      `http://vss-vios-sensor.${VSS_NS}.svc.cluster.local:30000/api/v1/live/sensor`);
+      `http://vss-vios-sensor.${VSS_NS}.svc.cluster.local:30000/api/v1/sensor`);
 
 const VST_SENSOR_LIST_URL = LEGACY
   ? (process.env.VST_SENSOR_LIST_URL ??
       "http://sensor-ms.vst.svc.cluster.local:30000/api/v1/live/sensor/list")
   : (process.env.VST_SENSOR_LIST_URL ??
-      `http://vss-vios-sensor.${VSS_NS}.svc.cluster.local:30000/api/v1/live/sensor/list`);
+      `http://vss-vios-sensor.${VSS_NS}.svc.cluster.local:30000/api/v1/sensor/list`);
 
 const VST_SENSOR_ADD_URL = LEGACY
   ? (process.env.VST_SENSOR_ADD_URL ??
