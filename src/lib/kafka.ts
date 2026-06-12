@@ -22,7 +22,12 @@ export function getKafka(): KafkaShape {
     globalForKafka.__kafka = new Kafka({
       clientId: "console",
       brokers: brokers.split(",").map((b) => b.trim()),
-      retry: { retries: 3 },
+      // Fail fast when the broker is unreachable: without a connectionTimeout
+      // the admin probe in the overview collector retried for minutes and hung
+      // the whole page. Bounded connect + few retries keep it snappy.
+      connectionTimeout: 3_000,
+      requestTimeout: 5_000,
+      retry: { retries: 2, initialRetryTime: 300, maxRetryTime: 3_000 },
     });
   }
 
