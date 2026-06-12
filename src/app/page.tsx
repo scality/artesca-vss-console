@@ -4,6 +4,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { KpiGrid } from "@/components/overview/KpiGrid";
 import { GpuCard } from "@/components/overview/GpuCard";
 import { GpuSharingCard } from "@/components/overview/GpuSharingCard";
+import { ConnectivityStrip } from "@/components/overview/ConnectivityStrip";
 import { KafkaLagTable } from "@/components/overview/KafkaLagTable";
 import { PodSummaryList } from "@/components/overview/PodSummaryList";
 import { OverviewAutoRefresh } from "@/components/overview/OverviewAutoRefresh";
@@ -61,6 +62,9 @@ export default async function OverviewPage() {
             <p className="mt-1 text-sm text-muted-foreground">
               ARTESCA × Pyramid × NVIDIA VSS operator view
             </p>
+            <div className="mt-2">
+              <ConnectivityStrip />
+            </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
             {kiosk && (
