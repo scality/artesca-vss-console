@@ -73,7 +73,7 @@ export async function startReconcileLoop(opts?: { intervalMs?: number; instance?
   const { CLUSTER } = await import("@/lib/cluster-refs");
   const refs: ReconcileRunOptions["refs"] = {
     prompt: {
-      ns: CLUSTER.rtvi.nimNamespace,
+      ns: CLUSTER.rtvi.vlmNamespace,
       deployment: CLUSTER.rtvi.vlmDeployment,
       promptKey: CLUSTER.rtvi.promptKey,
     },
