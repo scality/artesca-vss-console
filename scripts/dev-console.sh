@@ -151,6 +151,10 @@ say "Writing $ENVF"
   echo "CONSOLE_DISABLE_AUTH=true"
   echo "KUBECONFIG=$KCFG"
   echo "VSS_NAMESPACE=$VSS_NS"
+  # SQLite dir. The pod default (/data) is the in-cluster PVC mount, unwritable
+  # on the laptop → DB-backed routes (cameras/profiles/audit) crash with ENOENT.
+  # Point at the gitignored instance dir; db.ts mkdirs it on first use.
+  echo "CONSOLE_DATA_DIR=$INST_DIR/.console-data"
   if [[ -n "${OBJECTSTORE_ENDPOINT:-}" ]]; then
     # `.objectstore.env` was sourced with `set -a`, so OBJECTSTORE_ENDPOINT is
     # exported as the bare node IP — and a pre-set env var shadows .env.local in
