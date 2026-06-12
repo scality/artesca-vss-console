@@ -174,22 +174,18 @@ export function ScenarioTable() {
           <p className="text-sm text-muted-foreground">
             Configure alert rules. Changes are staged locally until you save.
           </p>
-          {data?.gcs && (
+          {data?.gcs?.available === true && (
             <p className="text-xs text-muted-foreground mt-0.5">
               GCS:{" "}
-              {data.gcs.available ? (
-                <span className="text-emerald-400">
-                  {data.gcs.totalScenarios ?? 0} scenarios persisted
-                  {data.gcs.lastUpdatedBy ? ` · last by ${data.gcs.lastUpdatedBy}` : ""}
-                </span>
-              ) : (
-                <span className="text-slate-500">unavailable (no credentials)</span>
-              )}
+              <span className="text-emerald-400">
+                {data.gcs.totalScenarios ?? 0} scenarios persisted
+                {data.gcs.lastUpdatedBy ? ` · last by ${data.gcs.lastUpdatedBy}` : ""}
+              </span>
             </p>
           )}
         </div>
         <div className="flex gap-2">
-          {data?.gcs?.available !== false && (
+          {data?.gcs?.available === true && (
             <Button
               variant="outline"
               size="sm"

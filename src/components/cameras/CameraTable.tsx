@@ -90,22 +90,18 @@ export function CameraTable() {
           <p className="text-sm text-muted-foreground">
             Manage camera feeds and sensor registration.
           </p>
-          {data?.gcs && (
+          {data?.gcs?.available === true && (
             <p className="text-xs text-muted-foreground mt-0.5">
               GCS:{" "}
-              {data.gcs.available ? (
-                <span className="text-emerald-400">
-                  {data.gcs.totalCameras ?? 0} cameras persisted
-                  {data.gcs.lastUpdatedBy ? ` · last by ${data.gcs.lastUpdatedBy}` : ""}
-                </span>
-              ) : (
-                <span className="text-slate-500">unavailable (no credentials)</span>
-              )}
+              <span className="text-emerald-400">
+                {data.gcs.totalCameras ?? 0} cameras persisted
+                {data.gcs.lastUpdatedBy ? ` · last by ${data.gcs.lastUpdatedBy}` : ""}
+              </span>
             </p>
           )}
         </div>
         <div className="flex items-center gap-2">
-          {data?.gcs?.available !== false && (
+          {data?.gcs?.available === true && (
             <Button
               variant="outline"
               size="sm"
