@@ -14,15 +14,27 @@ interface ConnectivityResponse {
   backends: BackendStatus[];
 }
 
+// Short, color-independent status word so the state is legible as text (e.g.
+// when pasted) and not conveyed by the dot colour alone.
+function statusWord(b: BackendStatus): string {
+  if (b.ok) return "ok";
+  const d = b.detail.toLowerCase();
+  if (d.includes("not configured") || d.includes("unset")) return "not configured";
+  if (d.includes("timed out") || d.includes("timeout")) return "timeout";
+  return "unreachable";
+}
+
 function Dot({ b }: { b: BackendStatus }) {
   const color = b.ok ? "bg-green-500" : "bg-red-500";
+  const textColor = b.ok ? "text-green-500" : "text-red-400";
   return (
     <span
       className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
       title={b.detail}
     >
       <span className={`h-2 w-2 rounded-full shrink-0 ${color}`} />
-      {b.label}
+      <span>{b.label}</span>
+      <span className={`font-medium ${textColor}`}>{statusWord(b)}</span>
     </span>
   );
 }
