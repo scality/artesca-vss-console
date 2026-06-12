@@ -52,6 +52,16 @@ INST_DIR="$REPO_ROOT/scripts/instances/$INSTANCE"
 
 command -v sshuttle >/dev/null || { echo "error: sshuttle not installed (brew install sshuttle)" >&2; exit 2; }
 
+# Pre-flight the dev-server port BEFORE any setup, so a stale server doesn't make
+# us mount sshuttle + the hosts alias only to have `npm run dev` fail (its exit
+# would then trigger the teardown trap, undoing all of it).
+DEV_PORT=5003
+if [[ "$START_DEV" -eq 1 ]] && lsof -nP -iTCP:"$DEV_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "error: port $DEV_PORT already in use (a console dev server is running)." >&2
+  echo "       stop it first:  lsof -ti :$DEV_PORT | xargs kill" >&2
+  exit 2
+fi
+
 # ── Load instance state ──────────────────────────────────────────────────────
 set -a
 # shellcheck disable=SC1091
