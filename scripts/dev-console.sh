@@ -149,12 +149,25 @@ cat <<NOTE
 
 NOTE
 
+# Next.js 16 allows only ONE `next dev` per project directory (a lock under
+# .next/dev), regardless of port. If the menubar already runs the console here
+# (:5003), a second one fails — so detect it and reuse it instead of fighting.
+if [[ "$START_DEV" -eq 1 ]] && pgrep -f "next dev" >/dev/null 2>&1; then
+  say "A console dev server is already running in this directory (the menubar's :5003)."
+  say "Next.js permits only one per directory — reusing it rather than starting a second."
+  START_DEV=0
+fi
+
 if [[ "$START_DEV" -eq 1 ]]; then
   say "Starting console dev server on http://localhost:$DEV_PORT (Ctrl-C stops it + tears down tunnels)"
   cd "$REPO_ROOT/console"
   npx next dev --port "$DEV_PORT"
 else
-  say "Setup complete (--no-dev). Tunnels up; restart the menubar console to reload .env.local."
-  say "Press Enter to tear down."
+  echo ""
+  say "Tunnels + .env.local + hosts are in place and HELD by this process."
+  say "→ Restart the menubar-managed console so it reloads .env.local:"
+  say "    Scality menubar → (console server) → Restart"
+  say "→ Then open  http://localhost:5003  — K8s / Kafka / S3 should be green."
+  say "Keep this terminal open (the tunnels live here). Press Enter to tear down."
   read -r _
 fi
