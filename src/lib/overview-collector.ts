@@ -334,12 +334,13 @@ async function collectK8sOverview(
       await admin.connect();
       try {
         for (const topic of topics) {
-          let lag = 0;
+          // null = couldn't measure this topic (distinct from a real 0).
+          let lag: number | null = null;
           try {
             const offsets = await admin.fetchTopicOffsets(topic);
             lag = offsets.reduce((sum, p) => sum + parseInt(p.high, 10) - parseInt(p.low, 10), 0);
           } catch {
-            // ignore per-topic failure
+            // per-topic failure → leave lag null (unknown), not 0.
           }
           kafka[topic] = { topic, consumerLagMsgs: lag };
         }
@@ -347,15 +348,17 @@ async function collectK8sOverview(
         await admin.disconnect();
       }
     } catch (err) {
+      // Broker unreachable — lag is unknown, NOT zero. Surfacing 0 here would
+      // render a false "OK" while the cluster is actually disconnected.
       warnings.push(`Kafka admin failed: ${String(err)}`);
       for (const topic of topics) {
-        kafka[topic] = { topic, consumerLagMsgs: 0 };
+        kafka[topic] = { topic, consumerLagMsgs: null };
       }
     }
   } else {
     warnings.push("Kafka not configured — KAFKA_BROKERS not set");
     for (const topic of topics) {
-      kafka[topic] = { topic, consumerLagMsgs: 0 };
+      kafka[topic] = { topic, consumerLagMsgs: null };
     }
   }
 

@@ -130,7 +130,8 @@ export const OverviewSnapshotSchema = z.object({
   kafka: z.record(
     z.object({
       topic: z.string(),
-      consumerLagMsgs: z.number().int().nonnegative(),
+      // null = lag unmeasurable (broker unreachable / not configured).
+      consumerLagMsgs: z.number().int().nonnegative().nullable(),
     })
   ),
   s3: z.object({
