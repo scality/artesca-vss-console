@@ -57,6 +57,18 @@ vi.mock("@/lib/helpers/audit", () => ({
   auditLog: vi.fn().mockResolvedValue(undefined),
 }));
 
+// k8s path mocks — needed so the k8s branch resolves when CONSOLE_RUNTIME is not "docker"
+vi.mock("@/lib/reconcile/context", () => ({
+  ReconcileContextError: class extends Error {
+    name = "ReconcileContextError";
+  },
+  makeReconcileContext: vi.fn(),
+}));
+
+vi.mock("@/lib/cameras/collect-k8s", () => ({
+  buildK8sCamerasResponse: vi.fn().mockReturnValue({ cameras: [], reconcile: null }),
+}));
+
 import type { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
@@ -64,6 +76,8 @@ import { gcsCamerasGet, gcsCamerasPut } from "@/lib/helpers/gcs-config";
 import { vstListSensors } from "@/lib/helpers/vst";
 import { camsimListCameras, camsimUploadFile, camsimAddCamera, controlPlaneHost } from "@/lib/helpers/camsim-control";
 import { auditLog } from "@/lib/helpers/audit";
+import { makeReconcileContext } from "@/lib/reconcile/context";
+import { buildK8sCamerasResponse } from "@/lib/cameras/collect-k8s";
 
 import { GET, POST } from "@/app/api/cameras/route";
 
@@ -107,14 +121,25 @@ beforeEach(() => {
   });
   vi.mocked(controlPlaneHost).mockReset().mockReturnValue("192.168.1.10");
   vi.mocked(auditLog).mockReset().mockResolvedValue(undefined);
+  // Default k8s path mocks
+  vi.mocked(makeReconcileContext).mockReset().mockResolvedValue({
+    instance: "inst-1",
+    adapter: {} as never,
+    refs: {} as never,
+    store: {
+      readCameras: vi.fn().mockResolvedValue([]),
+      readStatus: vi.fn().mockResolvedValue(null),
+    } as never,
+  } as never);
+  vi.mocked(buildK8sCamerasResponse).mockReset().mockReturnValue({ cameras: [], reconcile: null });
   // Ensure no VSS_INSTANCE_NAME so GCS writes are skipped in most tests
   delete process.env.VSS_INSTANCE_NAME;
   delete process.env.CONSOLE_RUNTIME;
 });
 
-// ── GET ──────────────────────────────────────────────────────────────────────
+// ── GET (k8s path) ────────────────────────────────────────────────────────────
 
-describe("GET /api/cameras", () => {
+describe("GET /api/cameras (k8s)", () => {
   it("auth missing → 401", async () => {
     vi.mocked(auth).mockResolvedValue(null as never);
 
@@ -125,72 +150,52 @@ describe("GET /api/cameras", () => {
     expect(body.error).toMatch(/unauthorized/i);
   });
 
-  it("happy path: GCS returns null, camsim returns entries → cameras returned from camsim", async () => {
-    vi.mocked(gcsCamerasGet).mockResolvedValue(null);
-    vi.mocked(camsimListCameras).mockResolvedValue([
-      { name: "cam-01", source: "rtsp", description: "Entrance", staged: false },
-    ]);
+  it("returns Firestore desired cameras with live vstRegistered", async () => {
+    vi.mocked(vstListSensors).mockResolvedValue({
+      sensors: [{ sensor_id: "aisle-1", name: "aisle-1" }],
+      warning: undefined,
+    } as never);
+    vi.mocked(makeReconcileContext).mockResolvedValue({
+      instance: "inst-1", adapter: {} as never, refs: {} as never,
+      store: {
+        readCameras: vi.fn().mockResolvedValue([{ id: "aisle-1", rtspUrl: "rtsp://x/aisle-1" }]),
+        readStatus: vi.fn().mockResolvedValue(null),
+      } as never,
+    } as never);
+    vi.mocked(buildK8sCamerasResponse).mockReturnValue({
+      cameras: [
+        {
+          id: "aisle-1",
+          role: "aisle",
+          feeds: [{ id: "default", sensorId: "aisle-1", source: "rtsp", rtspUrl: "rtsp://x/aisle-1", vstRegistered: true, replayReady: false }],
+          gcsPersisted: true,
+        } as never,
+      ],
+      reconcile: null,
+    });
 
     const res = await GET();
-
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.cameras).toHaveLength(1);
-    expect(body.cameras[0].id).toBe("cam-01");
-    // GCS not available (VSS_INSTANCE_NAME empty at module load)
+    expect(body.cameras[0].feeds[0].vstRegistered).toBe(true);
     expect(body.gcs.available).toBe(false);
   });
 
-  it("GCS returns null and camsim empty: falls back to VST sensors", async () => {
-    vi.mocked(gcsCamerasGet).mockResolvedValue(null);
-    vi.mocked(camsimListCameras).mockResolvedValue([]);
-    vi.mocked(vstListSensors).mockResolvedValue({
-      sensors: [
-        {
-          sensor_id: "vst-cam",
-          name: "VST Camera",
-          rtsp_url: "rtsp://vst-cam",
-        },
-      ],
-      warning: undefined,
-    });
-
+  it("degrades to empty list + warning when the context is unavailable", async () => {
+    const { ReconcileContextError } = await import("@/lib/reconcile/context");
+    vi.mocked(makeReconcileContext).mockRejectedValue(new ReconcileContextError("VSS_INSTANCE_NAME unset"));
     const res = await GET();
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    // Falls back to VST sensors
-    expect(body.cameras).toHaveLength(1);
-    expect(body.cameras[0].id).toBe("vst-cam");
-  });
-
-  it("controlPlaneHost throws in k8s mode → returns 200 with empty cameras and warning", async () => {
-    vi.mocked(controlPlaneHost).mockImplementation(() => {
-      throw new Error("CAMERA_SIM_HOST not configured");
-    });
-    vi.mocked(gcsCamerasGet).mockResolvedValue(null);
-
-    const res = await GET();
-
-    // Route returns 200 with a warnings array when camsim is not configured
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.warnings).toBeDefined();
-    expect(body.cameras).toEqual([]);
-  });
-
-  it("GCS and camsim both empty → returns empty cameras array", async () => {
-    vi.mocked(gcsCamerasGet).mockResolvedValue(null);
-    vi.mocked(camsimListCameras).mockResolvedValue([]);
-    vi.mocked(vstListSensors).mockResolvedValue({ sensors: [], warning: undefined });
-
-    const res = await GET();
-
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.cameras).toEqual([]);
+    expect(body.warnings[0]).toMatch(/config store unavailable/);
   });
 });
+
+// Note: Docker-path GET tests (camsim/GCS-based) require DOCKER_MODE=true at module
+// load time. Since DOCKER_MODE is a module-level constant, those tests need a
+// separate vitest project with CONSOLE_RUNTIME=docker pre-set — out of scope here.
 
 // ── POST ─────────────────────────────────────────────────────────────────────
 

@@ -57,6 +57,35 @@ export async function GET() {
   if (!session)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  // k8s path: Firestore is the source of truth. Docker path (below) keeps GCS.
+  if (!DOCKER_MODE) {
+    const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+    const { buildK8sCamerasResponse } = await import("@/lib/cameras/collect-k8s");
+    const { mediamtxListPaths } = await import("@/lib/helpers/mediamtx");
+    try {
+      const ctx = await makeReconcileContext();
+      const [desired, vstResult, mtxResult, status] = await Promise.all([
+        ctx.store.readCameras(ctx.instance),
+        vstListSensors(),
+        mediamtxListPaths().catch(() => ({ paths: [] as { name: string; ready: boolean }[], warning: undefined })),
+        ctx.store.readStatus(ctx.instance).catch(() => null),
+      ]);
+      const warnings: string[] = [];
+      if (vstResult.warning) warnings.push(vstResult.warning);
+      if (mtxResult.warning) warnings.push(mtxResult.warning);
+      const liveNames = vstResult.sensors.map((s) => s.sensor_id);
+      const mtxReady = new Map(mtxResult.paths.map((p) => [p.name, p.ready]));
+      const { cameras, reconcile } = buildK8sCamerasResponse(desired, liveNames, mtxReady, status);
+      return NextResponse.json({ cameras, eip: "", gcs: { available: false }, reconcile, warnings });
+    } catch (err) {
+      const msg = err instanceof ReconcileContextError ? err.message : String(err);
+      return NextResponse.json(
+        { cameras: [], eip: "", gcs: { available: false }, warnings: [`config store unavailable: ${msg}`] },
+        { status: 200 },
+      );
+    }
+  }
+
   // Kick off the one-shot GCS → VST bootstrap (no-op after first call).
   if (DOCKER_MODE && VSS_INSTANCE_NAME) {
     triggerCameraBootstrap();
