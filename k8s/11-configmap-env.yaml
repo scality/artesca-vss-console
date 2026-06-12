@@ -67,8 +67,11 @@ data:
   # ALERT_WORKER_URL: "http://vss-video-analytics-api.vss-base.svc.cluster.local:9101"
 
   # ── Prometheus ────────────────────────────────────────────────────────────────
-  # ARTESCA kube-prometheus-stack in artesca-monitoring namespace.
-  PROMETHEUS_URL: "http://prometheus-operated.artesca-monitoring.svc.cluster.local:9090"
+  # metalk8s-monitoring's kube-prometheus-stack — NOT artesca-monitoring.
+  # artesca-monitoring's Prometheus CR has serviceMonitorSelector=null (no dynamic
+  # ServiceMonitor discovery) and holds 0 GPU series; metalk8s-monitoring is the
+  # one that scrapes the observability/ DCGM ServiceMonitor (DCGM_FI_DEV_GPU_*).
+  PROMETHEUS_URL: "http://prometheus-operated.metalk8s-monitoring.svc.cluster.local:9090"
 
   # ── SQLite database ───────────────────────────────────────────────────────────
   # Backed by PVC console-data (5 Gi, ReadWriteOnce).

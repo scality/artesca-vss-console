@@ -16,10 +16,10 @@
 #                       (127.0.0.1 kafka-kafka — sudo; removed on exit). Without
 #                       it Kafka stays "unreachable" (see the printed note).
 #
-# Forwarded:  127.0.0.1:16443 → apiserver(:6443)   ·   127.0.0.1:9092 → kafka
-# S3 goes over the public ARTESCA vhost (no tunnel).
-# Known gaps: Prometheus (ARTESCA auth → 401, console sends no creds) and
-# camera-sim (a separate instance) stay unreachable.
+# Forwarded:  :16443 → apiserver(:6443) · :9092 → kafka · :19090 → metalk8s-monitoring
+# Prometheus (GPU/DCGM metrics). S3 goes over the public ARTESCA vhost (no tunnel).
+# camera-sim host is auto-discovered (reaching its :9997 also needs the laptop /32
+# on the camera-sim SG).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
