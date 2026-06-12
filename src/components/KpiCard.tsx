@@ -5,6 +5,8 @@ interface KpiCardProps {
   value: string | number;
   trend?: "up" | "down" | "flat";
   sub?: string;
+  /** Extra content under the value — e.g. a StatusBadge for health-bearing KPIs. */
+  footer?: React.ReactNode;
   className?: string;
 }
 
@@ -20,7 +22,7 @@ const TREND_SYMBOLS = {
   flat: "→",
 };
 
-export function KpiCard({ label, value, trend, sub, className }: KpiCardProps) {
+export function KpiCard({ label, value, trend, sub, footer, className }: KpiCardProps) {
   return (
     <div
       className={cn(
@@ -40,6 +42,7 @@ export function KpiCard({ label, value, trend, sub, className }: KpiCardProps) {
         )}
       </div>
       {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+      {footer}
     </div>
   );
 }
