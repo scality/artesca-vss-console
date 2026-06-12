@@ -28,6 +28,7 @@ vi.stubGlobal("fetch", fetchMock);
 vi.mock("@/lib/s3", () => ({
   makeS3Client: vi.fn(() => ({ send: vi.fn().mockResolvedValue({}) })),
   s3Bucket: vi.fn(() => ""),     // empty → probeObjectStore returns "unknown"
+  s3BucketForRecordings: vi.fn(() => ""),  // route.ts reads this for the display label
   s3Endpoint: vi.fn(() => ""),
 }));
 
