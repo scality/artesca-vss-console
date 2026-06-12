@@ -25,6 +25,9 @@ const globalForInstrumentation = globalThis as unknown as { __started?: boolean 
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
+  const { filterUrlParseDeprecation } = await import("@/lib/deprecation-filter");
+  filterUrlParseDeprecation();
+
   if (globalForInstrumentation.__started) return;
   globalForInstrumentation.__started = true;
 

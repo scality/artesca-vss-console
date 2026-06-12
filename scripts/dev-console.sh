@@ -45,6 +45,10 @@ INST_DIR="$REPO_ROOT/scripts/instances/$INSTANCE"
 [[ -d "$INST_DIR" ]] || { echo "error: $INST_DIR not found" >&2; exit 2; }
 
 say() { printf '\033[1;36m[dev-console]\033[0m %s\n' "$*"; }
+# ok/warn/die are required by lib-sg-bridge.sh (sourced for camera-sim SG auth).
+ok()   { printf '\033[1;32m OK\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33mWARN\033[0m %s\n' "$*" >&2; }
+die()  { printf '\033[1;31mFAIL\033[0m %s\n' "$*" >&2; exit 1; }
 
 # Local forward ports.
 K8S_PORT=16443
@@ -88,6 +92,52 @@ VSS_NS="${STACK_ID:+vss-${SCALITY_BP_PROFILE:-alerts}}"; VSS_NS="${VSS_NS:-vss-a
 KAFKA_IP="$(rsh "$K -n $VSS_NS get svc kafka-kafka -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
 say "ns=$VSS_NS  kafka=${KAFKA_IP:-?}  (K8s→127.0.0.1:$K8S_PORT, Kafka→127.0.0.1:$KAFKA_PORT)"
 
+# ── 2b. Discover camera-sim host + auto-authorize this laptop on its SG :9997 ──
+# The camera-sim is a separate instance; the console probes its mediamtx REST API
+# at CAMERA_SIM_HOST:9997. Explicit CAMERA_SIM_HOST env wins; otherwise, when
+# exactly one camera-sim instance dir carries a PUB_IP, use it (CAMSIM_STATE
+# remembers which dir, so we can read its SG params for the auto-auth below).
+CAMSIM_HOST="${CAMERA_SIM_HOST:-}"
+CAMSIM_STATE=""
+if [[ -z "$CAMSIM_HOST" ]]; then
+  _camsim_states=()
+  for _f in "$REPO_ROOT"/scripts/camera-sim-instances/*/.camera-sim-state.env; do
+    [[ -f "$_f" ]] || continue
+    grep -qE '^PUB_IP=.+' "$_f" 2>/dev/null && _camsim_states+=("$_f")
+  done
+  if [[ "${#_camsim_states[@]}" -eq 1 ]]; then
+    CAMSIM_STATE="${_camsim_states[0]}"
+    CAMSIM_HOST="$(grep -E '^PUB_IP=' "$CAMSIM_STATE" | tail -1 | cut -d= -f2)"
+    say "camera-sim host → $CAMSIM_HOST (auto-discovered)"
+  elif [[ "${#_camsim_states[@]}" -gt 1 ]]; then
+    say "⚠ ${#_camsim_states[@]} camera-sim instances found — set CAMERA_SIM_HOST=<ip> to pick one; leaving unset"
+  fi
+fi
+
+# Auto-authorize this laptop's current /32 on the camera-sim SG :9997 so the
+# console's mediamtx probe reaches the API. Self-healing across laptop-IP drift
+# via lib-sg-bridge (revokes a stale laptop rule, re-authorizes the current IP);
+# idempotent when the IP hasn't changed. Runs only when the camera-sim dir was
+# auto-discovered (we need its SG params). Non-fatal — a failure (e.g. expired
+# SSO) just leaves camera-sim unreachable, surfaced as a warning.
+if [[ -n "$CAMSIM_HOST" && -n "$CAMSIM_STATE" ]]; then
+  _myip="$(curl -fsS -m 8 https://checkip.amazonaws.com 2>/dev/null | tr -d '[:space:]' || true)"
+  if [[ "$_myip" =~ ^[0-9.]+$ ]]; then
+    # shellcheck disable=SC1090,SC1091
+    ( set -a; source "$CAMSIM_STATE"; set +a
+      SG_OWNER_AWS_PROFILE="$AWS_PROFILE" SG_OWNER_AWS_REGION="$AWS_REGION" \
+      SG_OWNER_SG_ID="$SG_ID" SG_SOURCE_PUB_IP="$_myip" SG_PORT=9997 \
+      SG_DESCRIPTION_TAG="laptop-local-console-mediamtx-api" \
+      SG_RULE_FILE="$INST_DIR/.camerasim-sg-rule-laptop-9997.env" \
+      SG_RULE_GENERATED_BY="dev-console.sh"
+      source "$HERE/lib-sg-bridge.sh"
+      sg_bridge_authorize ) \
+      || say "⚠ camera-sim SG :9997 auth failed for $_myip/32 — refresh SSO (aws sso login) or open it manually; camera-sim may show unreachable"
+  else
+    say "⚠ couldn't resolve laptop public IP — skipping camera-sim SG :9997 auth (camera-sim may show unreachable)"
+  fi
+fi
+
 # ── 3. Write console/.env.local ───────────────────────────────────────────────
 ENVF="$REPO_ROOT/console/.env.local"
 say "Writing $ENVF"
@@ -108,6 +158,7 @@ say "Writing $ENVF"
   # Kafka advertises `kafka-kafka:9092`; with the hosts alias that resolves to
   # 127.0.0.1 → the local forward. Bootstrap uses the same name for consistency.
   [[ -n "${KAFKA_IP:-}" ]] && echo "KAFKA_BROKERS=kafka-kafka:${KAFKA_PORT}"
+  [[ -n "${CAMSIM_HOST:-}" ]] && echo "CAMERA_SIM_HOST=$CAMSIM_HOST"
 } > "$ENVF"
 
 # ── 4. /etc/hosts alias for Kafka. Redpanda advertises itself as `kafka-kafka:9092`,
@@ -154,7 +205,9 @@ cat <<NOTE
 
   ✓ K8s API + S3 wired. Kafka: $([[ "$HOSTS_OK" -eq 1 ]] && echo "kafka-kafka alias present → reachable" || echo "unreachable — run once with --with-hosts to add the persistent 127.0.0.1 kafka-kafka alias (sudo)")
   ⚠ Prometheus stays unreachable (ARTESCA auth; console sends no creds).
-  ⚠ camera-sim is a separate instance, not in this cluster.
+  $([[ -n "${CAMSIM_HOST:-}" ]] \
+    && echo "✓ camera-sim → $CAMSIM_HOST:9997 (this laptop's /32 is auto-authorized on the camera-sim SG :9997, self-healing on IP drift)" \
+    || echo "⚠ camera-sim is a separate instance, not in this cluster — set CAMERA_SIM_HOST=<ip> to wire it.")
 
 NOTE
 
