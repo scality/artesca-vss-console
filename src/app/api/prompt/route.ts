@@ -102,15 +102,18 @@ export async function GET() {
   }
 
   // k8s path: Firestore is the source of truth for the desired prompt.
+  // defaultPrompt is surfaced so the page's "Load default" affordance works
+  // when the Firestore doc is empty (e.g. instance not yet seeded post-cutover).
   {
     const { makeReconcileContext } = await import("@/lib/reconcile/context");
+    const defaultPrompt = readDefaultPrompt();
     try {
       const ctx = await makeReconcileContext();
       const doc = await ctx.store.readPrompt(ctx.instance);
-      return NextResponse.json({ prompt: doc?.prompt ?? "", model: doc?.model ?? "", gcs: { available: false }, warnings });
+      return NextResponse.json({ prompt: doc?.prompt ?? "", model: doc?.model ?? "", defaultPrompt, gcs: { available: false }, warnings });
     } catch (err) {
       warnings.push(`config store unavailable: ${err instanceof Error ? err.message : String(err)}`);
-      return NextResponse.json({ prompt: "", model: "", gcs: { available: false }, warnings });
+      return NextResponse.json({ prompt: "", model: "", defaultPrompt, gcs: { available: false }, warnings });
     }
   }
 }
