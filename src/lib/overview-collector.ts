@@ -324,8 +324,13 @@ async function collectK8sOverview(
   }
 
   const kafka: OverviewSnapshot["kafka"] = {};
-  const topicsEnv = process.env.KAFKA_TOPICS ?? "vision-llm-events,alerts";
-  const topics = topicsEnv.split(",").map((t) => t.trim()).filter(Boolean);
+  // cluster-refs is the canonical topic source (calibrated per profile). Default
+  // to the two core pipeline topics the alert worker consumes; querying topics
+  // that don't exist on the broker yields null lag for every topic, which the
+  // KPI renders as a false "brokers unreachable". KAFKA_TOPICS overrides.
+  const topics = process.env.KAFKA_TOPICS
+    ? process.env.KAFKA_TOPICS.split(",").map((t) => t.trim()).filter(Boolean)
+    : [CLUSTER.kafka.topics.visionLlm, CLUSTER.kafka.topics.incidents];
 
   const { instance: kafkaInstance } = getKafka();
   if (kafkaInstance) {
