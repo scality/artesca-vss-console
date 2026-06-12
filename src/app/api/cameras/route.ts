@@ -61,7 +61,6 @@ export async function GET() {
   if (!DOCKER_MODE) {
     const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
     const { buildK8sCamerasResponse } = await import("@/lib/cameras/collect-k8s");
-    const { mediamtxListPaths } = await import("@/lib/helpers/mediamtx");
     try {
       const ctx = await makeReconcileContext();
       const [desired, vstResult, mtxResult, status] = await Promise.all([
