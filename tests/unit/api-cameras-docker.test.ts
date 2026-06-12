@@ -71,15 +71,28 @@ vi.mock("@/lib/cameras/collect-k8s", () => ({
   buildK8sCamerasResponse: vi.fn().mockReturnValue({ cameras: [], reconcile: null }),
 }));
 
+vi.mock("@/lib/reconcile/cameras", () => ({
+  reconcileCameras: vi.fn().mockRejectedValue(new Error("should not be called in docker mode")),
+}));
+
 // ── Lazy imports (resolved after setting CONSOLE_RUNTIME=docker) ─────────────
 
 import { auth } from "@/lib/auth";
-import { gcsCamerasGet } from "@/lib/helpers/gcs-config";
+import { rejectIfKiosk } from "@/lib/kiosk-server";
+import { gcsCamerasGet, gcsCamerasPut } from "@/lib/helpers/gcs-config";
 import { vstListSensors } from "@/lib/helpers/vst";
-import { camsimListCameras, controlPlaneHost } from "@/lib/helpers/camsim-control";
+import {
+  camsimListCameras,
+  camsimUploadFile,
+  camsimAddCamera,
+  controlPlaneHost,
+} from "@/lib/helpers/camsim-control";
+import { auditLog } from "@/lib/helpers/audit";
+import type { NextRequest } from "next/server";
 
-// GET is imported fresh per-test (see beforeEach) so DOCKER_MODE=true at load.
+// GET and POST are imported fresh per-test (see beforeEach) so DOCKER_MODE=true at load.
 let GET: () => Promise<Response>;
+let POST: (req: NextRequest) => Promise<Response>;
 
 // ── Setup ────────────────────────────────────────────────────────────────────
 
@@ -90,21 +103,51 @@ beforeEach(async () => {
   delete process.env.VSS_INSTANCE_NAME;
 
   vi.resetModules();
-  ({ GET } = await import("@/app/api/cameras/route"));
+  ({ GET, POST } = await import("@/app/api/cameras/route") as never);
 
-  vi.mocked(auth).mockResolvedValue({
+  vi.mocked(auth).mockReset().mockResolvedValue({
     user: { name: "operator", email: "operator@test.com" },
   } as never);
-  vi.mocked(gcsCamerasGet).mockResolvedValue(null);
-  vi.mocked(vstListSensors).mockResolvedValue({ sensors: [], warning: undefined });
-  vi.mocked(camsimListCameras).mockResolvedValue([]);
-  vi.mocked(controlPlaneHost).mockReturnValue("192.168.1.10");
+  vi.mocked(rejectIfKiosk).mockReset().mockResolvedValue(null);
+  vi.mocked(gcsCamerasGet).mockReset().mockResolvedValue(null);
+  vi.mocked(gcsCamerasPut).mockReset().mockResolvedValue(undefined);
+  vi.mocked(vstListSensors).mockReset().mockResolvedValue({ sensors: [], warning: undefined });
+  vi.mocked(camsimListCameras).mockReset().mockResolvedValue([]);
+  vi.mocked(camsimUploadFile).mockReset().mockResolvedValue({ name: "entrance.ts", size: 1024 } as never);
+  vi.mocked(camsimAddCamera).mockReset().mockResolvedValue({
+    camera: { name: "cam-01", source: "entrance.ts", staged: false },
+    restart: { ok: true, output: "" },
+  } as never);
+  vi.mocked(controlPlaneHost).mockReset().mockReturnValue("192.168.1.10");
+  vi.mocked(auditLog).mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
   delete process.env.CONSOLE_RUNTIME;
   delete process.env.VSS_INSTANCE_NAME;
 });
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function makePostRequest(body: unknown): NextRequest {
+  return new Request("http://localhost/api/cameras", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+  }) as unknown as NextRequest;
+}
+
+const VALID_CAMERA_BODY = {
+  cameraId: "cam-01",
+  description: "Entrance camera",
+  role: "other",
+  feeds: [
+    {
+      fileName: "entrance.ts",
+      fileBase64: Buffer.from("dummy").toString("base64"),
+    },
+  ],
+};
 
 // ── GET (docker path) ─────────────────────────────────────────────────────────
 
@@ -174,4 +217,93 @@ describe("GET /api/cameras (docker)", () => {
     const body = await res.json();
     expect(body.cameras).toEqual([]);
   });
+});
+
+// ── POST (docker path) ────────────────────────────────────────────────────────
+// Covers the GCS write-through behavior and mode-independent guards that apply
+// in docker mode. These tests were originally in api-cameras.test.ts and moved
+// here because DOCKER_MODE is a module-level constant that must be true at load.
+
+describe("POST /api/cameras (docker)", () => {
+  it("auth missing → 401, no camsim calls", async () => {
+    vi.mocked(auth).mockResolvedValue(null as never);
+
+    const req = makePostRequest(VALID_CAMERA_BODY);
+    const res = await POST(req);
+
+    expect(res.status).toBe(401);
+    expect(camsimUploadFile).not.toHaveBeenCalled();
+    expect(camsimAddCamera).not.toHaveBeenCalled();
+  });
+
+  it("kiosk mode: rejectIfKiosk returns 403 → short-circuits, no camsim calls", async () => {
+    const { NextResponse } = await import("next/server");
+    const kioskResponse = NextResponse.json({ error: "kiosk mode is read-only" }, { status: 403 });
+    vi.mocked(rejectIfKiosk).mockResolvedValue(kioskResponse as never);
+
+    const req = makePostRequest(VALID_CAMERA_BODY);
+    const res = await POST(req);
+
+    expect(res.status).toBe(403);
+    expect(camsimUploadFile).not.toHaveBeenCalled();
+    expect(camsimAddCamera).not.toHaveBeenCalled();
+  });
+
+  it("invalid body: missing feeds → 400, no camsim calls", async () => {
+    const req = makePostRequest({ cameraId: "cam-01" });
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBeDefined();
+    expect(camsimUploadFile).not.toHaveBeenCalled();
+    expect(camsimAddCamera).not.toHaveBeenCalled();
+  });
+
+  it("invalid body: cameraId with invalid chars → 400", async () => {
+    const req = makePostRequest({
+      ...VALID_CAMERA_BODY,
+      cameraId: "INVALID CAMERA ID!",
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBeDefined();
+    expect(camsimUploadFile).not.toHaveBeenCalled();
+  });
+
+  it("happy path (docker): valid body → upload + register + audit, returns 200 with ok:true", async () => {
+    const req = makePostRequest(VALID_CAMERA_BODY);
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.cameraId).toBe("cam-01");
+
+    expect(camsimUploadFile).toHaveBeenCalledOnce();
+    expect(camsimAddCamera).toHaveBeenCalledOnce();
+    expect(camsimAddCamera).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "cam-01" }),
+    );
+    expect(auditLog).toHaveBeenCalledWith("camera-add", "camera/cam-01", expect.any(Object));
+  });
+
+  it("camsimUploadFile fails → 502, no camsimAddCamera call", async () => {
+    vi.mocked(camsimUploadFile).mockRejectedValueOnce(new Error("upload timeout"));
+
+    const req = makePostRequest(VALID_CAMERA_BODY);
+    const res = await POST(req);
+
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toMatch(/upload failed/i);
+    expect(camsimAddCamera).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it.todo(
+    "GCS push failure after successful camera add → 200 (best-effort) with gcsWarning; requires VSS_INSTANCE_NAME set — complex GCS mutex chain makes inline assertion brittle",
+  );
 });

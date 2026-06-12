@@ -69,6 +69,16 @@ vi.mock("@/lib/cameras/collect-k8s", () => ({
   buildK8sCamerasResponse: vi.fn().mockReturnValue({ cameras: [], reconcile: null }),
 }));
 
+vi.mock("@/lib/reconcile/cameras", () => ({
+  reconcileCameras: vi.fn().mockResolvedValue({
+    added: ["cam-01"],
+    alreadyPresent: [],
+    failed: [],
+    pruned: [],
+    drift: [],
+  }),
+}));
+
 import type { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
@@ -78,6 +88,7 @@ import { camsimListCameras, camsimUploadFile, camsimAddCamera, controlPlaneHost 
 import { auditLog } from "@/lib/helpers/audit";
 import { makeReconcileContext } from "@/lib/reconcile/context";
 import { buildK8sCamerasResponse } from "@/lib/cameras/collect-k8s";
+import { reconcileCameras } from "@/lib/reconcile/cameras";
 
 import { GET, POST } from "@/app/api/cameras/route";
 
@@ -129,8 +140,16 @@ beforeEach(() => {
     store: {
       readCameras: vi.fn().mockResolvedValue([]),
       readStatus: vi.fn().mockResolvedValue(null),
+      upsertCamera: vi.fn().mockResolvedValue(undefined),
     } as never,
   } as never);
+  vi.mocked(reconcileCameras).mockReset().mockResolvedValue({
+    added: ["cam-01"],
+    alreadyPresent: [],
+    failed: [],
+    pruned: [],
+    drift: [],
+  });
   vi.mocked(buildK8sCamerasResponse).mockReset().mockReturnValue({ cameras: [], reconcile: null });
   // Ensure no VSS_INSTANCE_NAME so GCS writes are skipped in most tests
   delete process.env.VSS_INSTANCE_NAME;
@@ -197,9 +216,12 @@ describe("GET /api/cameras (k8s)", () => {
 // load time. Since DOCKER_MODE is a module-level constant, those tests need a
 // separate vitest project with CONSOLE_RUNTIME=docker pre-set — out of scope here.
 
-// ── POST ─────────────────────────────────────────────────────────────────────
+// ── POST (k8s path) ────────────────────────────────────────────────────────────
+// Auth / validation / camsim-error tests are mode-independent; they live here
+// because the k8s path is the default (CONSOLE_RUNTIME unset).
+// Docker-mode POST tests (GCS write-through assertions) live in api-cameras-docker.test.ts.
 
-describe("POST /api/cameras", () => {
+describe("POST /api/cameras (k8s)", () => {
   it("auth missing → 401, no camsim calls", async () => {
     vi.mocked(auth).mockResolvedValue(null as never);
 
@@ -248,23 +270,6 @@ describe("POST /api/cameras", () => {
     expect(camsimUploadFile).not.toHaveBeenCalled();
   });
 
-  it("happy path: valid body → upload + register + audit, returns 200 with ok:true", async () => {
-    const req = makePostRequest(VALID_CAMERA_BODY);
-    const res = await POST(req);
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.cameraId).toBe("cam-01");
-
-    expect(camsimUploadFile).toHaveBeenCalledOnce();
-    expect(camsimAddCamera).toHaveBeenCalledOnce();
-    expect(camsimAddCamera).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "cam-01" }),
-    );
-    expect(auditLog).toHaveBeenCalledWith("camera-add", "camera/cam-01", expect.any(Object));
-  });
-
   it("camsimUploadFile fails → 502, no camsimAddCamera call", async () => {
     vi.mocked(camsimUploadFile).mockRejectedValueOnce(new Error("upload timeout"));
 
@@ -278,7 +283,56 @@ describe("POST /api/cameras", () => {
     expect(auditLog).not.toHaveBeenCalled();
   });
 
-  it.todo(
-    "GCS push failure after successful camera add → 200 (best-effort) with gcsWarning; requires VSS_INSTANCE_NAME set — complex GCS mutex chain makes inline assertion brittle",
-  );
+  it("uploads to camsim, upserts Firestore, and applies write-through", async () => {
+    const upsertCamera = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(makeReconcileContext).mockResolvedValue({
+      instance: "inst-1",
+      adapter: {} as never,
+      refs: {} as never,
+      store: {
+        readCameras: vi.fn().mockResolvedValue([]),
+        readStatus: vi.fn().mockResolvedValue(null),
+        upsertCamera,
+      } as never,
+    } as never);
+
+    const req = makePostRequest({
+      cameraId: "cam01",
+      role: "aisle",
+      description: "Entrance",
+      rtspUrl: "rtsp://1.2.3.4:8554/cam01",
+      feeds: [{ fileName: "entrance.ts", fileBase64: Buffer.from("x").toString("base64") }],
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(camsimUploadFile).toHaveBeenCalled();
+    expect(camsimAddCamera).toHaveBeenCalled();
+    expect(upsertCamera).toHaveBeenCalledWith(
+      "inst-1",
+      expect.objectContaining({ id: "cam01", rtspUrl: "rtsp://1.2.3.4:8554/cam01" }),
+      "operator@test.com",
+    );
+    expect(reconcileCameras).toHaveBeenCalled();
+    expect(auditLog).toHaveBeenCalledWith("camera-add", "camera/cam01", expect.any(Object));
+  });
+
+  it("Firestore upsert fails → warning in response, still 200", async () => {
+    const { ReconcileContextError } = await import("@/lib/reconcile/context");
+    vi.mocked(makeReconcileContext).mockRejectedValueOnce(
+      new ReconcileContextError("Firestore init failed: project not set"),
+    );
+
+    const req = makePostRequest(VALID_CAMERA_BODY);
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.warnings).toContainEqual(expect.stringMatching(/config store write failed/));
+    expect(camsimUploadFile).toHaveBeenCalled();
+    expect(camsimAddCamera).toHaveBeenCalled();
+  });
 });
