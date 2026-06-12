@@ -3,6 +3,7 @@ import { Shell } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { KpiGrid } from "@/components/overview/KpiGrid";
 import { GpuCard } from "@/components/overview/GpuCard";
+import { GpuSharingCard } from "@/components/overview/GpuSharingCard";
 import { KafkaLagTable } from "@/components/overview/KafkaLagTable";
 import { PodSummaryList } from "@/components/overview/PodSummaryList";
 import { OverviewAutoRefresh } from "@/components/overview/OverviewAutoRefresh";
@@ -132,6 +133,12 @@ export default async function OverviewPage() {
                 <GpuCard key={gpu.index} gpu={gpu} />
               ))}
             </div>
+
+            {/* How the GPUs are shared across workloads (live, per-pod VRAM) */}
+            <h3 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Sharing across workloads
+            </h3>
+            <GpuSharingCard />
           </section>
         )}
 
