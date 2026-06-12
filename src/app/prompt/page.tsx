@@ -139,25 +139,21 @@ export default function PromptPage() {
               Edit the system prompt for the Vision Language Model. Changes
               require a vss-rtvi-vlm restart (~30 s).
             </p>
-            {data?.gcs && (
+            {data?.gcs?.available === true && (
               <p className="text-xs text-muted-foreground mt-0.5">
                 GCS:{" "}
-                {data.gcs.available ? (
-                  <span className="text-emerald-400">
-                    persisted
-                    {data.gcs.lastUpdatedBy ? ` · last by ${data.gcs.lastUpdatedBy}` : ""}
-                    {data.gcs.lastUpdated
-                      ? ` · ${new Date(data.gcs.lastUpdated).toLocaleString()}`
-                      : ""}
-                  </span>
-                ) : (
-                  <span className="text-slate-500">unavailable (no credentials)</span>
-                )}
+                <span className="text-emerald-400">
+                  persisted
+                  {data.gcs.lastUpdatedBy ? ` · last by ${data.gcs.lastUpdatedBy}` : ""}
+                  {data.gcs.lastUpdated
+                    ? ` · ${new Date(data.gcs.lastUpdated).toLocaleString()}`
+                    : ""}
+                </span>
               </p>
             )}
           </div>
           <div className="flex items-center gap-2">
-            {data?.gcs?.available !== false && (
+            {data?.gcs?.available === true && (
               <Button
                 variant="outline"
                 size="sm"
@@ -183,31 +179,17 @@ export default function PromptPage() {
           </div>
         </div>
 
-        {/* GCS persistence status banner */}
-        {data?.gcs && (
-          <div
-            className={
-              data.gcs.available
-                ? "rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300"
-                : "rounded-md border border-slate-500/30 bg-slate-500/10 p-3 text-sm text-slate-400"
-            }
-          >
-            {data.gcs.available ? (
-              <span>
-                <span className="font-semibold">PERSISTED</span> — prompt is saved in GCS
-                {data.gcs.lastUpdatedBy ? ` by ${data.gcs.lastUpdatedBy}` : ""}
-                {data.gcs.lastUpdated
-                  ? ` on ${new Date(data.gcs.lastUpdated).toLocaleString()}`
-                  : ""}
-                . It will be restored on the next container restart.
-              </span>
-            ) : (
-              <span>
-                <span className="font-semibold">RUNTIME-ONLY</span> — prompt is not persisted to GCS.
-                Set <code>GCS_CONFIG_BUCKET</code> and <code>GOOGLE_APPLICATION_CREDENTIALS</code> to
-                enable cross-restart persistence.
-              </span>
-            )}
+        {/* GCS persistence status banner — docker mode only */}
+        {data?.gcs?.available === true && (
+          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300">
+            <span>
+              <span className="font-semibold">PERSISTED</span> — prompt is saved in GCS
+              {data.gcs.lastUpdatedBy ? ` by ${data.gcs.lastUpdatedBy}` : ""}
+              {data.gcs.lastUpdated
+                ? ` on ${new Date(data.gcs.lastUpdated).toLocaleString()}`
+                : ""}
+              . It will be restored on the next container restart.
+            </span>
           </div>
         )}
 
