@@ -1,6 +1,5 @@
 import { headers } from "next/headers";
 import { Shell } from "@/components/Shell";
-import { StatusBadge } from "@/components/StatusBadge";
 import { KpiGrid } from "@/components/overview/KpiGrid";
 import { GpuCard } from "@/components/overview/GpuCard";
 import { GpuSharingCard } from "@/components/overview/GpuSharingCard";
@@ -10,6 +9,7 @@ import { PodSummaryList } from "@/components/overview/PodSummaryList";
 import { OverviewAutoRefresh } from "@/components/overview/OverviewAutoRefresh";
 import { isKioskFromHeaders } from "@/lib/kiosk";
 import { collectOverviewSnapshot, collectPodSummaries } from "@/lib/overview-collector";
+import { CLUSTER } from "@/lib/cluster-refs";
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(2)} TB`;
@@ -57,7 +57,7 @@ export default async function OverviewPage() {
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">
-              Scality VSS Console
+              {kiosk ? "Scality VSS Console" : "Overview"}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               ARTESCA × Pyramid × NVIDIA VSS operator view
@@ -129,9 +129,22 @@ export default async function OverviewPage() {
         {/* Row 3 — GPU card grid */}
         {overview.gpus.length > 0 && (
           <section>
-            <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              GPUs
-            </h2>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                GPUs
+              </h2>
+              {CLUSTER.grafana.url && (
+                <a
+                  href={CLUSTER.grafana.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`Login: ${CLUSTER.grafana.user} — ${CLUSTER.grafana.loginHint}`}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline"
+                >
+                  Historical graphs in Grafana ↗
+                </a>
+              )}
+            </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {overview.gpus.map((gpu) => (
                 <GpuCard key={gpu.index} gpu={gpu} />
@@ -195,38 +208,6 @@ export default async function OverviewPage() {
                   {(overview.s3.growth24h / (24 * 3600 * 1024 * 1024)).toFixed(3)}{" "}
                   MB/s avg
                 </p>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Row 6 — Camera-sim card (k8s mode only; hidden when unreachable) */}
-        {!dockerMode && overview.cameraSim.instanceState !== "unreachable" && (
-          <section>
-            <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Camera Simulator
-            </h2>
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="flex flex-wrap items-center gap-6">
-                <div className="space-y-0.5">
-                  <p className="text-xs text-muted-foreground">Instance State</p>
-                  <StatusBadge
-                    health={
-                      overview.cameraSim.instanceState === "running"
-                        ? "ok"
-                        : overview.cameraSim.instanceState === "stopped"
-                          ? "warn"
-                          : "fail"
-                    }
-                    label={overview.cameraSim.instanceState}
-                  />
-                </div>
-                <div className="space-y-0.5">
-                  <p className="text-xs text-muted-foreground">Paths Ready</p>
-                  <p className="text-xl font-bold tabular-nums">
-                    {overview.cameraSim.pathsReady}/{overview.cameraSim.pathsTotal}
-                  </p>
-                </div>
               </div>
             </div>
           </section>

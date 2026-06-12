@@ -73,6 +73,11 @@ data:
   # one that scrapes the observability/ DCGM ServiceMonitor (DCGM_FI_DEV_GPU_*).
   PROMETHEUS_URL: "http://prometheus-operated.metalk8s-monitoring.svc.cluster.local:9090"
 
+  # ── Grafana (historical GPU graphs link surfaced on the Overview page) ──────────
+  # ARTESCA's Grafana behind the :8443 shell-UI ingress. <base-domain> is the
+  # ARTESCA --base-domain (substituted by deploy-console.sh, same as S3_ENDPOINT).
+  GRAFANA_URL: "https://<base-domain>:8443/"
+
   # ── SQLite database ───────────────────────────────────────────────────────────
   # Backed by PVC console-data (5 Gi, ReadWriteOnce).
   CONSOLE_DATA_DIR: "/data"
