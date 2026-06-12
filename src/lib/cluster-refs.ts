@@ -39,24 +39,27 @@ const KAFKA_BROKERS = LEGACY
   ? (process.env.KAFKA_BROKERS ?? "redpanda.rtvi.svc.cluster.local:9092")
   : (process.env.KAFKA_BROKERS ?? `kafka-kafka.${VSS_NS}.svc.cluster.local:9092`);
 
-// Topic names changed between legacy hand-authored manifests and the Helm chart.
-// Helm topic names verified from live vss-rtvi-vlm Deployment env vars (2026-05-11).
+// Topic names differ between the legacy hand-authored manifests and the Helm
+// chart. Every name is env-overridable so the operator can match the actual
+// 3.2 deploy without a code change (the chart parameterizes topics per profile).
+// 3.2 fact (chart): vision-llm-errors and vision-embed-errors DO exist;
+// vision-embed-messages does NOT (embeddings flow on mdx-embed).
 const KAFKA_TOPICS = LEGACY
   ? ({
-      visionLlm: "vision-llm-messages",
-      incidents: "vision-llm-events-incidents",
-      visionLlmErrors: "vision-llm-errors",
-      embedMessages: "vision-embed-messages",
-      embedErrors: "vision-embed-errors",
-      demoData: "vision-llm-messages",
+      visionLlm: process.env.KAFKA_TOPIC_VISION_LLM ?? "vision-llm-messages",
+      incidents: process.env.KAFKA_TOPIC_INCIDENTS ?? "vision-llm-events-incidents",
+      visionLlmErrors: process.env.KAFKA_TOPIC_VISION_LLM_ERRORS ?? "vision-llm-errors",
+      embedMessages: process.env.KAFKA_TOPIC_EMBED_MESSAGES ?? "vision-embed-messages",
+      embedErrors: process.env.KAFKA_TOPIC_EMBED_ERRORS ?? "vision-embed-errors",
+      demoData: process.env.KAFKA_TOPIC_DEMO_DATA ?? "vision-llm-messages",
     } as const)
   : ({
-      visionLlm: "mdx-vlm",
-      incidents: "mdx-vlm-incidents",
-      visionLlmErrors: "vision-llm-errors",
-      embedMessages: "vision-embed-messages",
-      embedErrors: "vision-embed-errors",
-      demoData: "mdx-vlm",
+      visionLlm: process.env.KAFKA_TOPIC_VISION_LLM ?? "mdx-vlm",
+      incidents: process.env.KAFKA_TOPIC_INCIDENTS ?? "mdx-vlm-incidents",
+      visionLlmErrors: process.env.KAFKA_TOPIC_VISION_LLM_ERRORS ?? "vision-llm-errors",
+      embedMessages: process.env.KAFKA_TOPIC_EMBED_MESSAGES ?? "vision-embed-messages",
+      embedErrors: process.env.KAFKA_TOPIC_EMBED_ERRORS ?? "vision-embed-errors",
+      demoData: process.env.KAFKA_TOPIC_DEMO_DATA ?? "mdx-vlm",
     } as const);
 
 // ─── Redis ────────────────────────────────────────────────────────────────────
@@ -167,8 +170,8 @@ const RTVI = LEGACY
       modelKey: "RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME",
       vlmDeployment: "rtvi-vlm",
       vlmNamespace: "rtvi",
-      embedDeployment: "rtvi-embed",
-      nimStatefulSet: "cosmos-reason2-8b",
+      embedDeployment: process.env.RTVI_EMBED_DEPLOYMENT ?? "rtvi-embed",
+      nimStatefulSet: process.env.NIM_TUNING_DEPLOYMENT ?? "cosmos-reason2-8b",
       nimNamespace: "rtvi",
       nimKvCacheKey: "VLM_NIM_KVCACHE_PERCENT",
       nimMaxModelLenKey: "NIM_MAX_MODEL_LEN",
@@ -188,8 +191,14 @@ const RTVI = LEGACY
       modelKey: "VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME",
       vlmDeployment: "vss-rtvi-vlm",
       vlmNamespace: VSS_NS,
-      embedDeployment: "vss-rtvi-vlm", // rtvi-embed not present as separate service in this chart
-      nimStatefulSet: "nvidia-nemotron-nano-9b-v2", // Deployment, not StatefulSet
+      // The rtvi-embed subchart is conditional (vss-rtvi-embed.enabled). When the
+      // deploy enables it, set RTVI_EMBED_DEPLOYMENT=vss-rtvi-embed (separate
+      // Cosmos Embed1 Deployment/Service:8000); default keeps the calibrated value.
+      embedDeployment: process.env.RTVI_EMBED_DEPLOYMENT ?? "vss-rtvi-vlm",
+      // VLM-tuning NIM. 3.2 VLM is the cosmos NIM (vlmNameSlug); set
+      // NIM_TUNING_DEPLOYMENT=nvidia-cosmos-reason2-8b to tune the VLM rather
+      // than the nemotron LLM NIM. Default keeps the calibrated value.
+      nimStatefulSet: process.env.NIM_TUNING_DEPLOYMENT ?? "nvidia-nemotron-nano-9b-v2",
       nimNamespace: VSS_NS,
       nimKvCacheKey: "NIM_KVCACHE_PERCENT",
       nimMaxModelLenKey: "NIM_MAX_MODEL_LEN",
