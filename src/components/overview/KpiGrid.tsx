@@ -23,11 +23,14 @@ export function KpiGrid({ data }: KpiGridProps) {
         )
       : 0;
 
-  // Kafka lag sum
-  const kafkaLagSum = Object.values(data.kafka).reduce(
-    (s, k) => s + k.consumerLagMsgs,
-    0
-  );
+  // Kafka lag sum — null lags mean "unreachable", not 0. If every topic is
+  // unmeasurable, the KPI must read unreachable rather than a false "0 / good".
+  const kafkaEntries = Object.values(data.kafka);
+  const measuredLags = kafkaEntries
+    .map((k) => k.consumerLagMsgs)
+    .filter((v): v is number => v !== null);
+  const kafkaUnreachable = kafkaEntries.length > 0 && measuredLags.length === 0;
+  const kafkaLagSum = measuredLags.reduce((s, v) => s + v, 0);
 
   // S3 growth in MB/s from 24h bytes
   const growthMBps = (data.s3.growth24h / (24 * 3600 * 1024 * 1024)).toFixed(3);
@@ -78,9 +81,17 @@ export function KpiGrid({ data }: KpiGridProps) {
 
       <KpiCard
         label="Kafka Lag"
-        value={kafkaLagSum.toLocaleString()}
-        sub="msgs across all topics"
-        trend={kafkaLagSum > 1000 ? "down" : kafkaLagSum === 0 ? "up" : "flat"}
+        value={kafkaUnreachable ? "—" : kafkaLagSum.toLocaleString()}
+        sub={kafkaUnreachable ? "brokers unreachable" : "msgs across all topics"}
+        trend={
+          kafkaUnreachable
+            ? "flat"
+            : kafkaLagSum > 1000
+              ? "down"
+              : kafkaLagSum === 0
+                ? "up"
+                : "flat"
+        }
       />
 
       <KpiCard

@@ -5,7 +5,8 @@ interface KafkaLagTableProps {
   kafka: OverviewSnapshot["kafka"];
 }
 
-function lagHealth(lag: number) {
+function lagHealth(lag: number | null) {
+  if (lag === null) return "unknown" as const; // unreachable / not measured
   if (lag === 0) return "ok" as const;
   if (lag < 100) return "warn" as const;
   return "fail" as const;
@@ -35,7 +36,9 @@ export function KafkaLagTable({ kafka }: KafkaLagTableProps) {
             <tr key={entry.topic} className="hover:bg-muted/30 transition-colors">
               <td className="py-2 font-mono text-xs">{entry.topic}</td>
               <td className="py-2 text-right tabular-nums font-medium">
-                {entry.consumerLagMsgs.toLocaleString()}
+                {entry.consumerLagMsgs === null
+                  ? <span className="text-muted-foreground">unreachable</span>
+                  : entry.consumerLagMsgs.toLocaleString()}
               </td>
               <td className="py-2 text-right">
                 <StatusBadge health={lagHealth(entry.consumerLagMsgs)} />

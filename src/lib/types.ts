@@ -106,7 +106,9 @@ export interface OverviewSnapshot {
   namespaces: Record<string, { total: number; ready: number; failed: number }>;
   nim: { ready: boolean; warmupPct: number; queueDepth: number };
   gpus: GpuState[];
-  kafka: Record<string, { topic: string; consumerLagMsgs: number }>;
+  // consumerLagMsgs is null when the lag couldn't be measured (broker
+  // unreachable / not configured) — distinct from a real measured 0.
+  kafka: Record<string, { topic: string; consumerLagMsgs: number | null }>;
   s3: {
     bucket: string;
     objectCount: number;
