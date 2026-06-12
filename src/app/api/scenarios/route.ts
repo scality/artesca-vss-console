@@ -5,14 +5,11 @@ import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/scenarios");
 import { z } from "zod";
-import { coreV1, rolloutRestart } from "@/lib/k8s";
-import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { ScenarioSchema } from "@/lib/schemas";
-import { patchConfigMapKey, readConfigMapKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
-import { CLUSTER } from "@/lib/cluster-refs";
 import type { Scenario } from "@/lib/types";
+import type { ScenarioEntry } from "@/lib/config-store/types";
 import {
   gcsScenariosGet,
   gcsScenariosPut,
@@ -70,6 +67,32 @@ function parseRawScenarios(raw: ScenariosConfigRaw): Scenario[] {
   }));
 }
 
+function scenarioEntryToClient(s: ScenarioEntry): Scenario {
+  return {
+    id: s.id,
+    name: s.name,
+    description: s.description,
+    severity: s.severity as Scenario["severity"],
+    channels: s.channels,
+    sensorFilter: s.sensor_filter,
+    keywords: s.keywords,
+    enabled: s.enabled,
+  };
+}
+
+function clientToScenarioEntry(s: Scenario): ScenarioEntry {
+  return {
+    id: s.id,
+    name: s.name,
+    ...(s.description ? { description: s.description } : {}),
+    severity: s.severity,
+    channels: s.channels,
+    sensor_filter: s.sensorFilter,
+    keywords: s.keywords,
+    enabled: s.enabled,
+  };
+}
+
 function scenariosToConfigMap(scenarios: Scenario[]): ScenariosConfigRaw {
   return {
     scenarios: scenarios.map((s) => ({
@@ -125,32 +148,16 @@ export async function GET() {
     });
   }
 
-  // GCS fetch runs in parallel with the ConfigMap read.
-  const gcsPromise = VSS_INSTANCE_NAME
-    ? gcsScenariosGet(VSS_INSTANCE_NAME)
-    : Promise.resolve(null);
-
-  try {
-    const [{ value: raw, resourceVersion }, gcsCfg] = await Promise.all([
-      readConfigMapKey<ScenariosConfigRaw>(
-        CLUSTER.scenarios.namespace,
-        CLUSTER.scenarios.configMap,
-        CLUSTER.scenarios.yamlKey
-      ),
-      gcsPromise,
-    ]);
-
-    const scenarios = parseRawScenarios(raw ?? {});
-    return NextResponse.json({
-      scenarios,
-      resourceVersion,
-      gcs: buildGcsField(gcsCfg),
-      warnings,
-    });
-  } catch (err) {
-    warnings.push(`scenarios-config unreadable: ${String(err)}`);
-    const gcsCfg = await gcsPromise.catch(() => null);
-    return NextResponse.json({ scenarios: [], gcs: buildGcsField(gcsCfg), warnings });
+  {
+    const { makeReconcileContext } = await import("@/lib/reconcile/context");
+    try {
+      const ctx = await makeReconcileContext();
+      const scenarios = (await ctx.store.readScenarios(ctx.instance)).map(scenarioEntryToClient);
+      return NextResponse.json({ scenarios, resourceVersion: null, gcs: { available: false }, warnings });
+    } catch (err) {
+      warnings.push(`config store unavailable: ${err instanceof Error ? err.message : String(err)}`);
+      return NextResponse.json({ scenarios: [], gcs: { available: false }, warnings });
+    }
   }
 }
 
@@ -186,7 +193,6 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
   }
 
   const { scenarios } = parsed.data;
-  const ifMatch = req.headers.get("If-Match") ?? undefined;
 
   if (DOCKER_MODE) {
     await fs.mkdir(DOCKER_TUNING_DIR, { recursive: true });
@@ -222,65 +228,21 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
     });
   }
 
-  try {
-    // Read current resourceVersion if If-Match not supplied
-    let resourceVersion = ifMatch;
-    if (!resourceVersion) {
-      const cm = await coreV1().readNamespacedConfigMap({
-        name: CLUSTER.scenarios.configMap,
-        namespace: CLUSTER.scenarios.namespace,
-      });
-      resourceVersion = cm.metadata?.resourceVersion;
+  {
+    const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+    const { reconcileScenarios } = await import("@/lib/reconcile/scenarios");
+    const entries = scenarios.map(clientToScenarioEntry);
+    try {
+      const ctx = await makeReconcileContext();
+      await ctx.store.writeScenarios(ctx.instance, entries, session.user?.email ?? "console");
+      const res = await reconcileScenarios(entries, ctx.adapter, ctx.refs.scenarios);
+      await auditLog("scenarios-update", `firestore/${ctx.instance}`, { count: entries.length, ids: entries.map((s) => s.id) });
+      return NextResponse.json({ ok: true, count: entries.length, ...(res.error ? { warnings: [res.error] } : {}) });
+    } catch (err) {
+      const msg = err instanceof ReconcileContextError ? err.message : String(err);
+      return NextResponse.json({ error: `config store write failed: ${msg}` }, { status: 502 });
     }
-
-    await patchConfigMapKey(
-      CLUSTER.scenarios.namespace,
-      CLUSTER.scenarios.configMap,
-      CLUSTER.scenarios.yamlKey,
-      scenariosToConfigMap(scenarios),
-      resourceVersion
-    );
-  } catch (err: unknown) {
-    const { status } = extractK8sError(err);
-    if (status === 409) {
-      return NextResponse.json(
-        { error: "Config modified by another operator — reload and retry" },
-        { status: 409 }
-      );
-    }
-    return NextResponse.json(
-      { error: `ConfigMap patch failed: ${String(err)}` },
-      { status: 502 }
-    );
   }
-
-  // Rollout-restart alert-worker to pick up new config
-  try {
-    await rolloutRestart("Deployment", CLUSTER.scenarios.namespace, CLUSTER.scenarios.alertWorkerDeployment);
-  } catch (err) {
-    return NextResponse.json(
-      { error: `Rollout restart failed: ${String(err)}` },
-      { status: 502 }
-    );
-  }
-
-  await auditLog(`scenarios-update`, `configmap/${CLUSTER.scenarios.configMap}`, {
-    count: scenarios.length,
-    ids: scenarios.map((s) => s.id),
-  });
-
-  // Persist to GCS (best-effort — ConfigMap already patched).
-  const gcsWarnings: string[] = [];
-  if (VSS_INSTANCE_NAME) {
-    const gcsWarning = await persistScenarisoToGcs(scenarios, session.user?.email ?? "console");
-    if (gcsWarning) gcsWarnings.push(gcsWarning);
-  }
-
-  return NextResponse.json({
-    ok: true,
-    count: scenarios.length,
-    ...(gcsWarnings.length ? { gcsWarnings } : {}),
-  });
 });
 
 // ─── GCS write helper ─────────────────────────────────────────────────────────

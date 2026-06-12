@@ -2,6 +2,73 @@ import { describe, it, expect } from "vitest";
 import { FirestoreConfigStore, type FirestoreLike } from "@/lib/config-store/firestore";
 import type { CameraEntry, ReconcileStatus, ScenarioEntry } from "@/lib/config-store/types";
 
+// ---------------------------------------------------------------------------
+// Helper used by the targeted-ops suite below (separate fakeDb to avoid
+// coupling with the richer dump-capable one declared after this import block).
+// ---------------------------------------------------------------------------
+function fakeDbSimple(): FirestoreLike {
+  const collections = new Map<string, Map<string, Record<string, unknown>>>();
+  const docs = new Map<string, Record<string, unknown>>();
+  const col = (p: string) => { if (!collections.has(p)) collections.set(p, new Map()); return collections.get(p)!; };
+  return {
+    collection(path: string) {
+      const c = col(path);
+      return {
+        async get() { return { docs: [...c.entries()].map(([id, data]) => ({ id, data: () => data })) }; },
+        doc(id: string) {
+          return {
+            async set(data: Record<string, unknown>) { c.set(id, data); },
+            async delete() { c.delete(id); },
+          };
+        },
+      };
+    },
+    doc(path: string) {
+      return {
+        async get() { const data = docs.get(path); return { exists: data !== undefined, data: () => data }; },
+        async set(data: Record<string, unknown>, opts?: { merge?: boolean }) {
+          docs.set(path, opts?.merge ? { ...(docs.get(path) ?? {}), ...data } : data);
+        },
+      };
+    },
+  };
+}
+const camPartial = (id: string, extra: Partial<CameraEntry> = {}): CameraEntry => ({ id, rtspUrl: `rtsp://x:8554/${id}`, ...extra });
+
+describe("FirestoreConfigStore targeted ops", () => {
+  it("upsertCamera adds a single camera without disturbing others", async () => {
+    const store = new FirestoreConfigStore(fakeDbSimple());
+    await store.writeCameras("inst-1", [camPartial("aisle-1")], "x");
+    await store.upsertCamera("inst-1", camPartial("dock-1"), "op@test");
+    expect((await store.readCameras("inst-1")).map((c) => c.id).sort()).toEqual(["aisle-1", "dock-1"]);
+  });
+
+  it("upsertCamera replaces an existing camera (carries overrides)", async () => {
+    const store = new FirestoreConfigStore(fakeDbSimple());
+    await store.upsertCamera("inst-1", camPartial("aisle-1", { scenarioIds: ["fall"] }), "op@test");
+    await store.upsertCamera("inst-1", camPartial("aisle-1", { description: "Aisle One" }), "op@test");
+    const out = await store.readCameras("inst-1");
+    expect(out).toHaveLength(1);
+    expect(out[0].description).toBe("Aisle One");
+  });
+
+  it("deleteCamera removes only the named camera", async () => {
+    const store = new FirestoreConfigStore(fakeDbSimple());
+    await store.writeCameras("inst-1", [camPartial("aisle-1"), camPartial("dock-1")], "x");
+    await store.deleteCamera("inst-1", "aisle-1", "op@test");
+    expect((await store.readCameras("inst-1")).map((c) => c.id)).toEqual(["dock-1"]);
+  });
+
+  it("upsertCamera excludes the redundant id field from the doc body", async () => {
+    const db = fakeDbSimple();
+    const store = new FirestoreConfigStore(db);
+    await store.upsertCamera("inst-1", camPartial("aisle-1"), "op@test");
+    const raw = await db.collection("instances/inst-1/cameras").get();
+    expect((raw.docs[0].data() as Record<string, unknown>).id).toBeUndefined();
+    expect(raw.docs[0].id).toBe("aisle-1");
+  });
+});
+
 /** Minimal in-memory Firestore stub implementing only what the store uses. */
 function fakeDb(): FirestoreLike & { dump: () => Record<string, Record<string, unknown>> } {
   const collections = new Map<string, Map<string, Record<string, unknown>>>();

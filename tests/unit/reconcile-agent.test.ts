@@ -13,6 +13,8 @@ function fakeStore(cameras: CameraEntry[]): { store: ConfigStore; written: Recon
     store: {
       readCameras: async () => cameras,
       writeCameras: async () => {},
+      upsertCamera: async () => {},
+      deleteCamera: async () => {},
       readStatus: async () => null,
       writeStatus: async (_i, s) => { written.push(s); },
       readPrompt: async () => null,

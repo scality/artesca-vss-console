@@ -63,6 +63,10 @@ export interface ConfigStore {
    * store for the audit trail (e.g. an operator email, or "reconciler@<version>").
    */
   writeCameras(instance: string, cameras: CameraEntry[], updatedBy: string): Promise<void>;
+  /** Add or replace a single camera (atomic single-doc write). */
+  upsertCamera(instance: string, camera: CameraEntry, updatedBy: string): Promise<void>;
+  /** Remove a single camera by id (atomic single-doc delete). */
+  deleteCamera(instance: string, id: string, updatedBy: string): Promise<void>;
   readStatus(instance: string): Promise<ReconcileStatus | null>;
   writeStatus(instance: string, status: ReconcileStatus): Promise<void>;
   readPrompt(instance: string): Promise<PromptDoc | null>;

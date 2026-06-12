@@ -45,6 +45,31 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
+
+  // k8s path: read overrides from Firestore camera doc.
+  if (process.env.CONSOLE_RUNTIME !== "docker") {
+    const { makeReconcileContext } = await import("@/lib/reconcile/context");
+    try {
+      const ctx = await makeReconcileContext();
+      const cam = (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
+      const override = cam
+        ? {
+            cameraId: id,
+            scenarioIds: cam.scenarioIds ?? null,
+            recordingEnabled: cam.recording?.enabled ?? null,
+            recordingPolicy: cam.recording?.policy ?? null,
+            recordingRetentionDays: cam.recording?.retentionDays ?? null,
+            updatedAt: "",
+            updatedBy: "",
+          }
+        : null;
+      return NextResponse.json({ cameraId: id, override });
+    } catch {
+      return NextResponse.json({ cameraId: id, override: null });
+    }
+  }
+
+  // docker path: read overrides from SQLite.
   const override = getCameraOverride(id);
   return NextResponse.json({ cameraId: id, override });
 }
@@ -84,6 +109,36 @@ export async function PUT(
 
   const { scenarioIds, recording } = parsed.data;
   const updatedBy = session.user?.email ?? "console";
+
+  // k8s path: merge overrides into the Firestore camera doc.
+  // Placed ABOVE the docker clear-block so k8s always takes this branch.
+  // Semantics: undefined field = leave unchanged; null = remove the field.
+  const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
+  if (!DOCKER_MODE) {
+    const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+    try {
+      const ctx = await makeReconcileContext();
+      const existing = (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
+      if (!existing) {
+        return NextResponse.json({ error: `Camera '${id}' not found in config store` }, { status: 404 });
+      }
+      const next = { ...existing };
+      if (scenarioIds !== undefined) {
+        if (scenarioIds === null) delete next.scenarioIds; else next.scenarioIds = scenarioIds;
+      }
+      if (recording !== undefined) {
+        if (recording === null) delete next.recording; else next.recording = recording;
+      }
+      await ctx.store.upsertCamera(ctx.instance, next, updatedBy);
+      await auditLog("camera-override-update", `camera/${id}`, { scenarioIds, recording });
+      return NextResponse.json({ ok: true, cameraId: id });
+    } catch (err) {
+      const msg = err instanceof ReconcileContextError ? err.message : String(err);
+      return NextResponse.json({ error: `config store write failed: ${msg}` }, { status: 502 });
+    }
+  }
+
+  // docker path below: SQLite + GCS.
 
   // If both fields are absent/null, treat as clearing the override entirely.
   if (scenarioIds === undefined && recording === undefined) {
@@ -265,6 +320,30 @@ export const PATCH = withRequestContext(async function (
     );
   }
 
+  // k8s path: upsert the updated entry to Firestore + apply to cluster.
+  if (process.env.CONSOLE_RUNTIME !== "docker") {
+    const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+    const { reconcileCameras } = await import("@/lib/reconcile/cameras");
+    const rtspBase = process.env.CAMERA_SIM_HOST ? `rtsp://${process.env.CAMERA_SIM_HOST}:8554/${id}` : "";
+    const entry = { id, rtspUrl: rtspBase, ...(update.role ? { role: update.role } : {}), ...(newDescription ? { description: newDescription } : {}) };
+    try {
+      const ctx = await makeReconcileContext();
+      const existing = (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
+      const merged = {
+        ...entry,
+        ...(existing?.scenarioIds ? { scenarioIds: existing.scenarioIds } : {}),
+        ...(existing?.recording ? { recording: existing.recording } : {}),
+        ...(existing?.rtspUrl && !rtspBase ? { rtspUrl: existing.rtspUrl } : {}),
+      };
+      await ctx.store.upsertCamera(ctx.instance, merged, session.user?.email ?? "console");
+      const result = await reconcileCameras([merged], ctx.adapter, { prune: false });
+      result.failed.forEach((f) => warnings.push(`apply ${f.id}: ${f.warning ?? "failed"}`));
+    } catch (err) {
+      const msg = err instanceof ReconcileContextError ? err.message : String(err);
+      warnings.push(`config store update failed (camera-sim already updated): ${msg}`);
+    }
+  }
+
   await auditLog("camera-update", `camera/${id}`, { update });
 
   return NextResponse.json({ ok: true, cameraId: id, warnings });
@@ -322,9 +401,19 @@ export const DELETE = withRequestContext(async function (
     }
   }
 
-  // 4. Remove from GCS persistence (best-effort).
+  // 4. Persist removal: Firestore (k8s) or GCS (docker).
+  const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
   const instanceName = process.env.VSS_INSTANCE_NAME ?? "";
-  if (instanceName) {
+  if (!DOCKER_MODE) {
+    const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+    try {
+      const ctx = await makeReconcileContext();
+      await ctx.store.deleteCamera(ctx.instance, id, session.user?.email ?? "console");
+    } catch (err) {
+      const msg = err instanceof ReconcileContextError ? err.message : String(err);
+      warnings.push(`config store delete failed (camera removed from camera-sim): ${msg}`);
+    }
+  } else if (instanceName) {
     const email = session?.user?.email ?? "console";
     const gcsWarning = await writeToGcs(id, null, email, "remove");
     if (gcsWarning) warnings.push(gcsWarning);
