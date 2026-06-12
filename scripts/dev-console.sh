@@ -152,9 +152,16 @@ say "Writing $ENVF"
   echo "KUBECONFIG=$KCFG"
   echo "VSS_NAMESPACE=$VSS_NS"
   if [[ -n "${OBJECTSTORE_ENDPOINT:-}" ]]; then
-    echo "OBJECTSTORE_ENDPOINT=https://s3.artesca.isv-lab.local"
-    echo "OBJECTSTORE_ENDPOINT_IP=${PUB_IP}"
-    echo "OBJECTSTORE_TLS_INSECURE=true"
+    # `.objectstore.env` was sourced with `set -a`, so OBJECTSTORE_ENDPOINT is
+    # exported as the bare node IP — and a pre-set env var shadows .env.local in
+    # Next.js. Re-export the vhost FQDN (IP-pinned, demo-cert-insecure) so the
+    # spawned dev server inherits the value that actually routes to ARTESCA S3.
+    export OBJECTSTORE_ENDPOINT="https://s3.artesca.isv-lab.local"
+    export OBJECTSTORE_ENDPOINT_IP="${PUB_IP}"
+    export OBJECTSTORE_TLS_INSECURE="true"
+    echo "OBJECTSTORE_ENDPOINT=${OBJECTSTORE_ENDPOINT}"
+    echo "OBJECTSTORE_ENDPOINT_IP=${OBJECTSTORE_ENDPOINT_IP}"
+    echo "OBJECTSTORE_TLS_INSECURE=${OBJECTSTORE_TLS_INSECURE}"
     echo "OBJECTSTORE_REGION=${OBJECTSTORE_REGION:-us-east-1}"
     echo "OBJECTSTORE_BUCKET=${OBJECTSTORE_BUCKET:-nvidia-vss-recordings}"
     [[ -n "${OBJECTSTORE_ACCESS_KEY_ID:-}" ]] && echo "OBJECTSTORE_ACCESS_KEY_ID=${OBJECTSTORE_ACCESS_KEY_ID}"
