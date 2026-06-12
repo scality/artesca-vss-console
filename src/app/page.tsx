@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { Shell } from "@/components/Shell";
+import { HealthBanner } from "@/components/overview/HealthBanner";
 import { KpiGrid } from "@/components/overview/KpiGrid";
 import { GpuCard } from "@/components/overview/GpuCard";
 import { GpuSharingCard } from "@/components/overview/GpuSharingCard";
@@ -29,6 +30,13 @@ export default async function OverviewPage() {
   const { snapshot: overview, mode } = overviewResult;
   const dockerMode = mode === "docker";
   const pods = podsResult.pods;
+
+  // Degraded probes record *why* in warnings[]; surface them so an empty panel
+  // (e.g. a missing GPU section) explains itself instead of silently vanishing.
+  // The compose-empty case has its own hint below, so drop that specific noise.
+  const warnings = Array.from(
+    new Set([...overviewResult.warnings, ...podsResult.warnings])
+  ).filter((w) => !(dockerMode && w.includes("No containers found")));
 
   // Group pods by namespace
   const nsByName = new Map<string, typeof pods>();
@@ -77,11 +85,35 @@ export default async function OverviewPage() {
                 COMPOSE
               </span>
             )}
-            <p className="text-xs text-muted-foreground tabular-nums">
-              {new Date(overview.takenAt).toLocaleTimeString()}
-            </p>
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+              Updated {new Date(overview.takenAt).toLocaleTimeString()}
+            </span>
           </div>
         </div>
+
+        {/* At-a-glance system verdict — worst-of across pods / NIM / GPU /
+            Kafka / cameras / monitoring. Hidden until there's real data. */}
+        {hasOverviewData && (
+          <HealthBanner overview={overview} warningCount={warnings.length} />
+        )}
+
+        {/* Degraded-probe banner — lists which probes failed so empty panels
+            are explained rather than silently absent. */}
+        {warnings.length > 0 && (
+          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
+            <p className="text-sm font-medium text-yellow-300">
+              {warnings.length} probe{warnings.length > 1 ? "s" : ""} degraded — affected panels may be empty
+            </p>
+            <ul className="mt-2 space-y-1">
+              {warnings.map((w) => (
+                <li key={w} className="font-mono text-xs text-yellow-200/80 break-all">
+                  • {w}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Compose-mode empty hint */}
         {dockerMode && Object.keys(overview.namespaces).length === 0 && (
@@ -129,22 +161,60 @@ export default async function OverviewPage() {
         {/* Row 3 — GPU card grid */}
         {overview.gpus.length > 0 && (
           <section>
-            <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="mb-3">
               <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 GPUs
               </h2>
-              {CLUSTER.grafana.url && (
-                <a
-                  href={CLUSTER.grafana.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={`Login: ${CLUSTER.grafana.user} — ${CLUSTER.grafana.loginHint}`}
-                  className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline"
-                >
-                  Historical graphs in Grafana ↗
-                </a>
-              )}
             </div>
+
+            {/* Monitoring access — URL + login surfaced in clear so the operator
+                can open the historical GPU dashboard without hunting for creds. */}
+            {CLUSTER.grafana.url && (
+              <div className="mb-4 rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-medium uppercase tracking-wider text-indigo-300">
+                    Historical graphs — Grafana
+                  </p>
+                  <a
+                    href={CLUSTER.grafana.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-medium text-indigo-400 hover:text-indigo-300 hover:underline"
+                  >
+                    Open Grafana ↗
+                  </a>
+                </div>
+                <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+                  <div className="space-y-0.5">
+                    <dt className="text-xs text-muted-foreground uppercase tracking-wider">URL</dt>
+                    <dd className="font-mono text-xs break-all">
+                      <a
+                        href={CLUSTER.grafana.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-indigo-400 hover:text-indigo-300 hover:underline"
+                      >
+                        {CLUSTER.grafana.url}
+                      </a>
+                    </dd>
+                  </div>
+                  <div className="space-y-0.5">
+                    <dt className="text-xs text-muted-foreground uppercase tracking-wider">User</dt>
+                    <dd className="font-mono text-xs select-all">{CLUSTER.grafana.user}</dd>
+                  </div>
+                  <div className="space-y-0.5">
+                    <dt className="text-xs text-muted-foreground uppercase tracking-wider">Password</dt>
+                    <dd className="font-mono text-xs select-all break-all">
+                      {CLUSTER.grafana.password || "—"}
+                    </dd>
+                  </div>
+                </dl>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {CLUSTER.grafana.loginHint}
+                </p>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {overview.gpus.map((gpu) => (
                 <GpuCard key={gpu.index} gpu={gpu} />
