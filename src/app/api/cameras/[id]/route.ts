@@ -45,6 +45,31 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
+
+  // k8s path: read overrides from Firestore camera doc.
+  if (process.env.CONSOLE_RUNTIME !== "docker") {
+    const { makeReconcileContext } = await import("@/lib/reconcile/context");
+    try {
+      const ctx = await makeReconcileContext();
+      const cam = (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
+      const override = cam
+        ? {
+            cameraId: id,
+            scenarioIds: cam.scenarioIds ?? null,
+            recordingEnabled: cam.recording?.enabled ?? null,
+            recordingPolicy: cam.recording?.policy ?? null,
+            recordingRetentionDays: cam.recording?.retentionDays ?? null,
+            updatedAt: "",
+            updatedBy: "",
+          }
+        : null;
+      return NextResponse.json({ cameraId: id, override });
+    } catch {
+      return NextResponse.json({ cameraId: id, override: null });
+    }
+  }
+
+  // docker path: read overrides from SQLite.
   const override = getCameraOverride(id);
   return NextResponse.json({ cameraId: id, override });
 }

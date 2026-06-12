@@ -138,6 +138,10 @@ beforeEach(() => {
 // ── GET ──────────────────────────────────────────────────────────────────────
 
 describe("GET /api/cameras/[id]", () => {
+  beforeEach(() => {
+    process.env.CONSOLE_RUNTIME = "docker";
+  });
+
   it("auth missing → 401", async () => {
     vi.mocked(auth).mockResolvedValue(null as never);
 
@@ -180,6 +184,40 @@ describe("GET /api/cameras/[id]", () => {
     const body = await res.json();
     expect(body.cameraId).toBe("unknown-cam");
     expect(body.override).toBeNull();
+  });
+});
+
+// ── GET (k8s) ─────────────────────────────────────────────────────────────────
+
+describe("GET /api/cameras/[id] (k8s)", () => {
+  it("reads override from Firestore camera doc, not SQLite", async () => {
+    delete process.env.CONSOLE_RUNTIME;
+    const readCameras = vi.fn().mockResolvedValue([
+      {
+        id: "cam01",
+        rtspUrl: "rtsp://x/cam01",
+        scenarioIds: ["fall"],
+        recording: { enabled: true, policy: "always", retentionDays: 7 },
+      },
+    ]);
+    vi.mocked(makeReconcileContext).mockResolvedValue({
+      instance: "inst-1",
+      adapter: {} as never,
+      refs: {} as never,
+      store: { readCameras } as never,
+    } as never);
+
+    const req = makeRequest("GET");
+    const res = await GET(req, makeParams("cam01"));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.cameraId).toBe("cam01");
+    expect(body.override).toBeDefined();
+    expect(body.override.scenarioIds).toEqual(["fall"]);
+    expect(body.override.recordingPolicy).toBe("always");
+    // SQLite must not be called on k8s path
+    expect(getCameraOverride).not.toHaveBeenCalled();
   });
 });
 
