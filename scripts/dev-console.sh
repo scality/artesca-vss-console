@@ -144,7 +144,15 @@ if [[ "$WITH_HOSTS" -eq 1 && -n "${KAFKA_IP:-}" ]]; then
 fi
 
 # ── 5. Start sshuttle (routes the cluster network through the node) ───────────
-say "Starting sshuttle → $REMOTE_SSH_TARGET ($NODE_SUBNET $POD_CIDR $SVC_CIDR) — sudo prompt follows"
+# Prime the sudo timestamp NOW, interactively, BEFORE launching sshuttle.
+# sshuttle --daemon forks a privileged firewall helper via sudo; in daemon mode
+# its password prompt gets orphaned (the script moves on to the dev server) and
+# the pf rules are never installed → no routing. A warm sudo cache on this tty
+# lets the helper's sudo run without prompting.
+say "Priming sudo (sshuttle needs root to program routes) — enter your password if asked"
+sudo -v
+
+say "Starting sshuttle → $REMOTE_SSH_TARGET ($NODE_SUBNET $POD_CIDR $SVC_CIDR)"
 # Force ControlMaster off for sshuttle's own SSH: REMOTE_SSH_OPTS enables
 # connection multiplexing (ControlMaster=auto/ControlPath), and grafting
 # sshuttle's long-lived channel onto a shared master derails it — the same
@@ -155,7 +163,22 @@ cleanup_sshuttle() {
   [[ -f "$INST_DIR/.dev-console-sshuttle.pid" ]] && sudo kill "$(cat "$INST_DIR/.dev-console-sshuttle.pid")" 2>/dev/null || true
 }
 trap 'cleanup_sshuttle; cleanup_hosts' EXIT
-sleep 2
+
+# Verify the cluster network is actually routable before starting the server —
+# don't optimistically claim "up" (the failure mode above looked up but wasn't).
+say "Waiting for the cluster route (apiserver $PRIV_IP:6443)…"
+ROUTE_OK=0
+for _i in $(seq 1 12); do
+  if nc -z -G 2 "$PRIV_IP" 6443 2>/dev/null; then ROUTE_OK=1; break; fi
+  sleep 1
+done
+if [[ "$ROUTE_OK" -eq 1 ]]; then
+  say "  ✓ cluster network reachable via sshuttle"
+else
+  echo "error: sshuttle did not establish routing ($PRIV_IP:6443 unreachable)." >&2
+  echo "       check the sudo prompt was answered; see: pgrep -fl sshuttle" >&2
+  exit 1
+fi
 
 # ── 6. Notes + start the dev server ───────────────────────────────────────────
 cat <<NOTE
