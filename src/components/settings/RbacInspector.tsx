@@ -13,37 +13,41 @@ interface RbacSummary {
 
 // Fallback based on k8s/console/01-rbac.yaml contents.
 // Helm layout: single vss-<profile> namespace replaces vst/rtvi/agent/alerts.
-// The VSS_NAMESPACE env var is read at deploy time and injected into console-env.
-const _vssNs =
-  typeof process !== "undefined"
-    ? (process.env.VSS_NAMESPACE ?? "vss-base")
-    : "vss-base";
-const _legacy =
-  typeof process !== "undefined" &&
-  process.env.CONSOLE_LEGACY_NAMESPACES === "1";
-
-const FALLBACK_RBAC: RbacSummary = {
-  serviceAccount: "console",
-  namespace: "console",
-  clusterRoles: ["console-reader"],
-  namespacedRoles: _legacy
-    ? [
-        { namespace: "vst", role: "console-writer" },
-        { namespace: "rtvi", role: "console-writer" },
-        { namespace: "agent", role: "console-writer" },
-        { namespace: "alerts", role: "console-writer" },
-        { namespace: "demo-data", role: "console-writer" },
-        { namespace: "pyramid-ingress", role: "console-writer" },
-      ]
-    : [
-        { namespace: _vssNs, role: "console-writer" },
-        { namespace: "demo-data", role: "console-writer" },
-        { namespace: "pyramid-ingress", role: "console-writer" },
-      ],
-};
+// The VSS_NAMESPACE / CONSOLE_LEGACY_NAMESPACES env vars are server-only — a
+// client component can't read them (Next inlines only NEXT_PUBLIC_*), so they
+// MUST arrive as props from the server page. Reading process.env here would
+// render vss-<profile> on the server and the "vss-base" default on the client,
+// causing a hydration mismatch.
+function buildFallbackRbac(vssNamespace: string, legacy: boolean): RbacSummary {
+  return {
+    serviceAccount: "console",
+    namespace: "console",
+    clusterRoles: ["console-reader"],
+    namespacedRoles: legacy
+      ? [
+          { namespace: "vst", role: "console-writer" },
+          { namespace: "rtvi", role: "console-writer" },
+          { namespace: "agent", role: "console-writer" },
+          { namespace: "alerts", role: "console-writer" },
+          { namespace: "demo-data", role: "console-writer" },
+          { namespace: "pyramid-ingress", role: "console-writer" },
+        ]
+      : [
+          { namespace: vssNamespace, role: "console-writer" },
+          { namespace: "demo-data", role: "console-writer" },
+          { namespace: "pyramid-ingress", role: "console-writer" },
+        ],
+  };
+}
 
 export function RbacInspector() {
-  const [rbac, setRbac] = useState<RbacSummary>(FALLBACK_RBAC);
+  // Initial render uses an env-INDEPENDENT default so SSR and client hydration
+  // agree (the real VSS_NAMESPACE is server-only). The effect below fetches the
+  // authoritative summary from /api/settings/rbac, which resolves the real
+  // namespace server-side and replaces this placeholder.
+  const [rbac, setRbac] = useState<RbacSummary>(() =>
+    buildFallbackRbac("vss-base", false),
+  );
   const [live, setLive] = useState(false);
 
   useEffect(() => {
