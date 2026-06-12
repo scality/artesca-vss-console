@@ -193,6 +193,16 @@ export default function PromptPage() {
           </div>
         )}
 
+        {data?.runtime === "docker" && data?.gcs?.available === false && (
+          <div className="rounded-md border border-slate-500/30 bg-slate-500/10 p-3 text-sm text-slate-400">
+            <span>
+              <span className="font-semibold">RUNTIME-ONLY</span> — prompt is not persisted to GCS.
+              Set <code>GCS_CONFIG_BUCKET</code> and <code>GOOGLE_APPLICATION_CREDENTIALS</code> to
+              enable cross-restart persistence.
+            </span>
+          </div>
+        )}
+
         {data?.runtime === "docker" && (
           <div className="rounded-md border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-300">
             Compose-mode runtime — prompt is the <code>VLM_SYSTEM_PROMPT</code> env on the
