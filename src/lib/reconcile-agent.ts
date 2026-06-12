@@ -71,19 +71,8 @@ export async function startReconcileLoop(opts?: { intervalMs?: number; instance?
   // cluster-refs import is deferred to here so the pure reconciler modules (run.ts,
   // prompt.ts, scenarios.ts) remain free of the "server-only" cluster-refs import.
   const { CLUSTER } = await import("@/lib/cluster-refs");
-  const refs: ReconcileRunOptions["refs"] = {
-    prompt: {
-      ns: CLUSTER.rtvi.vlmNamespace,
-      deployment: CLUSTER.rtvi.vlmDeployment,
-      promptKey: CLUSTER.rtvi.promptKey,
-    },
-    scenarios: {
-      ns: CLUSTER.scenarios.namespace,
-      configMap: CLUSTER.scenarios.configMap,
-      yamlKey: CLUSTER.scenarios.yamlKey,
-      alertWorkerDeployment: CLUSTER.scenarios.alertWorkerDeployment,
-    },
-  };
+  const { buildReconcileRefs } = await import("@/lib/reconcile/refs");
+  const refs: ReconcileRunOptions["refs"] = buildReconcileRefs(CLUSTER);
 
   // Adapt Logger (ctx: Record<string,unknown>|undefined) → AgentLog (meta?: unknown)
   const agentLog: AgentLog = {
