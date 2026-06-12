@@ -110,13 +110,20 @@ say "Writing $ENVF"
   [[ -n "${KAFKA_IP:-}" ]] && echo "KAFKA_BROKERS=kafka-kafka:${KAFKA_PORT}"
 } > "$ENVF"
 
-# ── 4. Optional /etc/hosts alias (Kafka advertised name → the local forward) ──
-HOSTS_LINE="127.0.0.1 kafka-kafka  # dev-console:$INSTANCE"
-cleanup_hosts() { sudo sed -i '' "/# dev-console:$INSTANCE\$/d" /etc/hosts 2>/dev/null || true; }
-if [[ "$WITH_HOSTS" -eq 1 && -n "${KAFKA_IP:-}" ]]; then
-  say "Adding /etc/hosts alias: $HOSTS_LINE (sudo)"
-  cleanup_hosts
-  echo "$HOSTS_LINE" | sudo tee -a /etc/hosts >/dev/null
+# ── 4. /etc/hosts alias for Kafka. Redpanda advertises itself as `kafka-kafka:9092`,
+#       so the client must resolve that name to the local forward (bootstrapping on
+#       127.0.0.1 alone isn't enough — the broker redirects to its advertised name).
+#       The alias is PERSISTENT + idempotent: laid down once (needs sudo), then reused
+#       by no-sudo runs — notably the menubar-managed console, which can't sudo per
+#       launch. NOT removed on exit, so a single `--with-hosts` run enables Kafka for
+#       good (a 127.0.0.1 alias is harmless when no tunnel is up — just conn-refused).
+HOSTS_OK=0
+if grep -qE '^[0-9.]+[[:space:]]+kafka-kafka([[:space:]]|#|$)' /etc/hosts 2>/dev/null; then
+  HOSTS_OK=1
+elif [[ "$WITH_HOSTS" -eq 1 && -n "${KAFKA_IP:-}" ]]; then
+  say "Adding persistent /etc/hosts alias: 127.0.0.1 kafka-kafka (sudo, one-time)"
+  echo "127.0.0.1 kafka-kafka  # dev-console (persistent — Kafka advertised name)" \
+    | sudo tee -a /etc/hosts >/dev/null && HOSTS_OK=1
 fi
 
 # ── 5. Open the SSH local forwards (no sudo) ──────────────────────────────────
@@ -125,10 +132,12 @@ fi
 FWD=( -L "${K8S_PORT}:${PRIV_IP}:6443" )
 [[ -n "${KAFKA_IP:-}" ]] && FWD+=( -L "${KAFKA_PORT}:${KAFKA_IP}:9092" )
 say "Opening SSH forwards → $REMOTE_SSH_TARGET"
-ssh -o ControlMaster=no -o ControlPath=none -o ExitOnForwardFailure=yes \
+# LogLevel=QUIET suppresses the node's pre-auth login Banner (the long
+# "authorized users only" block) that otherwise floods the menubar logs.
+ssh -o ControlMaster=no -o ControlPath=none -o ExitOnForwardFailure=yes -o LogLevel=QUIET \
   "${REMOTE_SSH_OPTS[@]}" "${FWD[@]}" -N "$REMOTE_SSH_TARGET" &
 SSH_PID=$!
-trap 'kill "$SSH_PID" 2>/dev/null || true; cleanup_hosts' EXIT
+trap 'kill "$SSH_PID" 2>/dev/null || true' EXIT
 
 say "Waiting for the K8s forward (127.0.0.1:$K8S_PORT)…"
 OK=0
@@ -143,7 +152,7 @@ say "  ✓ K8s API reachable via the tunnel"
 # ── 6. Notes + start the dev server ───────────────────────────────────────────
 cat <<NOTE
 
-  ✓ K8s API + S3 wired. Kafka: $([[ "$WITH_HOSTS" -eq 1 ]] && echo "alias added → reachable" || echo "re-run with --with-hosts (needs 127.0.0.1 kafka-kafka)")
+  ✓ K8s API + S3 wired. Kafka: $([[ "$HOSTS_OK" -eq 1 ]] && echo "kafka-kafka alias present → reachable" || echo "unreachable — run once with --with-hosts to add the persistent 127.0.0.1 kafka-kafka alias (sudo)")
   ⚠ Prometheus stays unreachable (ARTESCA auth; console sends no creds).
   ⚠ camera-sim is a separate instance, not in this cluster.
 
