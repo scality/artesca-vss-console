@@ -2,12 +2,36 @@ import type { CameraEntry } from "@/lib/helpers/gcs-config";
 
 export type { CameraEntry };
 
+/** VLM system prompt stored in the config store. */
+export interface PromptDoc {
+  prompt: string;
+  model?: string;
+}
+
+/** A single alert-scenario entry stored in the config store. */
+export interface ScenarioEntry {
+  id: string;
+  name: string;
+  description?: string;
+  severity: "low" | "medium" | "high" | "critical";
+  channels: ("ui" | "slack")[];
+  sensor_filter: string;
+  keywords: string[];
+  enabled: boolean;
+  cooldown_seconds?: number;
+}
+
 /** Convergence status the reconciler writes back after each run. */
 export interface ReconcileStatus {
   /** ISO timestamp of the last reconcile run. */
   lastRunAt: string;
   /** Counts applied on the last run. */
-  applied: { camerasAdded: number; camerasPruned: number };
+  applied: {
+    camerasAdded: number;
+    camerasPruned: number;
+    promptUpdated: boolean;
+    scenariosUpdated: boolean;
+  };
   /** Human-readable drift notes (desired-vs-live differences observed). */
   drift: string[];
   /** Human-readable errors from the last run (empty = clean). */
@@ -20,7 +44,7 @@ export interface ReconcileStatus {
 export function emptyStatus(agentVersion: string, now: string): ReconcileStatus {
   return {
     lastRunAt: now,
-    applied: { camerasAdded: 0, camerasPruned: 0 },
+    applied: { camerasAdded: 0, camerasPruned: 0, promptUpdated: false, scenariosUpdated: false },
     drift: [],
     errors: [],
     agentVersion,
@@ -28,9 +52,9 @@ export function emptyStatus(agentVersion: string, now: string): ReconcileStatus 
 }
 
 /**
- * Store-agnostic config persistence. Plan 1 covers cameras + status; prompt and
- * scenarios methods are added in Plan 4. The reconciler and the deployer both
- * depend on this interface, never on a concrete store.
+ * Store-agnostic config persistence. Covers cameras, status, prompt, and
+ * scenarios. The reconciler and the deployer both depend on this interface,
+ * never on a concrete store.
  */
 export interface ConfigStore {
   readCameras(instance: string): Promise<CameraEntry[]>;
@@ -41,4 +65,8 @@ export interface ConfigStore {
   writeCameras(instance: string, cameras: CameraEntry[], updatedBy: string): Promise<void>;
   readStatus(instance: string): Promise<ReconcileStatus | null>;
   writeStatus(instance: string, status: ReconcileStatus): Promise<void>;
+  readPrompt(instance: string): Promise<PromptDoc | null>;
+  writePrompt(instance: string, prompt: PromptDoc, updatedBy: string): Promise<void>;
+  readScenarios(instance: string): Promise<ScenarioEntry[]>;
+  writeScenarios(instance: string, scenarios: ScenarioEntry[], updatedBy: string): Promise<void>;
 }

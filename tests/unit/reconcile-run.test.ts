@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { reconcileInstanceCameras } from "@/lib/reconcile/run";
-import type { ConfigStore, ReconcileStatus, CameraEntry } from "@/lib/config-store/types";
+import type { ConfigStore, ReconcileStatus, CameraEntry, ScenarioEntry } from "@/lib/config-store/types";
 import type { ClusterAdapter } from "@/lib/reconcile/cluster-adapter";
+import type { PromptRefs } from "@/lib/reconcile/prompt";
+import type { ScenarioRefs } from "@/lib/reconcile/scenarios";
 
 function fakeStore(cameras: CameraEntry[]): { store: ConfigStore; written: ReconcileStatus[] } {
   const written: ReconcileStatus[] = [];
@@ -12,6 +14,10 @@ function fakeStore(cameras: CameraEntry[]): { store: ConfigStore; written: Recon
     writeStatus: async (_i, s) => {
       written.push(s);
     },
+    readPrompt: async () => null,
+    writePrompt: async () => {},
+    readScenarios: async () => [],
+    writeScenarios: async () => {},
   };
   return { store, written };
 }
@@ -82,6 +88,10 @@ describe("reconcileInstanceCameras", () => {
       writeStatus: async () => {
         throw new Error("Firestore unavailable");
       },
+      readPrompt: async () => null,
+      writePrompt: async () => {},
+      readScenarios: async () => [],
+      writeScenarios: async () => {},
     };
     const adapter: ClusterAdapter = {
       listSensors: async () => [],
@@ -90,5 +100,77 @@ describe("reconcileInstanceCameras", () => {
     await expect(
       reconcileInstanceCameras(store, adapter, "inst-1", { prune: false, now: () => FIXED }),
     ).rejects.toThrow("Firestore unavailable");
+  });
+
+  it("converges prompt + scenarios when refs are provided and values differ", async () => {
+    const oneScenario: ScenarioEntry = {
+      id: "s1",
+      name: "Test scenario",
+      severity: "medium",
+      channels: ["ui"],
+      sensor_filter: "*",
+      keywords: ["theft"],
+      enabled: true,
+    };
+    const store: ConfigStore = {
+      readCameras: async () => [],
+      writeCameras: async () => {},
+      readStatus: async () => null,
+      writeStatus: async () => {},
+      readPrompt: async () => ({ prompt: "New prompt text" }),
+      writePrompt: async () => {},
+      readScenarios: async () => [oneScenario],
+      writeScenarios: async () => {},
+    };
+
+    const promptRefs: PromptRefs = { ns: "vss-base", deployment: "vss-rtvi-vlm", promptKey: "VLM_SYSTEM_PROMPT" };
+    const scenarioRefs: ScenarioRefs = {
+      ns: "pyramid-ingress",
+      configMap: "scenarios",
+      yamlKey: "scenarios.yaml",
+      alertWorkerDeployment: "vss-video-analytics-api",
+    };
+
+    const patched: string[] = [];
+    const restarted: string[] = [];
+    const adapter: ClusterAdapter = {
+      listSensors: async () => [],
+      addSensor: async () => ({ ok: true }),
+      getDeploymentEnv: async () => "old prompt value",
+      patchDeploymentEnv: async (_ns, _dep, _key, _val) => { patched.push("prompt"); },
+      getConfigMapKey: async () => null,
+      patchConfigMapKey: async () => { patched.push("scenarios"); },
+      restartDeployment: async (_ns, dep) => { restarted.push(dep); },
+    };
+
+    const status = await reconcileInstanceCameras(store, adapter, "inst-1", {
+      prune: false,
+      now: () => FIXED,
+      agentVersion: "v-test",
+      refs: { prompt: promptRefs, scenarios: scenarioRefs },
+    });
+
+    expect(status.applied.promptUpdated).toBe(true);
+    expect(status.applied.scenariosUpdated).toBe(true);
+    expect(status.errors).toEqual([]);
+    expect(patched).toContain("prompt");
+    expect(patched).toContain("scenarios");
+    expect(restarted).toContain("vss-rtvi-vlm");
+    expect(restarted).toContain("vss-video-analytics-api");
+  });
+
+  it("leaves promptUpdated + scenariosUpdated false when no refs are passed (back-compat)", async () => {
+    const { store } = fakeStore([cam("cam-1")]);
+    const adapter: ClusterAdapter = {
+      listSensors: async () => [],
+      addSensor: async () => ({ ok: true }),
+    };
+    const status = await reconcileInstanceCameras(store, adapter, "inst-1", {
+      prune: false,
+      now: () => FIXED,
+    });
+    expect(status.applied.promptUpdated).toBe(false);
+    expect(status.applied.scenariosUpdated).toBe(false);
+    expect(status.applied.camerasAdded).toBe(1);
   });
 });
