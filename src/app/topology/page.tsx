@@ -170,6 +170,7 @@ function mergeTopologyEdges(
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React from "react";
+import Link from "next/link";
 import { Loader2, AlertTriangle, LayoutGrid } from "lucide-react";
 
 const POSITIONS_LS_KEY = "topology:node-positions:v1";
@@ -298,6 +299,18 @@ export default function TopologyPage() {
   // Used to distinguish "first load in progress" from "confirmed failure".
   const [everReceivedNodes, setEverReceivedNodes] = useState(false);
 
+  // After SPINNER_TIMEOUT_MS with no nodes, replace the spinner with a calm
+  // fallback message. The latch is gated on !everReceivedNodes at the render
+  // site so kiosk mode auto-recovers when nodes arrive without needing a
+  // synchronous setState reset in the effect body.
+  const SPINNER_TIMEOUT_MS = 15_000;
+  const [spinnerTimedOut, setSpinnerTimedOut] = useState(false);
+  useEffect(() => {
+    if (everReceivedNodes) return;
+    const timer = setTimeout(() => setSpinnerTimedOut(true), SPINNER_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [everReceivedNodes]);
+
   // Merge structure + live runtime into React Flow nodes + edges.
   // Track the previous node-id set so we can release sparkline buffers for
   // nodes that have disappeared (e.g. a camera feed was removed).
@@ -400,16 +413,29 @@ export default function TopologyPage() {
           {/* Empty / loading state — shown only while the canvas has no nodes */}
           {nodes.length === 0 && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              {/* Don't gate on !topologyFetching — React Query retries flip
-                  isFetching back to true during each retry attempt, which
-                  would otherwise mask the error state behind a spinner for
-                  the full retry window (~30 s). Showing the error as soon
-                  as one attempt has failed + no prior data is the honest
-                  signal. */}
+              {/* Three states in priority order:
+                  1. API hard-error before any nodes ever arrived → error badge.
+                  2. Spinner timed out (15 s) without nodes → calm fallback with
+                     link to Overview. Retries continue in the background so the
+                     diagram auto-recovers when the cluster comes back (kiosk-safe:
+                     no modal, no click required).
+                  3. Default → spinner while the first response is in-flight. */}
               {topologyError && !everReceivedNodes ? (
                 <div className="flex flex-col items-center gap-2 text-muted-foreground">
                   <AlertTriangle className="h-5 w-5 text-amber-500/70" />
                   <span className="text-sm">Topology unavailable — retrying</span>
+                </div>
+              ) : spinnerTimedOut && !everReceivedNodes ? (
+                <div className="pointer-events-auto flex flex-col items-center gap-3 text-center text-muted-foreground">
+                  <AlertTriangle className="h-6 w-6 text-amber-500/60" />
+                  <span className="text-sm">Topology unavailable — check cluster health on the</span>
+                  <Link
+                    href="/"
+                    className="text-sm text-primary underline-offset-4 hover:underline"
+                  >
+                    Overview page
+                  </Link>
+                  <span className="text-xs opacity-50">Reconnecting in the background…</span>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-2 text-muted-foreground">

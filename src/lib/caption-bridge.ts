@@ -17,6 +17,11 @@ const CHUNK_DURATION_S = Number(process.env.VLM_CHUNK_DURATION ?? "10");
 const POLL_INTERVAL_MS = 6_000;
 const CAPTION_TIMEOUT_MS = 120_000;
 
+// Backoff config: after MAX_FAST_FAILURES consecutive tick failures the
+// interval is stretched up to MAX_BACKOFF_MS.  Happy-path resets the counter.
+const MAX_FAST_FAILURES = 3;
+const MAX_BACKOFF_MS = 60_000;
+
 interface StreamInfo {
   id: string;
   liveStreamUrl?: string;
@@ -108,28 +113,96 @@ async function consumeOneCaptionCycle(stream: StreamInfo): Promise<void> {
   }
 }
 
-export function startCaptionBridge(): void {
+// Module-scoped handle so the interval is always stoppable even if the
+// caller discards the return value of startCaptionBridge().
+let _intervalHandle: ReturnType<typeof setInterval> | null = null;
+
+export function startCaptionBridge(): () => void {
+  if (_intervalHandle !== null) {
+    log.warn("startCaptionBridge called while already running — ignoring duplicate call");
+    return stopCaptionBridge;
+  }
+
   let running = false;
+  let consecutiveFailures = 0;
 
   async function tick(): Promise<void> {
     if (running) return;
     running = true;
     try {
       const streams = await getActiveStreams();
+      let tickHadError = false;
+
       for (const stream of streams) {
         try {
           await consumeOneCaptionCycle(stream);
-        } catch {
-          // per-stream errors are non-fatal
+        } catch (err) {
+          tickHadError = true;
+          log.warn("caption cycle failed for stream", {
+            streamId: stream.id,
+            err: err instanceof Error ? err : new Error(String(err)),
+          });
         }
       }
+
+      if (!tickHadError) {
+        const wasBackingOff = consecutiveFailures >= MAX_FAST_FAILURES;
+        if (consecutiveFailures > 0) {
+          log.info("caption bridge recovered", { consecutiveFailures });
+          consecutiveFailures = 0;
+          // Restore the normal polling interval after a backoff period.
+          if (wasBackingOff && _intervalHandle !== null) {
+            clearInterval(_intervalHandle);
+            _intervalHandle = setInterval(tick, POLL_INTERVAL_MS);
+            log.info("caption bridge backoff lifted — restored normal interval", {
+              intervalMs: POLL_INTERVAL_MS,
+            });
+          }
+        }
+      } else {
+        consecutiveFailures++;
+        if (consecutiveFailures >= MAX_FAST_FAILURES) {
+          log.error("caption bridge: repeated failures — backing off", {
+            consecutiveFailures,
+            nextIntervalMs: Math.min(POLL_INTERVAL_MS * consecutiveFailures, MAX_BACKOFF_MS),
+            rtviBase: RTVI_BASE,
+          });
+        }
+      }
+    } catch (err) {
+      // getActiveStreams returned an unexpected error (not swallowed inside it)
+      consecutiveFailures++;
+      log.error("caption bridge tick error", {
+        consecutiveFailures,
+        err: err instanceof Error ? err : new Error(String(err)),
+      });
     } finally {
       running = false;
+
+      // Reschedule with backoff when there are consecutive failures.
+      // On the happy path the fixed setInterval already handles timing.
+      if (consecutiveFailures >= MAX_FAST_FAILURES && _intervalHandle !== null) {
+        clearInterval(_intervalHandle);
+        const delay = Math.min(POLL_INTERVAL_MS * consecutiveFailures, MAX_BACKOFF_MS);
+        _intervalHandle = setInterval(tick, delay);
+        log.warn("caption bridge backoff applied", { delayMs: delay });
+      }
     }
   }
 
   tick();
-  setInterval(tick, POLL_INTERVAL_MS);
+  _intervalHandle = setInterval(tick, POLL_INTERVAL_MS);
 
   log.info(`started — polling vss-rtvi-vlm at ${RTVI_BASE} every ${POLL_INTERVAL_MS / 1000}s`);
+  return stopCaptionBridge;
+}
+
+export function stopCaptionBridge(): void {
+  if (_intervalHandle === null) {
+    log.warn("stopCaptionBridge called but bridge is not running");
+    return;
+  }
+  clearInterval(_intervalHandle);
+  _intervalHandle = null;
+  log.info("caption bridge stopped");
 }

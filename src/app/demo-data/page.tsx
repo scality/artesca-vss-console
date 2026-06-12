@@ -8,6 +8,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { RehearsalButton } from "@/components/demo-data/RehearsalButton";
 import { LiveCounter } from "@/components/demo-data/LiveCounter";
 import { useToast } from "@/hooks/use-toast";
@@ -32,6 +41,7 @@ export default function DemoDataPage() {
     matchProbability: 0.3,
   });
   const [loading, setLoading] = useState(true);
+  const [confirmDisableOpen, setConfirmDisableOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
 
@@ -110,7 +120,13 @@ export default function DemoDataPage() {
               <Switch
                 id="enabled"
                 checked={state.enabled}
-                onCheckedChange={(checked) => patchState({ enabled: checked })}
+                onCheckedChange={(checked) => {
+                  if (!checked) {
+                    setConfirmDisableOpen(true);
+                  } else {
+                    patchState({ enabled: true });
+                  }
+                }}
               />
               <Label htmlFor="enabled" className="text-sm font-medium">
                 {state.enabled ? "Enabled" : "Disabled"}
@@ -182,6 +198,35 @@ export default function DemoDataPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={confirmDisableOpen} onOpenChange={setConfirmDisableOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Disable demo data?</DialogTitle>
+            <DialogDescription>
+              The synthetic incident feed will stop. Any ongoing rehearsal will end and the
+              producer pod will scale down.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDisableOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setConfirmDisableOpen(false);
+                patchState({ enabled: false });
+              }}
+            >
+              Disable
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Shell>
   );
 }

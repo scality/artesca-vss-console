@@ -17,6 +17,20 @@ import type { Incident, Scenario } from "@/lib/types";
 import { z } from "zod";
 import { useIncidentStream } from "./use-incident-stream";
 
+/**
+ * Format elapsed seconds as a compact human-readable age string.
+ * E.g. 3 → "3s", 75 → "1m 15s", 3725 → "1h 2m".
+ */
+export function formatAge(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
+}
+
 const TIME_WINDOW_MS: Record<TimeWindow, number> = {
   "15m": 15 * 60 * 1000,
   "1h": 60 * 60 * 1000,
@@ -76,6 +90,8 @@ export default function IncidentsPage() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [selected, setSelected] = useState<Incident | null>(null);
+  // 1-second ticker drives the freshness age label without depending on new events.
+  const [now, setNow] = useState<number>(() => Date.now());
   const preloadFiredRef = useRef(false);
 
   /** Merge a new incident into state: prepend, deduplicate by ts+sensorId. */
@@ -88,7 +104,13 @@ export default function IncidentsPage() {
   }, []);
 
   // SSE subscription with exponential back-off reconnect (topology-mirrored pattern).
-  const { streamStatus, sseFailed } = useIncidentStream({ onIncident: mergeIncident });
+  const { streamStatus, sseFailed, lastEventAt } = useIncidentStream({ onIncident: mergeIncident });
+
+  // 1-second ticker so the freshness label stays accurate between events.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, []);
 
   // Initial fetch (SSR-style client fetch on mount)
   useQuery<Incident[]>({
@@ -188,6 +210,24 @@ export default function IncidentsPage() {
                 Reconnecting…
               </span>
             )}
+            {/* Freshness indicator: shows how long ago the last incident arrived.
+                Turns amber after 60 s of quiet on a connected stream so showroom
+                guests can tell "calm" from "stalled". Not shown when the stream is
+                known-disconnected (the reconnect banner already covers that). */}
+            {lastEventAt !== null && streamStatus === "connected" && (() => {
+              const ageS = Math.floor((now - lastEventAt.getTime()) / 1_000);
+              const stale = ageS >= 60;
+              return (
+                <span
+                  className={`text-xs tabular-nums ${
+                    stale ? "text-amber-400" : "text-muted-foreground"
+                  }`}
+                  title="Time since the last incident was received"
+                >
+                  last {formatAge(ageS)} ago
+                </span>
+              );
+            })()}
           </div>
         </div>
 
