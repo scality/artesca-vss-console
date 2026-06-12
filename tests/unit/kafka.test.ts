@@ -77,7 +77,7 @@ describe("getKafka()", () => {
     expect(MockKafka).not.toHaveBeenCalled();
   });
 
-  it("constructs Kafka with split+trimmed brokers, clientId console, and retry { retries: 3 }", async () => {
+  it("constructs Kafka with split+trimmed brokers, clientId console, bounded timeouts, and retry { retries: 2 }", async () => {
     vi.stubEnv("KAFKA_BROKERS", "broker1:9092 , broker2:9092,broker3:9092");
 
     const { getKafka } = await freshImport();
@@ -90,7 +90,9 @@ describe("getKafka()", () => {
     expect(MockKafka).toHaveBeenCalledWith({
       clientId: "console",
       brokers: ["broker1:9092", "broker2:9092", "broker3:9092"],
-      retry: { retries: 3 },
+      connectionTimeout: 3_000,
+      requestTimeout: 5_000,
+      retry: { retries: 2, initialRetryTime: 300, maxRetryTime: 3_000 },
     });
   });
 

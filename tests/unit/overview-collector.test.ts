@@ -346,7 +346,7 @@ describe("collectOverviewSnapshot — degraded-snapshot contract (k8s mode)", ()
     expect(result.snapshot.s3.bytesTotal).toBe(0);
   });
 
-  it("Kafka admin throws → returns result with Kafka warning, topics get zero lag", async () => {
+  it("Kafka admin throws → returns result with Kafka warning, topics get null (unknown) lag", async () => {
     const failingAdmin = {
       connect: vi.fn().mockRejectedValue(new Error("kafka unreachable")),
       disconnect: vi.fn().mockResolvedValue(undefined),
@@ -365,9 +365,10 @@ describe("collectOverviewSnapshot — degraded-snapshot contract (k8s mode)", ()
     );
     expect(kafkaWarning).toBeDefined();
 
-    // Topics should still be present with zero lag.
+    // Topics should still be present, but with null lag — unknown, never a
+    // false 0 that would render a misleading "OK" while the broker is down.
     for (const entry of Object.values(result.snapshot.kafka)) {
-      expect(entry.consumerLagMsgs).toBe(0);
+      expect(entry.consumerLagMsgs).toBeNull();
     }
   });
 

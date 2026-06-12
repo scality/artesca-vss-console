@@ -18,6 +18,7 @@ const {
   mockPatchNamespacedStatefulSet,
   mockExecFn,
   MockExec,
+  mockExistsSync,
 } = vi.hoisted(() => {
   const mockListNamespacedPod = vi.fn();
   const mockPatchNamespacedDeployment = vi.fn();
@@ -48,6 +49,7 @@ const {
 
   const mockLoadFromCluster = vi.fn();
   const mockLoadFromDefault = vi.fn();
+  const mockExistsSync = vi.fn();
 
   const MockKubeConfig = vi.fn().mockImplementation(function () {
     return {
@@ -70,6 +72,7 @@ const {
     mockPatchNamespacedStatefulSet,
     mockExecFn,
     MockExec,
+    mockExistsSync,
   };
 });
 
@@ -80,6 +83,14 @@ vi.mock("@kubernetes/client-node", () => ({
   BatchV1Api: MockBatchV1Api,
   Exec: MockExec,
 }));
+
+// getKubeConfig() picks loadFromCluster vs loadFromDefault by probing the
+// in-cluster SA-token file with existsSync. Mock node:fs so the two branches
+// are exercisable off-cluster; importOriginal keeps every other fs export real.
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, existsSync: mockExistsSync };
+});
 
 // ─── Module under test ────────────────────────────────────────────────────────
 
@@ -113,6 +124,7 @@ beforeEach(() => {
   vi.stubEnv("LOG_PRETTY", "0");
 
   // Re-apply default implementations cleared by resetAllMocks
+  mockExistsSync.mockReturnValue(false); // off-cluster default — no SA token
   MockKubeConfig.mockImplementation(function () {
     return {
       loadFromCluster: mockLoadFromCluster,
@@ -185,14 +197,13 @@ describe("watchedNamespaces", () => {
 // time, so the singleton is not already populated from a previous test.
 
 describe("coreV1 / appsV1 — kubeconfig selection", () => {
-  it("uses loadFromCluster when it succeeds (no throw)", async () => {
-    // The top-level vi.mock("@kubernetes/client-node") is hoisted module-wide
-    // and survives resetModules(), so the fresh dynamic import below still gets
-    // the mocked module — no need to re-declare the mock here.
+  it("uses loadFromCluster when the in-cluster SA token is present", async () => {
+    // The top-level vi.mock()s are hoisted module-wide and survive
+    // resetModules(), so the fresh dynamic import below still gets the mocked
+    // @kubernetes/client-node and node:fs — no need to re-declare them here.
     vi.resetModules();
 
-    mockLoadFromCluster.mockImplementation(() => { /* no-op — success */ });
-    mockLoadFromDefault.mockImplementation(() => { /* no-op */ });
+    mockExistsSync.mockReturnValue(true); // SA token file exists → in-cluster
 
     const { coreV1: freshCoreV1 } = await import("@/lib/k8s");
     freshCoreV1();
@@ -201,19 +212,16 @@ describe("coreV1 / appsV1 — kubeconfig selection", () => {
     expect(mockLoadFromDefault).not.toHaveBeenCalled();
   });
 
-  it("falls back to loadFromDefault when loadFromCluster throws", async () => {
+  it("uses loadFromDefault when there is no in-cluster SA token", async () => {
     vi.resetModules();
 
-    mockLoadFromCluster.mockImplementation(() => {
-      throw new Error("not in cluster");
-    });
-    mockLoadFromDefault.mockImplementation(() => { /* no-op */ });
+    mockExistsSync.mockReturnValue(false); // no SA token → off-cluster
 
     const { coreV1: freshCoreV1 } = await import("@/lib/k8s");
     freshCoreV1();
 
-    expect(mockLoadFromCluster).toHaveBeenCalledTimes(1);
     expect(mockLoadFromDefault).toHaveBeenCalledTimes(1);
+    expect(mockLoadFromCluster).not.toHaveBeenCalled();
   });
 });
 
