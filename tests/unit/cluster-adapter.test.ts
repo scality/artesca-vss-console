@@ -52,4 +52,11 @@ describe("VstClusterAdapter", () => {
     const a: ClusterAdapter = new VstClusterAdapter();
     expect(a.removeSensor).toBeUndefined();
   });
+
+  it("VstClusterAdapter implements the Plan-4 k8s ops", () => {
+    const a = new VstClusterAdapter() as ClusterAdapter;
+    for (const m of ["getDeploymentEnv", "patchDeploymentEnv", "getConfigMapKey", "patchConfigMapKey", "restartDeployment"] as const) {
+      expect(typeof a[m]).toBe("function");
+    }
+  });
 });
