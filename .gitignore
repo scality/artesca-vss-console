@@ -8,3 +8,4 @@ next-env.d.ts
 .vitest/
 playwright-report/
 test-results/
+.console-data/
