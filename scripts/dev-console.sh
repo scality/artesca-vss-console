@@ -158,12 +158,13 @@ cat <<NOTE
 
 NOTE
 
-# Next.js 16 allows only ONE `next dev` per project directory (a lock under
-# .next/dev), regardless of port. If the menubar already runs the console here
-# (:5003), a second one fails — so detect it and reuse it instead of fighting.
-if [[ "$START_DEV" -eq 1 ]] && pgrep -f "next dev" >/dev/null 2>&1; then
-  say "A console dev server is already running in this directory (the menubar's :5003)."
-  say "Next.js permits only one per directory — reusing it rather than starting a second."
+# If the console is ALREADY serving on its own port, reuse it rather than starting
+# a second `next dev` (which would fail on the per-directory .next/dev lock).
+# Detect by the console's OWN port — NOT `pgrep next dev`, which also matches the
+# deployer's `next dev --port 5002` in a different directory and caused a false
+# "already running" that skipped the server start and left :$DEV_PORT down.
+if [[ "$START_DEV" -eq 1 ]] && nc -z 127.0.0.1 "$DEV_PORT" 2>/dev/null; then
+  say "A console dev server is already serving on :$DEV_PORT — reusing it (not starting a second)."
   START_DEV=0
 fi
 
@@ -177,6 +178,7 @@ else
   say "→ Restart the menubar-managed console so it reloads .env.local:"
   say "    Scality menubar → (console server) → Restart"
   say "→ Then open  http://localhost:5003  — K8s / Kafka / S3 should be green."
-  say "Keep this terminal open (the tunnels live here). Press Enter to tear down."
-  read -r _
+  say "Keep this process alive (the tunnels live here). Ctrl-C / stopping it tears them down."
+  # wait (not `read`) so it also holds when launched without a TTY (e.g. the menubar).
+  wait "$SSH_PID"
 fi
