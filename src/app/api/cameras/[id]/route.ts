@@ -85,6 +85,36 @@ export async function PUT(
   const { scenarioIds, recording } = parsed.data;
   const updatedBy = session.user?.email ?? "console";
 
+  // k8s path: merge overrides into the Firestore camera doc.
+  // Placed ABOVE the docker clear-block so k8s always takes this branch.
+  // Semantics: undefined field = leave unchanged; null = remove the field.
+  const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
+  if (!DOCKER_MODE) {
+    const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+    try {
+      const ctx = await makeReconcileContext();
+      const existing = (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
+      if (!existing) {
+        return NextResponse.json({ error: `Camera '${id}' not found in config store` }, { status: 404 });
+      }
+      const next = { ...existing };
+      if (scenarioIds !== undefined) {
+        if (scenarioIds === null) delete next.scenarioIds; else next.scenarioIds = scenarioIds;
+      }
+      if (recording !== undefined) {
+        if (recording === null) delete next.recording; else next.recording = recording;
+      }
+      await ctx.store.upsertCamera(ctx.instance, next, updatedBy);
+      await auditLog("camera-override-update", `camera/${id}`, { scenarioIds, recording });
+      return NextResponse.json({ ok: true, cameraId: id });
+    } catch (err) {
+      const msg = err instanceof ReconcileContextError ? err.message : String(err);
+      return NextResponse.json({ error: `config store write failed: ${msg}` }, { status: 502 });
+    }
+  }
+
+  // docker path below: SQLite + GCS.
+
   // If both fields are absent/null, treat as clearing the override entirely.
   if (scenarioIds === undefined && recording === undefined) {
     deleteCameraOverride(id);

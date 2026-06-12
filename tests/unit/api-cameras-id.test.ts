@@ -72,12 +72,12 @@ import {
   CamsimControlError,
 } from "@/lib/helpers/camsim-control";
 import { vstDeleteSensor } from "@/lib/helpers/vst";
-import { getCameraOverride, deleteCameraOverride } from "@/lib/db";
+import { getCameraOverride, upsertCameraOverride, deleteCameraOverride } from "@/lib/db";
 import { auditLog } from "@/lib/helpers/audit";
 import { writeToGcs } from "@/app/api/cameras/route";
 import { makeReconcileContext } from "@/lib/reconcile/context";
 
-import { GET, PATCH, DELETE } from "@/app/api/cameras/[id]/route";
+import { GET, PUT, PATCH, DELETE } from "@/app/api/cameras/[id]/route";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -128,6 +128,7 @@ beforeEach(() => {
   vi.mocked(auditLog).mockReset().mockResolvedValue(undefined);
 
   delete process.env.VSS_INSTANCE_NAME;
+  delete process.env.CONSOLE_RUNTIME;
 });
 
 // ── GET ──────────────────────────────────────────────────────────────────────
@@ -238,6 +239,94 @@ describe("PATCH /api/cameras/[id]", () => {
   it.todo(
     "PATCH with fileBase64: uploads file to camsim before delete+re-add — testing file upload flow requires Buffer assertions and is covered by camsim-control.test.ts",
   );
+});
+
+// ── PUT (docker) ─────────────────────────────────────────────────────────────
+
+describe("PUT /api/cameras/[id] overrides (docker)", () => {
+  beforeEach(() => {
+    process.env.CONSOLE_RUNTIME = "docker";
+  });
+
+  it("auth missing → 401", async () => {
+    vi.mocked(auth).mockResolvedValue(null as never);
+
+    const req = makeRequest("PUT", { scenarioIds: ["fall"] });
+    const res = await PUT(req, makeParams("cam01"));
+
+    expect(res.status).toBe(401);
+  });
+
+  it("invalid body → 400", async () => {
+    const req = makeRequest("PUT", { scenarioIds: "not-an-array" });
+    const res = await PUT(req, makeParams("cam01"));
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/validation/i);
+  });
+
+  it("both fields absent/null → clears override (deleteCameraOverride), audit logged", async () => {
+    const req = makeRequest("PUT", {});
+    const res = await PUT(req, makeParams("cam01"));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.cleared).toBe(true);
+    expect(deleteCameraOverride).toHaveBeenCalledWith("cam01");
+    expect(upsertCameraOverride).not.toHaveBeenCalled();
+    expect(auditLog).toHaveBeenCalledWith("camera-override-clear", "camera/cam01", {});
+  });
+
+  it("upserts override into SQLite when scenarioIds provided", async () => {
+    const req = makeRequest("PUT", { scenarioIds: ["fall", "fire"], recording: { enabled: true, policy: "always", retentionDays: 7 } });
+    const res = await PUT(req, makeParams("cam01"));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(upsertCameraOverride).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cameraId: "cam01",
+        scenarioIds: ["fall", "fire"],
+        recordingEnabled: true,
+        recordingPolicy: "always",
+        recordingRetentionDays: 7,
+        updatedBy: "operator@test.com",
+      }),
+    );
+    expect(auditLog).toHaveBeenCalledWith(
+      "camera-override-update",
+      "camera/cam01",
+      expect.any(Object),
+    );
+  });
+});
+
+// ── PUT (k8s) ─────────────────────────────────────────────────────────────────
+
+describe("PUT /api/cameras/[id] overrides (k8s)", () => {
+  it("merges scenarioIds + recording into the Firestore camera doc", async () => {
+    delete process.env.CONSOLE_RUNTIME;
+    const upsertCamera = vi.fn().mockResolvedValue(undefined);
+    const readCameras = vi.fn().mockResolvedValue([{ id: "cam01", rtspUrl: "rtsp://x/cam01", description: "Entrance" }]);
+    vi.mocked(makeReconcileContext).mockResolvedValue({
+      instance: "inst-1", adapter: {} as never, refs: {} as never, store: { upsertCamera, readCameras } as never,
+    } as never);
+    const req = makeRequest("PUT", { scenarioIds: ["fall"], recording: { enabled: true, policy: "always", retentionDays: 7 } });
+    const res = await PUT(req, makeParams("cam01"));
+    expect(res.status).toBe(200);
+    expect(upsertCamera).toHaveBeenCalledWith(
+      "inst-1",
+      expect.objectContaining({
+        id: "cam01", rtspUrl: "rtsp://x/cam01",
+        scenarioIds: ["fall"],
+        recording: { enabled: true, policy: "always", retentionDays: 7 },
+      }),
+      expect.any(String),
+    );
+  });
 });
 
 // ── DELETE ────────────────────────────────────────────────────────────────────
