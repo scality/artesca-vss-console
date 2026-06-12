@@ -78,6 +78,21 @@ function subLabel(subtype: StorageNodeData["subtype"], runtime?: NodeRuntimeStat
   }
 }
 
+// ── Tier caption by subtype ────────────────────────────────────────────────
+// One-word role so the tile conveys the two-tier story (hot cache → durable
+// S3) without opening the detail panel.
+
+function tierCaption(subtype: StorageNodeData["subtype"]): string | null {
+  switch (subtype) {
+    case "s3":
+      return "durable tier";
+    case "cache":
+      return "hot buffer → S3";
+    default:
+      return null;
+  }
+}
+
 // ── Icon by subtype ────────────────────────────────────────────────────────
 
 function SubtypeIcon({ subtype }: { subtype: StorageNodeData["subtype"] }) {
@@ -125,6 +140,7 @@ export const StorageNode = memo(function StorageNode({ data, selected }: NodePro
     data as StorageNodeData;
   const health: PipelineHealth = runtime?.health ?? dataHealth ?? "unknown";
   const sub = subLabel(subtype as StorageNodeData["subtype"], runtime);
+  const tier = tierCaption(subtype as StorageNodeData["subtype"]);
   const cacheData = (subtype === "cache" && runtime?.cache?.fillPct != null)
     ? runtime.cache
     : null;
@@ -153,12 +169,17 @@ export const StorageNode = memo(function StorageNode({ data, selected }: NodePro
         />
       </div>
 
-      {/* Sub-label */}
-      {sub !== "—" && (
-        <p className="mt-0.5 text-[10px] text-muted-foreground font-mono truncate">
-          {sub}
+      {/* Tier caption — conveys the cache→S3 relationship at a glance */}
+      {tier && (
+        <p className="mt-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
+          {tier}
         </p>
       )}
+
+      {/* Sub-label (metric, or "awaiting data" when the probe has no value) */}
+      <p className="mt-0.5 text-[10px] text-muted-foreground font-mono truncate">
+        {sub !== "—" ? sub : <span className="text-muted-foreground/50">awaiting data</span>}
+      </p>
 
       {/* Cache fill bar */}
       {cacheData && cacheData.fillPct !== null && (

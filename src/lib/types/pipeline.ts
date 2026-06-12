@@ -37,6 +37,9 @@ export interface GpuStateShort {
 
 export interface S3State {
   bucket: string;
+  /** Configured S3 endpoint (ARTESCA vhost FQDN, or null when the SDK
+   *  computes an AWS-native one). Shown in the Config tab. */
+  endpoint?: string | null;
   objectCount: number;
   bytesTotal: number;
   putRateMBps: number;
