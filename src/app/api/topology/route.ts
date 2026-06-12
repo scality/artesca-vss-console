@@ -12,6 +12,10 @@ import { makeS3Client, s3BucketForRecordings, s3Endpoint } from "@/lib/s3";
 
 export const dynamic = "force-dynamic";
 
+// Canonical recordings bucket name for display labels — matches the bucket the
+// S3 collectors actually scan (CLUSTER.s3.buckets.recordings).
+const RECORDINGS_BUCKET = s3BucketForRecordings();
+
 interface TopologyNode {
   id: string;
   type: NodeType;
@@ -65,7 +69,7 @@ const COMPONENTS: Array<{
       { id: "alert-worker",         label: "alert-worker",                         namespace: "alerts",    type: "service",   deploymentName: "alert-worker",          position: { x: 960, y: 380 } },
       { id: "agent",                label: "Agent UI",                             namespace: "agent",     type: "service",   deploymentName: "nvidia-vss-agent",      position: { x: 960, y: 180 } },
       { id: "demo-data-producer",   label: "demo-data-producer",                   namespace: "demo-data", type: "service",   deploymentName: "demo-producer",         position: { x: 550, y: 620 } },
-      { id: "artesca-s3",           label: "ARTESCA S3 (nvidia-vss-video)",        namespace: "storage",   type: "storage",   position: { x: 1180, y: 500 } },
+      { id: "artesca-s3",           label: `ARTESCA S3 (${RECORDINGS_BUCKET})`,        namespace: "storage",   type: "storage",   position: { x: 1180, y: 500 } },
       { id: "vst-local-cache",      label: "VST local cache",                      namespace: "vst",       type: "storage",   position: { x: 640,  y: 500 } },
       { id: "vst-postgres",         label: "VST Postgres",                         namespace: "vst",       type: "database",  deploymentName: "postgres",              position: { x: 280, y: 560 } },
       { id: "vst-redis",            label: "VST Redis",                            namespace: "vst",       type: "redis",     deploymentName: "redis",                 position: { x: 420, y: 620 } },
@@ -83,7 +87,7 @@ const COMPONENTS: Array<{
       { id: "vss-video-analytics-api",     label: "vss-video-analytics-api",               namespace: VSS_NS,     type: "service",   deploymentName: "vss-video-analytics-api",    position: { x: 960, y: 380 } },
       { id: "vss-agent",                   label: "vss-agent",                             namespace: VSS_NS,     type: "service",   deploymentName: "vss-agent",                  position: { x: 960, y: 180 } },
       { id: "demo-data-producer",          label: "demo-data-producer",                    namespace: "demo-data",type: "service",   deploymentName: "demo-producer",              position: { x: 550, y: 620 } },
-      { id: "artesca-s3",                  label: "ARTESCA S3 (nvidia-vss-video)",         namespace: "storage",  type: "storage",   position: { x: 1180, y: 500 } },
+      { id: "artesca-s3",                  label: `ARTESCA S3 (${RECORDINGS_BUCKET})`,         namespace: "storage",  type: "storage",   position: { x: 1180, y: 500 } },
       { id: "vst-local-cache",             label: "VST local cache",                       namespace: VSS_NS,     type: "storage",   position: { x: 640,  y: 500 } },
       { id: "vss-vios-postgres",           label: "vss-vios-postgres",                     namespace: VSS_NS,     type: "database",  deploymentName: "vss-vios-postgres",          position: { x: 280, y: 560 } },
       { id: "vss-redis",                   label: "Redis",                                 namespace: VSS_NS,     type: "redis",     deploymentName: "redis",                      position: { x: 420, y: 620 } },

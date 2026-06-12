@@ -545,7 +545,7 @@ export async function GET() {
   if (objectCount === 0) {
     alerts.push({
       severity: "info",
-      message: "No recordings in nvidia-vss-video yet",
+      message: `No recordings in ${bucket} yet`,
     });
   }
 

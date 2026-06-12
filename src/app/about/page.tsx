@@ -60,7 +60,7 @@ function buildServiceUrls(): ServiceUrlRow[] {
         process.env.OBJECTSTORE_BUCKET ??
         process.env.S3_BUCKET ??
         process.env.VSS_VIDEO_BUCKET ??
-        "nvidia-vss-video",
+        "nvidia-vss-recordings",
     },
     {
       label: "NIM Preview Endpoint",

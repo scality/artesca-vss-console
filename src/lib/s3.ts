@@ -6,7 +6,8 @@
 //
 // Reads, in order of preference:
 //   - OBJECTSTORE_ENDPOINT  (preferred) → falls back to S3_ENDPOINT
-//   - OBJECTSTORE_BUCKET    (preferred) → falls back to S3_BUCKET / VSS_VIDEO_BUCKET / "nvidia-vss-video"
+//   - bucket names come from CLUSTER.s3.buckets (cluster-refs.ts) —
+//     recordings defaults to "nvidia-vss-recordings" (OBJECTSTORE_RECORDINGS_BUCKET)
 //   - OBJECTSTORE_REGION    (preferred) → falls back to AWS_REGION → "us-west-2"
 //   - OBJECTSTORE_ACCESS_KEY_ID + OBJECTSTORE_SECRET_ACCESS_KEY (preferred,
 //     comes from the objectstore-creds Secret remapped via secretKeyRef)

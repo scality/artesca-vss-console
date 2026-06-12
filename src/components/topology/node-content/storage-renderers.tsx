@@ -154,7 +154,7 @@ function BrowseModal({ onClose }: BrowseModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <h3 className="text-sm font-semibold">Recent recordings — nvidia-vss-video</h3>
+          <h3 className="text-sm font-semibold">Recent recordings — nvidia-vss-recordings</h3>
           <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
         </div>
         <div className="flex-1 overflow-y-auto p-4">
@@ -373,7 +373,7 @@ function ArtescaS3Config({ runtimeState }: TabRendererProps) {
         <div className="grid grid-cols-3 gap-2">
           <dt className="text-xs text-muted-foreground self-center">Bucket</dt>
           <dd className="col-span-2 font-mono text-xs bg-muted/30 px-2 py-1 rounded">
-            {s3?.bucket ?? "nvidia-vss-video"}
+            {s3?.bucket ?? "nvidia-vss-recordings"}
           </dd>
         </div>
         <div className="grid grid-cols-3 gap-2">
@@ -425,7 +425,7 @@ function ArtescaS3Actions(_props: TabRendererProps) {
       <div className="space-y-1">
         <p className="text-xs font-medium">Browse recordings</p>
         <p className="text-[11px] text-muted-foreground mb-2">
-          List last 50 objects in the nvidia-vss-video bucket.
+          List last 50 objects in the nvidia-vss-recordings bucket.
         </p>
         <Button size="sm" variant="outline" onClick={() => setShowBrowse(true)}>
           Browse recent recordings
