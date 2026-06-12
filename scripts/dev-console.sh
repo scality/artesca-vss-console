@@ -158,10 +158,16 @@ say "Starting sshuttle → $REMOTE_SSH_TARGET ($NODE_SUBNET $POD_CIDR $SVC_CIDR)
 # sshuttle's long-lived channel onto a shared master derails it — the same
 # footgun that broke `ssh -L` tunnels (see lib-kubectl.sh). First value wins.
 SSH_CMD="ssh -o ControlMaster=no -o ControlPath=none ${REMOTE_SSH_OPTS[*]}"
-sshuttle --ssh-cmd "$SSH_CMD" -r "$REMOTE_SSH_TARGET" "$NODE_SUBNET" "$POD_CIDR" "$SVC_CIDR" --daemon --pidfile "$INST_DIR/.dev-console-sshuttle.pid"
-cleanup_sshuttle() {
-  [[ -f "$INST_DIR/.dev-console-sshuttle.pid" ]] && sudo kill "$(cat "$INST_DIR/.dev-console-sshuttle.pid")" 2>/dev/null || true
-}
+# Background with & (NOT --daemon): --daemon detaches from the controlling tty,
+# so sshuttle's `sudo --firewall` helper loses the tty-keyed sudo timestamp,
+# can't use the cache we just primed, and its password prompt is orphaned (the
+# hang). Backgrounding keeps the tty → the firewall sudo uses the warm cache.
+sshuttle --ssh-cmd "$SSH_CMD" -r "$REMOTE_SSH_TARGET" "$NODE_SUBNET" "$POD_CIDR" "$SVC_CIDR" &
+SSHUTTLE_PID=$!
+echo "$SSHUTTLE_PID" > "$INST_DIR/.dev-console-sshuttle.pid"
+# sshuttle's root firewall helper watches its parent and removes the pf rules
+# when the parent (this user-owned PID) dies — so a plain kill is enough.
+cleanup_sshuttle() { kill "$SSHUTTLE_PID" 2>/dev/null || true; }
 trap 'cleanup_sshuttle; cleanup_hosts' EXIT
 
 # Verify the cluster network is actually routable before starting the server —
