@@ -3,6 +3,11 @@ import "server-only";
 import { vstListSensors, vstAddSensor } from "@/lib/helpers/vst";
 import { appsV1, rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
+import {
+  listRealtimeRules as abList,
+  addRealtimeRule as abAdd,
+  deleteRealtimeRule as abDelete,
+} from "@/lib/helpers/alert-bridge";
 
 /** A live sensor as the reconciler sees it (subset of VstSensor, renamed). */
 export interface AdapterSensor {
@@ -32,6 +37,12 @@ export interface ClusterAdapter {
   /** Ensure a Deployment uses the given update strategy (e.g. "Recreate" for
    *  single-GPU workloads). Returns true if it patched, false if already set. */
   ensureDeploymentStrategy?(ns: string, deployment: string, type: "Recreate" | "RollingUpdate"): Promise<boolean>;
+  /** List all realtime alert rules. */
+  listRealtimeRules?(): Promise<{ id: string; liveStreamUrl: string; alertType: string; prompt?: string }[]>;
+  /** Create a realtime alert rule. */
+  addRealtimeRule?(input: { streamUrl: string; alertType: string; prompt: string; sensorName?: string; systemPrompt?: string; model?: string }): Promise<{ ok: boolean; id?: string; warning?: string }>;
+  /** Delete a realtime alert rule by id. */
+  deleteRealtimeRule?(id: string): Promise<{ ok: boolean; warning?: string }>;
 }
 
 /** Real adapter backed by the in-cluster VIOS HTTP API via the vst.ts helpers. */
@@ -101,5 +112,23 @@ export class VstClusterAdapter implements ClusterAdapter {
       body: { spec: { strategy } },
     }, MERGE_PATCH_OPTS);
     return true;
+  }
+
+  async listRealtimeRules(): Promise<{ id: string; liveStreamUrl: string; alertType: string; prompt?: string }[]> {
+    const { rules } = await abList();
+    return rules.map((r) => ({
+      id: r.id,
+      liveStreamUrl: r.live_stream_url,
+      alertType: r.alert_type,
+      prompt: r.prompt,
+    }));
+  }
+
+  async addRealtimeRule(input: { streamUrl: string; alertType: string; prompt: string; sensorName?: string; systemPrompt?: string; model?: string }): Promise<{ ok: boolean; id?: string; warning?: string }> {
+    return abAdd(input);
+  }
+
+  async deleteRealtimeRule(id: string): Promise<{ ok: boolean; warning?: string }> {
+    return abDelete(id);
   }
 }
