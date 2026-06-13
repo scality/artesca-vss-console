@@ -715,9 +715,28 @@ async function collectRedis(
 
 // ─── mediamtx (RTSP server on the camera-sim host) ────────────────────────────
 
+// Per-path detail joined into feed nodes by camera name. codec is from the
+// mediamtx track; bitrate is derived from the bytesReceived delta across ticks.
+interface MediamtxPathDetail {
+  codec: FeedState["codec"];
+  bitrateMbps: number | null;
+}
+
+// Previous-tick bytesReceived per path for bitrate computation (module-level,
+// survives across ticks — mirrors the S3/Kafka rate samplers).
+const _mtxByteSample = new Map<string, { ts: number; bytes: number }>();
+
+function trackToCodec(track: string | undefined): FeedState["codec"] {
+  const t = (track ?? "").toUpperCase();
+  if (t.includes("265") || t === "HEVC") return "h265";
+  if (t.includes("264") || t === "AVC") return "h264";
+  return "unknown";
+}
+
 async function collectMediamtx(
   warnings: string[]
-): Promise<MediamtxState | null> {
+): Promise<{ state: MediamtxState | null; byName: Map<string, MediamtxPathDetail> }> {
+  const byName = new Map<string, MediamtxPathDetail>();
   try {
     const { paths, warning } = await withTimeout(
       mediamtxListPaths(),
@@ -725,19 +744,41 @@ async function collectMediamtx(
     );
     if (warning) {
       warnings.push(`mediamtx: ${warning}`);
-      return { reachable: false, pathsReady: 0, pathsTotal: 0 };
+      return { state: { reachable: false, pathsReady: 0, pathsTotal: 0 }, byName };
     }
     // Count cameras, not raw paths: camera-sim publishes a `<name>-h264`
     // transcode alongside each H.265 path for browser HLS preview.
     const cams = paths.filter((p) => !p.name.endsWith("-h264"));
+    const nowMs = Date.now();
+    for (const p of cams) {
+      const codec = trackToCodec(p.tracks?.[0]);
+      let bitrateMbps: number | null = null;
+      const bytes = typeof p.bytesReceived === "number" ? p.bytesReceived : null;
+      if (bytes !== null) {
+        const prev = _mtxByteSample.get(p.name);
+        _mtxByteSample.set(p.name, { ts: nowMs, bytes });
+        if (prev) {
+          const dtSec = (nowMs - prev.ts) / 1000;
+          const deltaBytes = bytes - prev.bytes;
+          // Guard against stream restart (bytesReceived reset → negative delta).
+          if (dtSec > 0 && deltaBytes >= 0) {
+            bitrateMbps = (deltaBytes * 8) / 1_000_000 / dtSec;
+          }
+        }
+      }
+      byName.set(p.name, { codec, bitrateMbps });
+    }
     return {
-      reachable: true,
-      pathsReady: cams.filter((p) => p.ready).length,
-      pathsTotal: cams.length,
+      state: {
+        reachable: true,
+        pathsReady: cams.filter((p) => p.ready).length,
+        pathsTotal: cams.length,
+      },
+      byName,
     };
   } catch (err) {
     warnings.push(`mediamtx probe failed: ${String(err)}`);
-    return null;
+    return { state: null, byName };
   }
 }
 
@@ -899,7 +940,7 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
     nimState,
     pgState,
     vstRedisState,
-    mediamtxState,
+    mediamtxResult,
   ] = await Promise.all([
     collectPods(warnings),
     collectGpus(warnings),
@@ -915,6 +956,9 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
     collectRedis(CLUSTER.vst.namespace, "app=redis", warnings, "VST"),
     collectMediamtx(warnings),
   ]);
+
+  const mediamtxState = mediamtxResult.state;
+  const mtxByName = mediamtxResult.byName;
 
   // ── Merge pods: worst-health pod wins per node ────────────────────────────
 
@@ -980,18 +1024,27 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
   const feedNodeIds: string[] = [];
   for (const { nodeId, state } of feeds) {
     feedNodeIds.push(nodeId);
+    // Enrich codec + bitrate from the mediamtx path (joined by camera name):
+    // the VST sensor list publishes neither, but mediamtx knows the track codec
+    // and we derive bitrate from its bytesReceived delta.
+    const mtx = state.name ? mtxByName.get(state.name) : undefined;
+    const feed: FeedState = {
+      ...state,
+      codec: mtx && mtx.codec !== "unknown" ? mtx.codec : state.codec,
+      bitrateMbps: mtx?.bitrateMbps ?? state.bitrateMbps,
+    };
     // VST `state` is the authoritative liveness signal (this VST build doesn't
     // publish bitrate in the sensor list, so a bitrate-only check false-WARNed
     // every registered sensor). online → ok; any other known state → warn.
     const feedHealth: PipelineHealth =
-      state.state === "online"
+      feed.state === "online"
         ? "ok"
-        : state.state != null
+        : feed.state != null
           ? "warn"
-          : state.bitrateMbps !== null && state.bitrateMbps > 0
+          : feed.bitrateMbps !== null && feed.bitrateMbps > 0
             ? "ok"
             : "warn";
-    nodeMap[nodeId] = { health: feedHealth, feed: state };
+    nodeMap[nodeId] = { health: feedHealth, feed };
   }
 
   // ── Kafka node ────────────────────────────────────────────────────────────
