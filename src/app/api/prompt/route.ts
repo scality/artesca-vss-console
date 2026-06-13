@@ -125,7 +125,7 @@ const PatchPromptSchema = z.object({
 });
 
 const PromptSetPatch = z.object({
-  set: z.object({ id: z.string().min(1), name: z.string().min(1), text: z.string(), model: z.string().optional() }).optional(),
+  set: z.object({ id: z.string().min(1), name: z.string().min(1), text: z.string(), model: z.string().optional(), alertType: z.string().optional() }).optional(),
   deleteSetId: z.string().optional(),
   activePromptId: z.string().optional(),
 });

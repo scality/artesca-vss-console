@@ -19,12 +19,17 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, PlusCircle, CloudUpload } from "lucide-react";
 import { CameraRow } from "./CameraRow";
 import { AddCameraDialog } from "./AddCameraDialog";
+import type { PromptSet } from "@/components/prompt/PromptSetManager";
 
 const GcsStatusSchema = z.object({
   available: z.boolean(),
   lastUpdated: z.string().optional(),
   lastUpdatedBy: z.string().optional(),
   totalCameras: z.number().optional(),
+});
+
+const PromptSetsResponseSchema = z.object({
+  sets: z.array(z.object({ id: z.string(), name: z.string(), text: z.string(), model: z.string().optional(), alertType: z.string().optional() })),
 });
 
 const CameraWithGcsSchema = CameraSchema.extend({
@@ -42,6 +47,19 @@ export function CameraTable() {
   const [addOpen, setAddOpen] = React.useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const { data: promptData } = useQuery({
+    queryKey: ["prompt"],
+    queryFn: async () => {
+      const res = await fetch("/api/prompt");
+      if (!res.ok) throw new Error("Failed to fetch prompt sets");
+      const raw = await res.json();
+      return PromptSetsResponseSchema.parse(raw);
+    },
+    staleTime: 60_000,
+  });
+
+  const promptSets: PromptSet[] = promptData?.sets ?? [];
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["cameras"],
@@ -149,6 +167,7 @@ export function CameraTable() {
                   <TableHead>Role</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Feeds</TableHead>
+                  <TableHead>Detection prompt</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -156,7 +175,7 @@ export function CameraTable() {
                 {data.cameras.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={7}
                       className="text-center text-muted-foreground py-8"
                     >
                       No cameras registered. Add one to get started.
@@ -164,7 +183,7 @@ export function CameraTable() {
                   </TableRow>
                 ) : (
                   data.cameras.map((camera) => (
-                    <CameraRow key={camera.id} camera={camera} eip={data.eip} />
+                    <CameraRow key={camera.id} camera={camera} eip={data.eip} promptSets={promptSets} />
                   ))
                 )}
               </TableBody>

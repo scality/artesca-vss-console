@@ -87,6 +87,8 @@ const PutCameraOverrideSchema = z.object({
     })
     .nullable()
     .optional(),
+  /** Bound detection prompt-set id. null = remove the binding. */
+  promptId: z.string().nullable().optional(),
 });
 
 export async function PUT(
@@ -107,7 +109,7 @@ export async function PUT(
     );
   }
 
-  const { scenarioIds, recording } = parsed.data;
+  const { scenarioIds, recording, promptId } = parsed.data;
   const updatedBy = session.user?.email ?? "console";
 
   // k8s path: merge overrides into the Firestore camera doc.
@@ -126,11 +128,14 @@ export async function PUT(
       if (scenarioIds !== undefined) {
         if (scenarioIds === null) delete next.scenarioIds; else next.scenarioIds = scenarioIds;
       }
+      if (promptId !== undefined) {
+        if (promptId === null) delete next.promptId; else next.promptId = promptId;
+      }
       if (recording !== undefined) {
         if (recording === null) delete next.recording; else next.recording = recording;
       }
       await ctx.store.upsertCamera(ctx.instance, next, updatedBy);
-      await auditLog("camera-override-update", `camera/${id}`, { scenarioIds, recording });
+      await auditLog("camera-override-update", `camera/${id}`, { scenarioIds, promptId, recording });
       return NextResponse.json({ ok: true, cameraId: id });
     } catch (err) {
       const msg = err instanceof ReconcileContextError ? err.message : String(err);
@@ -141,7 +146,7 @@ export async function PUT(
   // docker path below: SQLite + GCS.
 
   // If both fields are absent/null, treat as clearing the override entirely.
-  if (scenarioIds === undefined && recording === undefined) {
+  if (scenarioIds === undefined && recording === undefined && promptId === undefined) {
     deleteCameraOverride(id);
     await auditLog("camera-override-clear", `camera/${id}`, {});
     return NextResponse.json({ ok: true, cameraId: id, cleared: true });
@@ -161,6 +166,7 @@ export async function PUT(
   await auditLog("camera-override-update", `camera/${id}`, {
     scenarioIds,
     recording,
+    promptId,
   });
 
   // Persist overrides to GCS as v2 (best-effort — SQLite write already done).
