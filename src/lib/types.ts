@@ -107,9 +107,10 @@ export interface OverviewSnapshot {
   namespaces: Record<string, { total: number; ready: number; failed: number }>;
   nim: { ready: boolean; warmupPct: number; queueDepth: number };
   gpus: GpuState[];
-  // consumerLagMsgs is null when the lag couldn't be measured (broker
-  // unreachable / not configured) — distinct from a real measured 0.
-  kafka: Record<string, { topic: string; consumerLagMsgs: number | null }>;
+  // retainedMsgs is topic depth (high − low watermark = messages retained in
+  // the topic), NOT consumer-group lag. null when unmeasurable (broker
+  // unreachable / not configured) — distinct from a real 0. Informational.
+  kafka: Record<string, { topic: string; retainedMsgs: number | null }>;
   s3: {
     bucket: string;
     objectCount: number;
