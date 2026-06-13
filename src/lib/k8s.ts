@@ -10,7 +10,7 @@ let _kc: KubeConfig | null = null;
 // In-cluster service-account token — present only inside a pod.
 const IN_CLUSTER_TOKEN = "/var/run/secrets/kubernetes.io/serviceaccount/token";
 
-function getKubeConfig(): KubeConfig {
+export function getKubeConfig(): KubeConfig {
   if (_kc) return _kc;
   _kc = new KubeConfig();
   // Use the in-cluster service account ONLY when actually running in a pod.
