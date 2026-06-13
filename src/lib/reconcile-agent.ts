@@ -80,6 +80,20 @@ export async function startReconcileLoop(opts?: { intervalMs?: number; instance?
     warn: (msg, meta) => log.warn(msg, meta as Record<string, unknown> | undefined),
   };
 
+  // Seed the prompt doc from the bundled default if Firestore has none yet, so a
+  // fresh deploy converges to a usable prompt instead of skipping on empty
+  // desired-state. Idempotent (only-if-absent); never blocks the loop.
+  try {
+    const { seedDefaultPromptIfAbsent } = await import("@/lib/reconcile/seed-prompt");
+    const { readDefaultPrompt } = await import("@/lib/helpers/default-prompt");
+    await seedDefaultPromptIfAbsent(store, instance, {
+      readDefault: readDefaultPrompt,
+      log: { info: (m) => log.info(m), warn: (m) => log.warn(m) },
+    });
+  } catch (err) {
+    log.warn("prompt seed step failed — continuing", { err });
+  }
+
   let inFlight = false;
   const tick = async () => {
     if (inFlight) return;
