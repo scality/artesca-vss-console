@@ -43,6 +43,7 @@ export const CameraSchema = z.object({
   description: z.string().optional(),
   feeds: z.array(FeedSchema).min(1),
   scenarioIds: z.array(z.string()).optional(),
+  promptId: z.string().optional(),
   recording: CameraRecordingSchema.optional(),
 });
 

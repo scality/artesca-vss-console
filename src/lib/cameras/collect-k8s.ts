@@ -33,6 +33,7 @@ export function buildK8sCamerasResponse(
       gcsPersisted: true,
     };
     if (c.scenarioIds) cam.scenarioIds = c.scenarioIds;
+    if (c.promptId) cam.promptId = c.promptId;
     if (c.recording) cam.recording = c.recording;
     return cam;
   });

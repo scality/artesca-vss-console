@@ -30,6 +30,7 @@ export interface PromptSet {
   name: string;
   text: string;
   model?: string;
+  alertType?: string;
 }
 
 interface PromptSetManagerProps {
@@ -50,9 +51,10 @@ interface SetFormState {
   name: string;
   text: string;
   model: string;
+  alertType: string;
 }
 
-const EMPTY_FORM: SetFormState = { id: "", name: "", text: "", model: "" };
+const EMPTY_FORM: SetFormState = { id: "", name: "", text: "", model: "", alertType: "" };
 
 export function PromptSetManager({ sets, activePromptId }: PromptSetManagerProps) {
   const queryClient = useQueryClient();
@@ -93,7 +95,7 @@ export function PromptSetManager({ sets, activePromptId }: PromptSetManagerProps
 
   // ── Upsert mutation ─────────────────────────────────────────────────────────
   const upsertMutation = useMutation({
-    mutationFn: async (set: { id: string; name: string; text: string; model?: string }) => {
+    mutationFn: async (set: { id: string; name: string; text: string; model?: string; alertType?: string }) => {
       const res = await fetch("/api/prompt", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -146,7 +148,7 @@ export function PromptSetManager({ sets, activePromptId }: PromptSetManagerProps
 
   const openEdit = (set: PromptSet) => {
     setIsNew(false);
-    setFormState({ id: set.id, name: set.name, text: set.text, model: set.model ?? "" });
+    setFormState({ id: set.id, name: set.name, text: set.text, model: set.model ?? "", alertType: set.alertType ?? "" });
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -158,6 +160,7 @@ export function PromptSetManager({ sets, activePromptId }: PromptSetManagerProps
       name: formState.name,
       text: formState.text,
       ...(formState.model ? { model: formState.model } : {}),
+      ...(formState.alertType ? { alertType: formState.alertType } : {}),
     });
   };
 
@@ -215,6 +218,11 @@ export function PromptSetManager({ sets, activePromptId }: PromptSetManagerProps
                         {set.model && (
                           <span className="text-xs text-muted-foreground font-mono">
                             {set.model}
+                          </span>
+                        )}
+                        {set.alertType && (
+                          <span className="text-xs text-muted-foreground">
+                            alert: {set.alertType}
                           </span>
                         )}
                       </div>
@@ -315,6 +323,18 @@ export function PromptSetManager({ sets, activePromptId }: PromptSetManagerProps
                   setFormState((s) => s ? { ...s, model: e.target.value } : s)
                 }
                 placeholder="nvidia-nemotron-nano-9b-v2"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="ps-alert-type">Alert type <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Input
+                id="ps-alert-type"
+                value={formState?.alertType ?? ""}
+                onChange={(e) =>
+                  setFormState((s) => s ? { ...s, alertType: e.target.value } : s)
+                }
+                placeholder="Self-Checkout Shrink"
               />
             </div>
 

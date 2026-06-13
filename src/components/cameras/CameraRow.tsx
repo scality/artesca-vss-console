@@ -11,10 +11,12 @@ import { useToast } from "@/hooks/use-toast";
 import { ChevronDown, ChevronRight, Trash2, RefreshCw } from "lucide-react";
 import { FeedList } from "./FeedList";
 import { CameraDetailPanel } from "./CameraDetailPanel";
+import type { PromptSet } from "@/components/prompt/PromptSetManager";
 
 interface CameraRowProps {
   camera: Camera & { gcsPersisted?: boolean };
   eip: string;
+  promptSets: PromptSet[];
 }
 
 /** Badge indicating where the camera definition lives. */
@@ -72,10 +74,31 @@ const roleBadgeClass: Record<Camera["role"], string> = {
   other: "border-muted-foreground text-muted-foreground",
 };
 
-export function CameraRow({ camera, eip }: CameraRowProps) {
+export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
   const [expanded, setExpanded] = React.useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const bindPromptMutation = useMutation({
+    mutationFn: async (promptId: string | null) => {
+      const res = await fetch(`/api/cameras/${camera.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ promptId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error((body as { error?: string }).error ?? "Save failed");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cameras"] });
+      toast({ title: "Detection prompt updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update detection prompt", description: err.message, variant: "destructive" });
+    },
+  });
 
   const removeCamera = useMutation({
     mutationFn: async () => {
@@ -148,6 +171,24 @@ export function CameraRow({ camera, eip }: CameraRowProps) {
         <TableCell className="text-sm text-muted-foreground">
           {camera.feeds.length} feed{camera.feeds.length !== 1 ? "s" : ""}
         </TableCell>
+        <TableCell>
+          <select
+            className="h-7 rounded-md border border-input bg-background px-2 py-0 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            value={camera.promptId ?? ""}
+            disabled={bindPromptMutation.isPending}
+            onChange={(e) => {
+              const value = e.target.value;
+              bindPromptMutation.mutate(value || null);
+            }}
+          >
+            <option value="">— none —</option>
+            {promptSets.map((ps) => (
+              <option key={ps.id} value={ps.id}>
+                {ps.name}
+              </option>
+            ))}
+          </select>
+        </TableCell>
         <TableCell className="text-right">
           <div className="flex justify-end gap-1">
             <Button
@@ -181,7 +222,7 @@ export function CameraRow({ camera, eip }: CameraRowProps) {
       </TableRow>
       {expanded && (
         <TableRow>
-          <TableCell colSpan={6} className="py-2 bg-muted/10">
+          <TableCell colSpan={7} className="py-2 bg-muted/10">
             <Tabs defaultValue="feeds" className="w-full">
               <TabsList className="h-7 mb-2 bg-muted/40">
                 <TabsTrigger value="feeds" className="h-6 text-xs px-3">
