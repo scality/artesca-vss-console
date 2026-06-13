@@ -21,6 +21,11 @@ function fakeStore(cameras: CameraEntry[]): { store: ConfigStore; written: Recon
       writePrompt: async () => {},
       readScenarios: async () => [],
       writeScenarios: async () => {},
+      readPromptSets: async () => [],
+      upsertPromptSet: async () => {},
+      deletePromptSet: async () => {},
+      readActivePromptId: async () => null,
+      setActivePromptId: async () => {},
     },
   };
 }

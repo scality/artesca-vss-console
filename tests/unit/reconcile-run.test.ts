@@ -20,6 +20,11 @@ function fakeStore(cameras: CameraEntry[]): { store: ConfigStore; written: Recon
     writePrompt: async () => {},
     readScenarios: async () => [],
     writeScenarios: async () => {},
+    readPromptSets: async () => [],
+    upsertPromptSet: async () => {},
+    deletePromptSet: async () => {},
+    readActivePromptId: async () => null,
+    setActivePromptId: async () => {},
   };
   return { store, written };
 }
@@ -96,6 +101,11 @@ describe("reconcileInstanceCameras", () => {
       writePrompt: async () => {},
       readScenarios: async () => [],
       writeScenarios: async () => {},
+      readPromptSets: async () => [],
+      upsertPromptSet: async () => {},
+      deletePromptSet: async () => {},
+      readActivePromptId: async () => null,
+      setActivePromptId: async () => {},
     };
     const adapter: ClusterAdapter = {
       listSensors: async () => [],
@@ -127,6 +137,11 @@ describe("reconcileInstanceCameras", () => {
       writePrompt: async () => {},
       readScenarios: async () => [oneScenario],
       writeScenarios: async () => {},
+      readPromptSets: async () => [],
+      upsertPromptSet: async () => {},
+      deletePromptSet: async () => {},
+      readActivePromptId: async () => null,
+      setActivePromptId: async () => {},
     };
 
     const promptRefs: PromptRefs = { ns: "vss-base", deployment: "vss-rtvi-vlm", promptKey: "VLM_SYSTEM_PROMPT" };
