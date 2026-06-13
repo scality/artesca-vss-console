@@ -72,14 +72,43 @@ describe("prompt-sets (k8s)", () => {
     const upsertPromptSet = vi.fn().mockResolvedValue(undefined);
     const setActivePromptId = vi.fn().mockResolvedValue(undefined);
     const readPrompt = vi.fn().mockResolvedValue({ prompt: "t" });
+    const readActivePromptId = vi.fn().mockResolvedValue(null);
     vi.mocked(makeReconcileContext).mockResolvedValue({
       instance: "i1", adapter: {} as never, refs: { prompt: {} } as never,
-      store: { upsertPromptSet, setActivePromptId, readPrompt } as never,
+      store: { upsertPromptSet, setActivePromptId, readPrompt, readActivePromptId } as never,
     } as never);
     await PATCH(patchReq({ set: { id: "wh", name: "WH", text: "x" } }));
     expect(upsertPromptSet).toHaveBeenCalledWith("i1", expect.objectContaining({ id: "wh" }), "op@test");
     await PATCH(patchReq({ activePromptId: "wh" }));
     expect(setActivePromptId).toHaveBeenCalledWith("i1", "wh", "op@test");
     expect(reconcilePrompt).toHaveBeenCalled();
+  });
+
+  it("PATCH {deleteSetId} is rejected with 409 when deleting the active set", async () => {
+    const deletePromptSet = vi.fn().mockResolvedValue(undefined);
+    const readActivePromptId = vi.fn().mockResolvedValue("default");
+    vi.mocked(makeReconcileContext).mockResolvedValue({
+      instance: "i1", adapter: {} as never, refs: {} as never,
+      store: { deletePromptSet, readActivePromptId } as never,
+    } as never);
+    const res = await PATCH(patchReq({ deleteSetId: "default" }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toMatch(/active/i);
+    expect(deletePromptSet).not.toHaveBeenCalled();
+  });
+
+  it("PATCH {deleteSetId} succeeds when deleting a non-active set", async () => {
+    const deletePromptSet = vi.fn().mockResolvedValue(undefined);
+    const readActivePromptId = vi.fn().mockResolvedValue("other");
+    vi.mocked(makeReconcileContext).mockResolvedValue({
+      instance: "i1", adapter: {} as never, refs: {} as never,
+      store: { deletePromptSet, readActivePromptId } as never,
+    } as never);
+    const res = await PATCH(patchReq({ deleteSetId: "default" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(deletePromptSet).toHaveBeenCalledWith("i1", "default", "op@test");
   });
 });
