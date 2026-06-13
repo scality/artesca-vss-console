@@ -376,10 +376,25 @@ async function fetchFrameDropStats(
     }
 
     if (count === null && ratePerMin === null) {
-      alerts.push({
-        severity: "warn",
-        message: "Frame drop metrics unavailable — Prometheus scrape failed",
-      });
+      // Both queries succeeded (200) but returned no series, vs an actual
+      // Prometheus failure (non-200). The VSS 3.2 recorder exposes no
+      // Prometheus /metrics endpoint, so recorder_frames_dropped_total is
+      // simply not collected — that's info, not an alarming scrape failure.
+      const reachable = countResp.ok && rateResp.ok;
+      alerts.push(
+        reachable
+          ? {
+              severity: "info",
+              message:
+                "Frame-drop metric not collected — the VSS recorder exposes no Prometheus metric in this build",
+            }
+          : {
+              severity: "warn",
+              message: `Frame-drop metrics unavailable — Prometheus returned HTTP ${
+                !countResp.ok ? countResp.status : rateResp.status
+              }`,
+            },
+      );
     }
 
     return { count, ratePerMin };
@@ -388,7 +403,7 @@ async function fetchFrameDropStats(
     log.warn("frameDropStats unavailable", { err: String(err) });
     alerts.push({
       severity: "warn",
-      message: "Frame drop count unavailable — Prometheus scrape failed",
+      message: "Frame-drop metrics unavailable — Prometheus unreachable",
     });
     return { count: null, ratePerMin: null };
   }
@@ -549,13 +564,22 @@ export async function GET() {
     });
   }
 
+  // Recording-cadence sanity check. The S3-object inter-arrival reflects the
+  // recorder's flush cadence, which differs by mode: ~10s for event-clip
+  // recording (event_record_length_secs) vs ~60s for always_recording
+  // (continuous). The console can't read the recorder mode here, so the bounds
+  // are wide + env-overridable — warn only on a clearly stalled (minutes-long
+  // gaps) or thrashing (sub-second) cadence, not on a normal ~60s continuous
+  // segment.
+  const segMinSecs = Number(process.env.VST_SEGMENT_MIN_SECS) || 1;
+  const segMaxSecs = Number(process.env.VST_SEGMENT_MAX_SECS) || 180;
   if (
     segmentDurationSecsP50 !== null &&
-    (segmentDurationSecsP50 < 2 || segmentDurationSecsP50 > 50)
+    (segmentDurationSecsP50 < segMinSecs || segmentDurationSecsP50 > segMaxSecs)
   ) {
     alerts.push({
       severity: "warn",
-      message: `Unusual segment duration: P50 is ${segmentDurationSecsP50.toFixed(1)}s (expected ~10s)`,
+      message: `Unusual segment cadence: P50 is ${segmentDurationSecsP50.toFixed(1)}s (normal is ~10s event-clip / ~60s continuous; outside ${segMinSecs}–${segMaxSecs}s suggests stalled or thrashing recording)`,
     });
   }
 
