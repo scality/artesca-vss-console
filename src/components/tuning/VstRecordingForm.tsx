@@ -40,8 +40,10 @@ const VstResponseSchema = z.object({
         .array(
           z.object({
             sensorId: z.string(),
-            bitrateMbps: z.number(),
-            gop: z.number(),
+            name: z.string().default(""),
+            state: z.string().default(""),
+            bitrateMbps: z.number().default(0),
+            gop: z.number().default(0),
           })
         )
         .optional(),
@@ -307,21 +309,40 @@ export function VstRecordingForm() {
         </div>
       )}
 
-      {/* Live sensor observation box */}
+      {/* Registered-sensor box. VST's /sensor/list is a device registry: it
+          reports name + state, but NOT live bitrate/GOP — those only show if a
+          source populates them. Live codec/bitrate lives on the Cameras page. */}
       {observedSensors.length > 0 && (
         <div className="bg-muted/20 rounded p-3 text-xs font-mono">
           <p className="text-muted-foreground mb-1">
-            Live ingest (from VST sensor):
+            Registered sensors (from VST) — {observedSensors.length}:
           </p>
           {observedSensors.map((s) => (
             <p key={s.sensorId}>
-              <span className="text-foreground">{s.sensorId}</span>
-              <span className="text-muted-foreground">
-                {" "}
-                · {s.bitrateMbps} Mbps · GOP {s.gop}
-              </span>
+              <span className="text-foreground">{s.name || s.sensorId}</span>
+              {s.state && (
+                <span
+                  className={
+                    s.state.toLowerCase() === "online"
+                      ? "text-green-500"
+                      : "text-yellow-500"
+                  }
+                >
+                  {" "}
+                  · {s.state}
+                </span>
+              )}
+              {s.bitrateMbps > 0 && (
+                <span className="text-muted-foreground"> · {s.bitrateMbps} Mbps</span>
+              )}
+              {s.gop > 0 && (
+                <span className="text-muted-foreground"> · GOP {s.gop}</span>
+              )}
             </p>
           ))}
+          <p className="text-muted-foreground mt-2 not-italic">
+            VST reports device state only — live bitrate/codec is on the Cameras page (enriched from mediamtx).
+          </p>
         </div>
       )}
 
