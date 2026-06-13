@@ -9,7 +9,7 @@ export interface PromptDoc {
 }
 
 /** A named, reusable VLM system prompt ("use case"). */
-export interface PromptSet { id: string; name: string; text: string; model?: string }
+export interface PromptSet { id: string; name: string; text: string; model?: string; alertType?: string }
 
 /** A single alert-scenario entry stored in the config store. */
 export interface ScenarioEntry {
