@@ -191,6 +191,12 @@ const ALERT_BRIDGE_URL =
   process.env.ALERT_BRIDGE_URL ??
   `http://vss-alert-bridge.${VSS_NS}.svc.cluster.local:9080`;
 
+// Realtime alert rules API — per-camera driver config (list/add/delete rules).
+// Exposes GET/POST/DELETE /api/v1/realtime as documented in the VSS alert-bridge.
+const ALERT_BRIDGE_REALTIME_URL =
+  process.env.ALERT_BRIDGE_REALTIME_URL ??
+  `${ALERT_BRIDGE_URL}/api/v1/realtime`;
+
 // ─── RTVI / VLM ──────────────────────────────────────────────────────────────
 // Helm chart layout verified on live cluster (2026-05-11):
 //   Deployment:  vss-rtvi-vlm   in vss-<profile>
@@ -513,6 +519,7 @@ export const CLUSTER = {
   },
   alertBridge: {
     url: ALERT_BRIDGE_URL,
+    realtimeUrl: ALERT_BRIDGE_REALTIME_URL,
   },
   rtvi: {
     ...RTVI,

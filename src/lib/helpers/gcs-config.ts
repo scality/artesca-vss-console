@@ -27,6 +27,8 @@ export interface CameraEntry {
   /** Per-camera scenario overrides (v2+).  undefined = sensor_filter glob.
    *  Empty array = explicit suppression. */
   scenarioIds?: string[];
+  /** Bound detection prompt-set id; absent => not driven through the realtime API. */
+  promptId?: string;
   recording?: CameraRecordingEntry;
 }
 
