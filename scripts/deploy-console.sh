@@ -450,7 +450,10 @@ metadata:
   namespace: ${ns}
 rules:
 - apiGroups: [""]
-  resources: ["configmaps", "secrets"]
+  resources: ["configmaps"]
+  verbs: ["create", "get", "list", "patch"]
+- apiGroups: [""]
+  resources: ["secrets"]
   verbs: ["get", "list", "patch"]
 - apiGroups: ["apps"]
   resources: ["deployments", "statefulsets"]
