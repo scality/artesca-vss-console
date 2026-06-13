@@ -49,7 +49,10 @@ export default async function OverviewPage() {
     namespace,
     pods: nsPods,
     total: nsPods.length,
-    ready: nsPods.filter((p) => p.ready).length,
+    // Completed Jobs (Succeeded) carry no Ready condition but are terminal
+    // successes — count them toward ready so a finished one-shot doesn't show
+    // the namespace as N-1/N WARN. Matches the docker path's succeeded→ready.
+    ready: nsPods.filter((p) => p.ready || p.phase === "Succeeded").length,
   }));
 
   const hasOverviewData =

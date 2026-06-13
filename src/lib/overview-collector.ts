@@ -239,10 +239,13 @@ async function collectK8sOverview(
       if (phase === "Failed" || phase === "Unknown") {
         failed++;
       } else if (
+        phase === "Succeeded" ||
         pod.status?.conditions?.find(
           (c) => c.type === "Ready" && c.status === "True"
         )
       ) {
+        // Succeeded = completed Job (terminal success, no Ready condition);
+        // count it as ready so the namespace ratio isn't dragged below total.
         ready++;
       }
     }
