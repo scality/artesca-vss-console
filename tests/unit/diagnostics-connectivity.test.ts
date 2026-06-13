@@ -81,17 +81,28 @@ beforeEach(() => {
   vi.mocked(coreV1).mockReset().mockReturnValue({
     listNamespace: vi.fn().mockResolvedValue({ items: [] }),
   } as never);
+
+  // Alert-bridge probe uses global fetch — default to a reachable response so
+  // the unrelated per-backend tests aren't perturbed. Cases below re-stub it.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ incidents: [] }),
+    } as Response)
+  );
 });
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("collectConnectivity()", () => {
-  it("returns all five backends in stable order: k8s, prometheus, mediamtx, kafka, s3", async () => {
+  it("returns all six backends in stable order: k8s, prometheus, mediamtx, kafka, s3, alert-bridge", async () => {
     const result = await collectConnectivity();
 
-    expect(result).toHaveLength(5);
+    expect(result).toHaveLength(6);
     const ids = result.map((b) => b.id);
-    expect(ids).toEqual(["k8s", "prometheus", "mediamtx", "kafka", "s3"]);
+    expect(ids).toEqual(["k8s", "prometheus", "mediamtx", "kafka", "s3", "alert-bridge"]);
   });
 
   it("each backend entry has the required shape (id, label, ok, detail, latencyMs)", async () => {
@@ -275,6 +286,45 @@ describe("collectConnectivity()", () => {
     expect(s3.detail).toContain("NoSuchBucket");
   });
 
+  // ── alert-bridge ─────────────────────────────────────────────────────────────
+
+  it("alert-bridge: ok=true + detail='reachable' when GET /incidents returns 2xx", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ incidents: [] }) } as Response)
+    );
+
+    const result = await collectConnectivity();
+    const ab = result.find((b) => b.id === "alert-bridge")!;
+
+    expect(ab.ok).toBe(true);
+    expect(ab.detail).toBe("reachable");
+    expect(ab.label).toBe("Alert bridge (incidents)");
+  });
+
+  it("alert-bridge: ok=false + detail='HTTP 503' when the endpoint returns non-2xx", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({}) } as Response)
+    );
+
+    const result = await collectConnectivity();
+    const ab = result.find((b) => b.id === "alert-bridge")!;
+
+    expect(ab.ok).toBe(false);
+    expect(ab.detail).toBe("HTTP 503");
+  });
+
+  it("alert-bridge: ok=false + detail=error message when fetch rejects", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+
+    const result = await collectConnectivity();
+    const ab = result.find((b) => b.id === "alert-bridge")!;
+
+    expect(ab.ok).toBe(false);
+    expect(ab.detail).toContain("ECONNREFUSED");
+  });
+
   // ── type contract ──────────────────────────────────────────────────────────
 
   it("the BackendStatus type export has the exact contract shape", () => {
@@ -286,13 +336,14 @@ describe("collectConnectivity()", () => {
       detail: "reachable",
       latencyMs: 42,
     };
-    // id must be one of the five union members
+    // id must be one of the six union members
     const validIds: BackendStatus["id"][] = [
       "k8s",
       "prometheus",
       "mediamtx",
       "kafka",
       "s3",
+      "alert-bridge",
     ];
     expect(validIds).toContain(sample.id);
   });
