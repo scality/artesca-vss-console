@@ -24,6 +24,11 @@ describe("config-store types", () => {
       writePrompt: async () => {},
       readScenarios: async () => [],
       writeScenarios: async () => {},
+      readPromptSets: async () => [],
+      upsertPromptSet: async () => {},
+      deletePromptSet: async () => {},
+      readActivePromptId: async () => null,
+      setActivePromptId: async () => {},
     };
     expect(typeof stub.readCameras).toBe("function");
   });

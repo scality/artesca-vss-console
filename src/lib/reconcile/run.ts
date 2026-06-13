@@ -46,6 +46,10 @@ export async function reconcileInstanceCameras(
     status.errors = result.failed.map((f) => `camera ${f.id}: ${f.warning ?? "unknown error"}`);
 
     if (opts.refs) {
+      const { reconcileVlmStrategy } = await import("@/lib/reconcile/vlm-strategy");
+      const stratRes = await reconcileVlmStrategy(adapter, { ns: opts.refs.prompt.ns, deployment: opts.refs.prompt.deployment });
+      if (stratRes.error) status.errors.push(`vlm-strategy: ${stratRes.error}`);
+
       const desiredPrompt = await store.readPrompt(instance);
       const promptRes = await reconcilePrompt(desiredPrompt, adapter, opts.refs.prompt);
       status.applied.promptUpdated = promptRes.updated;

@@ -6,6 +6,7 @@ import type {
   CameraEntry,
   ReconcileStatus,
   PromptDoc,
+  PromptSet,
   ScenarioEntry,
 } from "@/lib/config-store/types";
 
@@ -31,6 +32,7 @@ export interface FirestoreLike {
 const camerasPath = (instance: string) => `instances/${instance}/cameras`;
 const instanceDocPath = (instance: string) => `instances/${instance}`;
 const scenariosPath = (instance: string) => `instances/${instance}/scenarios`;
+const promptsPath = (instance: string) => `instances/${instance}/prompts`;
 
 /**
  * Firestore-backed ConfigStore. Data model:
@@ -92,6 +94,12 @@ export class FirestoreConfigStore implements ConfigStore {
   }
 
   async readPrompt(instance: string): Promise<PromptDoc | null> {
+    const activeId = await this.readActivePromptId(instance);
+    if (activeId) {
+      const active = (await this.readPromptSets(instance)).find((s) => s.id === activeId);
+      if (active) return { prompt: active.text, ...(active.model ? { model: active.model } : {}) };
+    }
+    // legacy fallback:
     const snap = await this.db.doc(instanceDocPath(instance)).get();
     if (!snap.exists) return null;
     const raw = (snap.data() ?? {}).prompt as Record<string, unknown> | undefined;
@@ -99,6 +107,30 @@ export class FirestoreConfigStore implements ConfigStore {
     const doc: PromptDoc = { prompt: raw.prompt };
     if (typeof raw.model === "string") doc.model = raw.model;
     return doc;
+  }
+
+  async readPromptSets(instance: string): Promise<PromptSet[]> {
+    const snap = await this.db.collection(promptsPath(instance)).get();
+    return snap.docs.map((d) => ({ ...(d.data() as Omit<PromptSet, "id">), id: d.id }));
+  }
+
+  async upsertPromptSet(instance: string, set: PromptSet, updatedBy: string): Promise<void> {
+    const { id, ...rest } = set;
+    await this.db.collection(promptsPath(instance)).doc(id).set({ ...rest, updatedBy, updatedAt: new Date().toISOString() });
+  }
+
+  async deletePromptSet(instance: string, id: string, _updatedBy: string): Promise<void> {
+    await this.db.collection(promptsPath(instance)).doc(id).delete();
+  }
+
+  async readActivePromptId(instance: string): Promise<string | null> {
+    const snap = await this.db.doc(instanceDocPath(instance)).get();
+    const v = (snap.data() ?? {}).activePromptId;
+    return typeof v === "string" ? v : null;
+  }
+
+  async setActivePromptId(instance: string, id: string, _updatedBy: string): Promise<void> {
+    await this.db.doc(instanceDocPath(instance)).set({ activePromptId: id }, { merge: true });
   }
 
   async writePrompt(instance: string, prompt: PromptDoc, updatedBy: string): Promise<void> {

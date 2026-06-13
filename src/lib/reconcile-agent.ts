@@ -74,6 +74,16 @@ export async function startReconcileLoop(opts?: { intervalMs?: number; instance?
   const { buildReconcileRefs } = await import("@/lib/reconcile/refs");
   const refs: ReconcileRunOptions["refs"] = buildReconcileRefs(CLUSTER);
 
+  // One-shot idempotent seed: if the instance has no prompt-sets yet, seed the
+  // bundled default (retail loss-prevention prompt) and mark it active.
+  try {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const defaultText = await fs.readFile(path.join(process.cwd(), "public/default-vlm-prompt.txt"), "utf8").then((t) => t.replace(/\r/g, "").trim()).catch(() => "");
+    const { seedDefaultPromptSet } = await import("@/lib/reconcile/prompt-seed");
+    await seedDefaultPromptSet(store, instance, defaultText);
+  } catch { /* fail-soft */ }
+
   // Adapt Logger (ctx: Record<string,unknown>|undefined) → AgentLog (meta?: unknown)
   const agentLog: AgentLog = {
     info: (msg, meta) => log.info(msg, meta as Record<string, unknown> | undefined),
