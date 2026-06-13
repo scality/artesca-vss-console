@@ -30,7 +30,8 @@ export default function SettingsPage() {
     const res = await fetch("/api/settings/sg");
     if (!res.ok) return;
     const data = await res.json();
-    setEntries(data);
+    // GET /api/settings/sg returns { entries: [...] }; tolerate a bare array too.
+    setEntries(Array.isArray(data) ? data : Array.isArray(data?.entries) ? data.entries : []);
   }
 
   async function fetchRotations() {
