@@ -10,7 +10,7 @@ For the platform substrate, see the top-level [`CLAUDE.md`](../CLAUDE.md). Desig
 
 | Page | Purpose |
 | ---- | ------- |
-| `/` | Overview KPIs (cluster baseline, pod summaries, NIM health, recent incidents). Auto-refreshes every 5s via `OverviewAutoRefresh` (client) → `/api/status/overview`. |
+| `/` | Overview KPIs (cluster baseline, pod summaries, NIM health, recent incidents). Auto-refreshes every 5s via `OverviewAutoRefresh` (client) → `/api/status/overview`. The GPUs section surfaces a **Grafana access card** (URL + user + password in clear) linking to ARTESCA's `:8443` Grafana for historical GPU graphs — shown only when `CLUSTER.grafana.url` is set. |
 | `/topology` | Single-frame path diagram (camera-sim → VST → RTVI VLM → Agent → S3) with per-component health pulled from `/api/pods`. |
 | `/incidents` | Incident timeline. Visible in **kiosk mode** at `?mode=kiosk` (full-screen, no chrome — for the showroom display). |
 | `/cameras` | Camera registration UI. Writes to `pyramid-ingress` ConfigMap `cameras` + GCS canonical at `gs://scality-isv-labs-config/cameras/<vss-instance>.json`. |
@@ -30,7 +30,9 @@ For the platform substrate, see the top-level [`CLAUDE.md`](../CLAUDE.md). Desig
 
 Architecture note that drove the design: all RTVI / VST / alerts / demo-data pods run `hostNetwork: true` on a single MetalK8s node. Service DNS works for the console (which does **not** use hostNetwork), but the pods address each other via the bare node IP (10.42.1.111). The console always uses ClusterIP / headless-service DNS — the values in `cluster-refs.ts` reflect that, not the in-cluster bare-IP shortcuts.
 
-The exported `CLUSTER` object covers: kafka brokers + topic names, redis URL, VST endpoints (sensor list / sensor add / proxy stream add), mediamtx API, prometheus, alert-worker, RTVI ConfigMap keys, NIM preview endpoint, scenarios CM, alerts tuning CM, cameras CM + register-job prefix, demo-data deployment, S3 bucket + endpoint, restartable component map.
+The exported `CLUSTER` object covers: kafka brokers + topic names, redis URL, VST endpoints (sensor list / sensor add / proxy stream add), mediamtx API, prometheus, grafana (url + user + password + login hint), alert-worker, RTVI ConfigMap keys, NIM preview endpoint, scenarios CM, alerts tuning CM, cameras CM + register-job prefix, demo-data deployment, S3 bucket + endpoint, restartable component map.
+
+`prometheus.url` defaults to **metalk8s-monitoring**'s `prometheus-operated` (not artesca-monitoring, whose Prometheus CR has `serviceMonitorSelector=null` and holds 0 GPU series — the DCGM ServiceMonitor is discovered by metalk8s-monitoring via the `metalk8s.scality.com/monitor: ""` label). `grafana.url` is derived per-instance from `OBJECTSTORE_ENDPOINT_IP` → `https://<ip>:8443/` (or explicit `GRAFANA_URL`); `grafana.password` comes from `GRAFANA_PASSWORD` (empty in-cluster; `dev-console.sh` auto-populates it laptop-side from the node's ARTESCA Keycloak admin secret). Grafana sits behind ARTESCA's `:8443` Keycloak SSO (realm `artesca`), so the login is the ARTESCA admin, **not** the Grafana local admin (its form is disabled).
 
 ## VSS 3.2 Helm compatibility
 
