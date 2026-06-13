@@ -13,7 +13,7 @@ interface FeatureFlags {
 }
 
 const FLAG_LABELS: Record<keyof FeatureFlags, string> = {
-  enablePreviewNim: "Enable preview NIM (NVILA-Lite-2B on GPU 0)",
+  enablePreviewNim: "Enable preview NIM (NVILA-Lite-2B on GPU 1)",
   enableRehearsalBigButton: "Enable rehearsal mode big button on demo-data page",
   enableSlack: "Enable Slack alert channel",
 };
