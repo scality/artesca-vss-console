@@ -91,14 +91,16 @@ chmod 600 "$KCFG"
 # ── 2. Discover Kafka ClusterIP + VSS namespace ───────────────────────────────
 K="sudo -n kubectl --kubeconfig=/etc/kubernetes/admin.conf"
 VSS_NS="${STACK_ID:+vss-${SCALITY_BP_PROFILE:-alerts}}"; VSS_NS="${VSS_NS:-vss-alerts}"
-KAFKA_IP="$(rsh "$K -n $VSS_NS get svc kafka-kafka -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
-# Prometheus lives in metalk8s-monitoring (the instance that scrapes DCGM/GPU —
-# artesca-monitoring's does NOT). Its svc is headless, so forward a prometheus
-# POD IP (re-discovered each run, like KAFKA_IP).
-PROM_IP="$(rsh "$K -n metalk8s-monitoring get pod -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].status.podIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
-# VST HTTP sensor API (vss-vios-sensor:30000) — the console's sensor list/get
-# probe. Off-cluster its svc DNS doesn't resolve, so forward the ClusterIP.
-VST_IP="$(rsh "$K -n $VSS_NS get svc vss-vios-sensor -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
+# Dynamic forward targets, re-resolved on every (re)connect. Kafka + VST are
+# ClusterIPs (stable across a stop/start), but Prometheus is a headless-svc POD
+# IP that changes when the pod reschedules — so the reconnect loop MUST refresh
+# these, not reuse stale values.
+discover_tunnel_ips() {
+  KAFKA_IP="$(rsh "$K -n $VSS_NS get svc kafka-kafka -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
+  PROM_IP="$(rsh "$K -n metalk8s-monitoring get pod -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].status.podIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
+  VST_IP="$(rsh "$K -n $VSS_NS get svc vss-vios-sensor -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
+}
+discover_tunnel_ips
 say "ns=$VSS_NS  kafka=${KAFKA_IP:-?}  prometheus=${PROM_IP:-?}  vst=${VST_IP:-?}  (K8s→:$K8S_PORT, Kafka→:$KAFKA_PORT, Prom→:$PROM_PORT, VST→:$VST_PORT)"
 
 # ── 2b. Discover camera-sim host + auto-authorize this laptop on its SG :9997 ──
@@ -212,17 +214,24 @@ fi
 
 # ── 5. Open the SSH local forwards (no sudo) ──────────────────────────────────
 # ControlMaster off so the forward doesn't graft onto a shared multiplex master
-# (the footgun that broke -L tunnels before — see lib-kubectl.sh).
-FWD=( -L "${K8S_PORT}:${PRIV_IP}:6443" )
-[[ -n "${KAFKA_IP:-}" ]] && FWD+=( -L "${KAFKA_PORT}:${KAFKA_IP}:9092" )
-[[ -n "${PROM_IP:-}" ]] && FWD+=( -L "${PROM_PORT}:${PROM_IP}:9090" )
-[[ -n "${VST_IP:-}" ]] && FWD+=( -L "${VST_PORT}:${VST_IP}:30000" )
+# (the footgun that broke -L tunnels before — see lib-kubectl.sh). ServerAlive*
+# makes ssh notice a dropped connection (instance stop/start) within ~45s and
+# exit, so the self-healing hold below can reconnect. ConnectTimeout keeps the
+# reconnect loop from stalling on a still-down node. LogLevel=QUIET suppresses
+# the node's pre-auth login banner that otherwise floods the menubar logs.
+RECONNECT_DELAY=10
+open_tunnel() {
+  local FWD=( -L "${K8S_PORT}:${PRIV_IP}:6443" )
+  [[ -n "${KAFKA_IP:-}" ]] && FWD+=( -L "${KAFKA_PORT}:${KAFKA_IP}:9092" )
+  [[ -n "${PROM_IP:-}" ]]  && FWD+=( -L "${PROM_PORT}:${PROM_IP}:9090" )
+  [[ -n "${VST_IP:-}" ]]   && FWD+=( -L "${VST_PORT}:${VST_IP}:30000" )
+  ssh -o ControlMaster=no -o ControlPath=none -o ExitOnForwardFailure=yes \
+      -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o LogLevel=QUIET \
+      "${REMOTE_SSH_OPTS[@]}" "${FWD[@]}" -N "$REMOTE_SSH_TARGET" &
+  SSH_PID=$!
+}
 say "Opening SSH forwards → $REMOTE_SSH_TARGET"
-# LogLevel=QUIET suppresses the node's pre-auth login Banner (the long
-# "authorized users only" block) that otherwise floods the menubar logs.
-ssh -o ControlMaster=no -o ControlPath=none -o ExitOnForwardFailure=yes -o LogLevel=QUIET \
-  "${REMOTE_SSH_OPTS[@]}" "${FWD[@]}" -N "$REMOTE_SSH_TARGET" &
-SSH_PID=$!
+open_tunnel
 trap 'kill "$SSH_PID" 2>/dev/null || true' EXIT
 
 say "Waiting for the K8s forward (127.0.0.1:$K8S_PORT)…"
@@ -267,7 +276,17 @@ else
   say "→ Restart the menubar-managed console so it reloads .env.local:"
   say "    Scality menubar → (console server) → Restart"
   say "→ Then open  http://localhost:5003  — K8s / Kafka / S3 should be green."
+  say "Self-healing: survives an instance stop/start — reconnects + re-resolves IPs automatically."
   say "Keep this process alive (the tunnels live here). Ctrl-C / stopping it tears them down."
-  # wait (not `read`) so it also holds when launched without a TTY (e.g. the menubar).
-  wait "$SSH_PID"
+  # Self-healing hold: block on the current ssh; when it dies (instance
+  # stop/start, network blip), re-resolve the dynamic IPs (the PROM pod IP
+  # changes across a restart) and reconnect, backing off while the node is
+  # unreachable. wait (not read) so it also holds without a TTY (the menubar).
+  while :; do
+    wait "$SSH_PID" 2>/dev/null || true
+    say "tunnel dropped — re-resolving IPs + reconnecting in ${RECONNECT_DELAY}s (instance may be restarting)…"
+    sleep "$RECONNECT_DELAY"
+    discover_tunnel_ips
+    open_tunnel
+  done
 fi
