@@ -68,6 +68,15 @@ function CollapsibleSection({ title, children }: CollapsibleSectionProps) {
   );
 }
 
+/** Inline "recommended starting value" hint, shown under a knob's description. */
+function Recommended({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs font-medium text-indigo-300">
+      Recommended: {children}
+    </p>
+  );
+}
+
 export function RtviTuningForm() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -199,20 +208,26 @@ export function RtviTuningForm() {
               className="w-32"
             />
             <p className="text-xs text-muted-foreground">
-              Maximum concurrent sequences (1–16). Default: 4.
+              How many requests / camera-chunk inferences the VLM runs in parallel. Higher =
+              more throughput when several cameras fire at once, but each extra slot reserves
+              VRAM. Range 1–16, default 4.
             </p>
+            <Recommended>8 — headroom for concurrent cameras; go toward 16 only with many active streams.</Recommended>
           </div>
 
-          <SliderWithLabel
-            label="kv_cache_percent"
-            value={local.kvCachePct}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(v) => update("kvCachePct", Math.round(v * 100) / 100)}
-            formatValue={(v) => v.toFixed(2)}
-            description="Fraction of GPU memory allocated to KV cache (0–1). Default: 0.8."
-          />
+          <div className="space-y-1">
+            <SliderWithLabel
+              label="kv_cache_percent"
+              value={local.kvCachePct}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(v) => update("kvCachePct", Math.round(v * 100) / 100)}
+              formatValue={(v) => v.toFixed(2)}
+              description="Share of GPU memory reserved for the KV cache — the model's working memory holding attention state for in-flight sequences. More cache = more or longer concurrent sequences before older ones are evicted. Range 0–1, default 0.80."
+            />
+            <Recommended>0.85 — 96 GB allows it; keep headroom for CUDA graphs + activations, don&apos;t exceed ~0.90.</Recommended>
+          </div>
 
           <div className="space-y-1">
             <Label>max_model_len</Label>
@@ -231,8 +246,11 @@ export function RtviTuningForm() {
               className="w-40"
             />
             <p className="text-xs text-muted-foreground">
-              Maximum token context length (1024–131072). Default: 32768.
+              Largest context window (prompt + response tokens) the model accepts per request.
+              Bigger lets each request carry more video frames / longer prompts, at higher
+              per-sequence VRAM. Range 1024–131072, default 32768.
             </p>
+            <Recommended>32768 — sufficient here; raise only if a request is being truncated.</Recommended>
           </div>
 
           {/* ── Section 1: Inference engine (advanced) ───────────────────── */}
@@ -257,6 +275,7 @@ export function RtviTuningForm() {
                 (e.g. L40S 48 GB, RTX PRO 6000 96 GB) there&apos;s plenty of room. Disable only
                 if VRAM is genuinely tight.
               </p>
+              <Recommended>Enabled (leave unchecked) — 96 GB has the room.</Recommended>
             </div>
 
             <div className="space-y-1">
@@ -278,6 +297,7 @@ export function RtviTuningForm() {
                 vLLM scheduler ticks per forward pass. Higher = more pipelining, better GPU
                 utilization. Default 8; 16 is a safe bump on a large-VRAM GPU. No quality impact.
               </p>
+              <Recommended>16</Recommended>
             </div>
 
             <div className="space-y-1">
@@ -300,6 +320,7 @@ export function RtviTuningForm() {
                 Maximum tokens processed per forward pass. Higher = better GPU utilization on
                 prefill-heavy workloads. Default 5120; 8192 is a good bump on a large-VRAM GPU.
               </p>
+              <Recommended>8192</Recommended>
             </div>
           </CollapsibleSection>
 
