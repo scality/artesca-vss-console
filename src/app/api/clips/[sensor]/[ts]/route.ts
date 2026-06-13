@@ -17,7 +17,7 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { CLUSTER } from "@/lib/cluster-refs";
+import { resolveStreamId, buildVstClipUrl } from "@/lib/streams/vst-clip";
 import {
   cacheDir,
   cachePath,
@@ -85,13 +85,6 @@ async function fetchMp4FromUrl(url: string): Promise<Buffer | null> {
   }
 }
 
-function buildVstLiveUrl(sensor: string, ts: string): string {
-  const vstBase = process.env.VST_MS_URL ?? CLUSTER.vst.msUrl;
-  const start = new Date(new Date(ts).getTime() - 5_000).toISOString();
-  const end = new Date(new Date(ts).getTime() + 5_000).toISOString();
-  return `${vstBase}/api/v1/live/sensor/${encodeURIComponent(sensor)}/clip?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
-}
-
 export async function GET(req: NextRequest, { params }: RouteParams) {
   const session = await auth();
   if (!session) {
@@ -134,10 +127,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     }
   }
 
-  // Branch 2: no manifest (or VST unreachable via manifest URL) → fetch live
-  // from VST using a freshly computed clip window.
+  // Branch 2: no manifest (or VST unreachable via manifest URL) → fetch the
+  // recorded clip from VST storage. Resolve the sensor name to its stream id,
+  // then download the ±5s MP4 from /storage/file/{streamId}.
   if (!mp4Buffer) {
-    mp4Buffer = await fetchMp4FromUrl(buildVstLiveUrl(sensor, ts));
+    const streamId = await resolveStreamId(sensor);
+    if (streamId) {
+      mp4Buffer = await fetchMp4FromUrl(buildVstClipUrl(streamId, ts));
+    }
   }
 
   if (!mp4Buffer) {

@@ -109,6 +109,16 @@ const VST_PROXY_STREAM_ADD_URL =
 // Helm: ConfigMap vss-vios-sensor-configs with key vst_config.json
 //       Deployment vss-vios-sensor
 // Legacy: ConfigMap vst-config in namespace vst
+// Storage API base (timelines + clip download). On Helm this is the nginx
+// ingress at :30888/vst/api/v1 — clip download is
+// GET /storage/file/{streamId}?startTime=..&endTime=..&container=mp4. The
+// sensor-name→streamId resolution uses the sensor API base (VST_SENSOR_URL).
+const VST_STORAGE_URL = LEGACY
+  ? (process.env.VST_STORAGE_URL ??
+      "http://vst-ingress.vst.svc.cluster.local:30888/vst/api/v1")
+  : (process.env.VST_STORAGE_URL ??
+      `http://vss-vios-ingress.${VSS_NS}.svc.cluster.local:30888/vst/api/v1`);
+
 const VST = LEGACY
   ? ({
       namespace: "vst",
@@ -117,6 +127,8 @@ const VST = LEGACY
       sensorDeployment: "sensor-ms",
       streamProcessingDeployment: "streamprocessing-ms",
       sensorListUrl: VST_SENSOR_LIST_URL,
+      sensorBase: VST_SENSOR_URL,
+      storageBase: VST_STORAGE_URL,
       msUrl: "http://sensor-ms.vst.svc.cluster.local:5010",
     } as const)
   : ({
@@ -126,6 +138,8 @@ const VST = LEGACY
       sensorDeployment: "vss-vios-sensor",
       streamProcessingDeployment: "vss-vios-streamprocessing",
       sensorListUrl: VST_SENSOR_LIST_URL,
+      sensorBase: VST_SENSOR_URL,
+      storageBase: VST_STORAGE_URL,
       msUrl: `http://vss-vios-sensor.${VSS_NS}.svc.cluster.local:5010`,
     } as const);
 
