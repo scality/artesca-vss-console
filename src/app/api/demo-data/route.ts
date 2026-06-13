@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
-import { appsV1 } from "@/lib/k8s";
+import { appsV1, MERGE_PATCH_OPTS } from "@/lib/k8s";
 import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { auditLog } from "@/lib/helpers/audit";
@@ -80,7 +80,7 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
         body: {
           spec: { replicas: enabled ? 1 : 0 },
         },
-      });
+      }, MERGE_PATCH_OPTS);
     } catch (err: unknown) {
       const { status, message } = extractK8sError(err);
       return NextResponse.json(
@@ -134,7 +134,7 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
             },
           },
         },
-      });
+      }, MERGE_PATCH_OPTS);
     } catch (err: unknown) {
       const { status, message } = extractK8sError(err);
       return NextResponse.json(

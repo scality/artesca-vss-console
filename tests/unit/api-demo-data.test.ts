@@ -32,6 +32,7 @@ vi.mock("@/lib/k8s", () => ({
       },
     }),
   })),
+  MERGE_PATCH_OPTS: { middleware: [] },
 }));
 
 vi.mock("@/lib/errors", () => ({
@@ -184,6 +185,7 @@ describe("PATCH /api/demo-data", () => {
       expect.objectContaining({
         body: expect.objectContaining({ spec: expect.objectContaining({ replicas: 1 }) }),
       }),
+      expect.anything(),
     );
     expect(auditLog).toHaveBeenCalledWith(
       "demo-data-update",

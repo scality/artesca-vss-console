@@ -6,13 +6,16 @@ import { stringify as yamlStringify } from "yaml";
 const mockReadNamespacedConfigMap = vi.fn();
 const mockPatchNamespacedConfigMap = vi.fn();
 
+const mockCreateNamespacedConfigMap = vi.fn();
+
 vi.mock("@/lib/k8s", () => ({
   coreV1: vi.fn(() => ({
     readNamespacedConfigMap: mockReadNamespacedConfigMap,
     patchNamespacedConfigMap: mockPatchNamespacedConfigMap,
     replaceNamespacedConfigMap: vi.fn(),
-    createNamespacedConfigMap: vi.fn(),
+    createNamespacedConfigMap: mockCreateNamespacedConfigMap,
   })),
+  MERGE_PATCH_OPTS: { middleware: [] },
 }));
 
 import {
@@ -36,6 +39,7 @@ function makeConfigMap(data: Record<string, string>, resourceVersion = "42") {
 beforeEach(() => {
   mockReadNamespacedConfigMap.mockReset();
   mockPatchNamespacedConfigMap.mockReset().mockResolvedValue({});
+  mockCreateNamespacedConfigMap.mockReset().mockResolvedValue({});
 });
 
 // ── readConfigMapKey ──────────────────────────────────────────────────────────
@@ -120,6 +124,29 @@ describe("patchConfigMapKey", () => {
 
     await expect(patchConfigMapKey("ns", "cm", "k", {}, "old-rv")).rejects.toThrow("Conflict");
   });
+
+  it("creates the ConfigMap when patch returns 404 (code)", async () => {
+    const err = Object.assign(new Error("Not Found"), { code: 404 });
+    mockPatchNamespacedConfigMap.mockRejectedValueOnce(err);
+
+    const value = { cameras: ["cam-01"] };
+    await patchConfigMapKey("pyramid-ingress", "scenarios", "scenarios.yaml", value);
+
+    expect(mockCreateNamespacedConfigMap).toHaveBeenCalledOnce();
+    const [callArg] = mockCreateNamespacedConfigMap.mock.calls[0];
+    expect(callArg.namespace).toBe("pyramid-ingress");
+    expect(callArg.body.metadata.name).toBe("scenarios");
+    expect(typeof callArg.body.data["scenarios.yaml"]).toBe("string");
+  });
+
+  it("creates the ConfigMap when patch returns 404 (body.reason)", async () => {
+    const err = Object.assign(new Error("Not Found"), { body: { reason: "NotFound" } });
+    mockPatchNamespacedConfigMap.mockRejectedValueOnce(err);
+
+    await patchConfigMapKey("alerts", "scenarios", "k", { x: 1 });
+
+    expect(mockCreateNamespacedConfigMap).toHaveBeenCalledOnce();
+  });
 });
 
 // ── patchConfigMapRawKey ──────────────────────────────────────────────────────
@@ -140,6 +167,27 @@ describe("patchConfigMapRawKey", () => {
 
     const [callArg] = mockPatchNamespacedConfigMap.mock.calls[0];
     expect(callArg.body.metadata).toEqual({ resourceVersion: "10" });
+  });
+
+  it("creates the ConfigMap when patch returns 404 (code)", async () => {
+    const err = Object.assign(new Error("Not Found"), { code: 404 });
+    mockPatchNamespacedConfigMap.mockRejectedValueOnce(err);
+
+    await patchConfigMapRawKey("rtvi", "rtvi-runtime-env", "PROMPT", "You are a retail analyst.");
+
+    expect(mockCreateNamespacedConfigMap).toHaveBeenCalledOnce();
+    const [callArg] = mockCreateNamespacedConfigMap.mock.calls[0];
+    expect(callArg.namespace).toBe("rtvi");
+    expect(callArg.body.metadata.name).toBe("rtvi-runtime-env");
+    expect(callArg.body.data["PROMPT"]).toBe("You are a retail analyst.");
+  });
+
+  it("propagates non-404 errors (e.g. 403 Forbidden)", async () => {
+    const err = Object.assign(new Error("Forbidden"), { code: 403 });
+    mockPatchNamespacedConfigMap.mockRejectedValueOnce(err);
+
+    await expect(patchConfigMapRawKey("ns", "cm", "k", "v")).rejects.toThrow("Forbidden");
+    expect(mockCreateNamespacedConfigMap).not.toHaveBeenCalled();
   });
 });
 

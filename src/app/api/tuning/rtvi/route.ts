@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
-import { coreV1, appsV1, rolloutRestart } from "@/lib/k8s";
+import { coreV1, appsV1, rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
 import { withRequestContext } from "@/lib/with-request-context";
 import { patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
@@ -199,6 +199,7 @@ async function patchVlmDeploymentEnv(
 
   await appsV1().patchNamespacedDeployment(
     { name, namespace: ns, body: patch },
+    MERGE_PATCH_OPTS,
   );
 }
 

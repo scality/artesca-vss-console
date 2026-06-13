@@ -7,6 +7,7 @@ const patch = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/k8s", () => ({
   appsV1: () => ({ readNamespacedDeployment: read, patchNamespacedDeployment: patch }),
   rolloutRestart: vi.fn(),
+  MERGE_PATCH_OPTS: { middleware: [] },
 }));
 import { VstClusterAdapter } from "@/lib/reconcile/cluster-adapter";
 

@@ -72,6 +72,13 @@ vi.mock("@/lib/helpers/docker-sock", () => ({
 vi.mock("@kubernetes/client-node", () => ({
   KubeConfig: mockKubeConfigCtor,
   Log: MockLogClass,
+  setHeaderOptions: vi.fn((_key: string, _value: string) => ({ middleware: [] })),
+  PatchStrategy: {
+    JsonPatch: "application/json-patch+json",
+    MergePatch: "application/merge-patch+json",
+    StrategicMergePatch: "application/strategic-merge-patch+json",
+    ServerSideApply: "application/apply-patch+yaml",
+  },
 }));
 
 // ── Module under test ────────────────────────────────────────────────────────

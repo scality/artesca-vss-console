@@ -29,6 +29,7 @@ vi.mock("@/lib/k8s", () => ({
     }),
     patchNamespacedDeployment: vi.fn().mockResolvedValue({}),
   })),
+  MERGE_PATCH_OPTS: { middleware: [] },
 }));
 
 vi.mock("@/lib/errors", () => ({

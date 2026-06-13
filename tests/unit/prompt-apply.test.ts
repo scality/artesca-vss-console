@@ -14,6 +14,7 @@ vi.mock("@/lib/k8s", () => ({
     patchNamespacedDeployment: vi.fn(),
   })),
   rolloutRestart: vi.fn(),
+  MERGE_PATCH_OPTS: { middleware: [] },
 }));
 
 // Force legacy layout so prompt-apply takes the ConfigMap path (runtimeEnvCm non-empty).
