@@ -29,6 +29,9 @@ export interface ClusterAdapter {
   patchConfigMapKey?(ns: string, cm: string, key: string, value: string): Promise<void>;
   /** Rollout-restart a Deployment. Plan 4. */
   restartDeployment?(ns: string, deployment: string): Promise<void>;
+  /** Ensure a Deployment uses the given update strategy (e.g. "Recreate" for
+   *  single-GPU workloads). Returns true if it patched, false if already set. */
+  ensureDeploymentStrategy?(ns: string, deployment: string, type: "Recreate" | "RollingUpdate"): Promise<boolean>;
 }
 
 /** Real adapter backed by the in-cluster VIOS HTTP API via the vst.ts helpers. */
@@ -87,5 +90,16 @@ export class VstClusterAdapter implements ClusterAdapter {
 
   async restartDeployment(ns: string, deployment: string): Promise<void> {
     await rolloutRestart("Deployment", ns, deployment);
+  }
+
+  async ensureDeploymentStrategy(ns: string, deployment: string, type: "Recreate" | "RollingUpdate"): Promise<boolean> {
+    const d = await appsV1().readNamespacedDeployment({ name: deployment, namespace: ns });
+    if (d.spec?.strategy?.type === type) return false;
+    const strategy = type === "Recreate" ? { type, rollingUpdate: null } : { type };
+    await appsV1().patchNamespacedDeployment({
+      name: deployment, namespace: ns,
+      body: { spec: { strategy } },
+    });
+    return true;
   }
 }
