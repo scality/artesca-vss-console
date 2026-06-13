@@ -157,6 +157,12 @@ say "Writing $ENVF"
   echo "CONSOLE_DISABLE_AUTH=true"
   echo "KUBECONFIG=$KCFG"
   echo "VSS_NAMESPACE=$VSS_NS"
+  # Which instance's Firestore config docs (instances/<name>/{prompt,cameras,
+  # scenarios}) the local console reads/writes and the reconcile loop converges.
+  # Without it the k8s-path config routes degrade to blank and the loop never
+  # starts (instrumentation.ts gates on VSS_INSTANCE_NAME). Firestore access is
+  # via the operator's ADC (gcloud auth application-default login, isv-alliances).
+  echo "VSS_INSTANCE_NAME=$INSTANCE"
   # SQLite dir. The pod default (/data) is the in-cluster PVC mount, unwritable
   # on the laptop → DB-backed routes (cameras/profiles/audit) crash with ENOENT.
   # Point at the gitignored instance dir; db.ts mkdirs it on first use.
