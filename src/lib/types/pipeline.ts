@@ -72,6 +72,9 @@ export interface RedisState {
 
 export interface FeedState {
   sensorId: string;
+  name: string | null; // friendly camera name (VST sensor `name`, = mediamtx path)
+  state: string | null; // VST sensor `state` (e.g. "online")
+  rtspUrl: string | null; // resolved server-side: rtsp://<camera-sim-host>:8554/<name>
   bitrateMbps: number | null;
   codec: "h264" | "h265" | "unknown";
   resolution: { width: number; height: number } | null;

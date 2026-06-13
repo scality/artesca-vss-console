@@ -558,12 +558,13 @@ export function FeedActionsRenderer({ nodeId, runtimeState }: TabRendererProps) 
   // nodeId = "feed:<sensorId>"
   const sensorId = nodeId.startsWith("feed:") ? nodeId.slice("feed:".length) : nodeId;
 
-  // NEXT_PUBLIC_CAMERA_SIM_HOST can be set at build time; falls back to the
-  // internal hostname used by the cluster (only accessible from within the cluster).
+  // Prefer the server-resolved RTSP URL (correct camera-sim host + camera-name
+  // path). The client can't read the server's CAMERA_SIM_HOST, so the
+  // build-time public env is only a last-resort fallback.
   const cameraSimHost =
     process.env.NEXT_PUBLIC_CAMERA_SIM_HOST ?? "camera-sim-host";
-
-  const rtspUrl = `rtsp://${cameraSimHost}:8554/${sensorId}`;
+  const rtspUrl =
+    runtimeState?.feed?.rtspUrl ?? `rtsp://${cameraSimHost}:8554/${sensorId}`;
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
@@ -608,19 +609,24 @@ export function FeedActionsRenderer({ nodeId, runtimeState }: TabRendererProps) 
       </div>
 
       <div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full"
-          onClick={() => window.open(
-            process.env.NEXT_PUBLIC_VST_INGRESS_URL ?? "http://localhost:30888/",
-            "_blank",
-          )}
-        >
-          View VST sensor UI
-        </Button>
+        {process.env.NEXT_PUBLIC_VST_INGRESS_URL ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() =>
+              window.open(process.env.NEXT_PUBLIC_VST_INGRESS_URL, "_blank")
+            }
+          >
+            View VST sensor UI
+          </Button>
+        ) : null}
         <p className="text-xs text-muted-foreground mt-1">
-          Opens the VST sensor UI — only accessible from within the cluster.
+          The VST sensor UI (vss-vios-ingress:30888) is reachable only from
+          inside the cluster
+          {process.env.NEXT_PUBLIC_VST_INGRESS_URL
+            ? "."
+            : " — set NEXT_PUBLIC_VST_INGRESS_URL to a reachable URL to enable a link."}
         </p>
       </div>
 

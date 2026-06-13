@@ -163,6 +163,7 @@ function podPhaseToHealth(phase?: string, ready?: boolean): Health {
 interface VstSensorRaw {
   sensor_id?: string;
   sensorId?: string;
+  name?: string;
   [key: string]: unknown;
 }
 
@@ -193,7 +194,7 @@ async function fetchFeedNodes(
       return {
         id: `feed:${sensorId}`,
         type: "feed" as NodeType,
-        label: sensorId,
+        label: s.name ?? sensorId, // friendly camera name; UUID is the stable id
         health: "unknown" as Health,
         namespace: "external",
         parent: "camera-sim",

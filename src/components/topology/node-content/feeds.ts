@@ -37,7 +37,9 @@ function FeedStatusRenderer({ runtimeState }: TabRendererProps) {
         : "—";
 
   const rows: Array<[string, string]> = [
+    ["Name", feed.name ?? "—"],
     ["Sensor ID", feed.sensorId],
+    ["State", feed.state ?? "—"],
     ["Registered in VST", feed.vstRegistered ? "Yes" : "No"],
     [
       "Bitrate",
