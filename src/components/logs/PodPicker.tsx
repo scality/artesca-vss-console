@@ -31,8 +31,7 @@ export function PodPicker({ onSelect }: PodPickerProps) {
 
   const namespaces = Array.from(new Set(pods.map((p) => p.namespace))).sort();
   const podsInNs = pods.filter((p) => p.namespace === namespace);
-  // Container names are not in PodSummary; use a placeholder list derived from pod name
-  const containers = pod ? ["main"] : [];
+  const containers = podsInNs.find((p) => p.name === pod)?.containers ?? [];
 
   function handleNamespace(ns: string) {
     setNamespace(ns);
@@ -42,9 +41,12 @@ export function PodPicker({ onSelect }: PodPickerProps) {
   }
 
   function handlePod(p: string) {
+    // Default to the pod's first container — no pod has a "main" container, so a
+    // hardcoded default 400s on the apiserver log request.
+    const first = podsInNs.find((x) => x.name === p)?.containers?.[0] ?? "";
     setPod(p);
-    setContainer("main");
-    onSelect(namespace && p ? { namespace, pod: p, container: "main" } : null);
+    setContainer(first);
+    onSelect(namespace && p && first ? { namespace, pod: p, container: first } : null);
   }
 
   function handleContainer(c: string) {
