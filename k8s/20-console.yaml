@@ -71,6 +71,9 @@ spec:
         - name: camera-sim-ssh-key
           mountPath: /etc/camera-sim
           readOnly: true
+        - name: config-store-key
+          mountPath: /etc/config-store
+          readOnly: true
         resources:
           requests:
             cpu: 100m
@@ -112,6 +115,10 @@ spec:
       - name: camera-sim-ssh-key
         secret:
           secretName: console-ssh
+          defaultMode: 0400
+      - name: config-store-key
+        secret:
+          secretName: config-store-rw
           defaultMode: 0400
 
 ---
