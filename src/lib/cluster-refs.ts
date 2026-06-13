@@ -182,6 +182,15 @@ const ALERT_WORKER_URL = LEGACY
   : (process.env.ALERT_WORKER_URL ??
       `http://vss-video-analytics-api.${VSS_NS}.svc.cluster.local:8081`);
 
+// The realtime alert-bridge (vss-alert-bridge) is the actual incident SOURCE on
+// the Helm path: it produces incidents into Elasticsearch and serves them at
+// GET /api/v1/realtime/incidents. vss-video-analytics-api (ALERT_WORKER_URL)
+// has no /api/incidents endpoint — querying it 404s, which is why the console's
+// Incidents page read 0. Incidents come from here.
+const ALERT_BRIDGE_URL =
+  process.env.ALERT_BRIDGE_URL ??
+  `http://vss-alert-bridge.${VSS_NS}.svc.cluster.local:9080`;
+
 // ─── RTVI / VLM ──────────────────────────────────────────────────────────────
 // Helm chart layout verified on live cluster (2026-05-11):
 //   Deployment:  vss-rtvi-vlm   in vss-<profile>
@@ -501,6 +510,9 @@ export const CLUSTER = {
   },
   alertWorker: {
     url: ALERT_WORKER_URL,
+  },
+  alertBridge: {
+    url: ALERT_BRIDGE_URL,
   },
   rtvi: {
     ...RTVI,
