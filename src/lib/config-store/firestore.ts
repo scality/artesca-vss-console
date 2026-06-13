@@ -192,3 +192,53 @@ export async function makeFirestoreConfigStore(): Promise<FirestoreConfigStore> 
   });
   return new FirestoreConfigStore(db as unknown as FirestoreLike);
 }
+
+export interface FirestoreHealthResult {
+  status: "ok" | "no-credentials" | "error";
+  detail?: string;
+  project: string;
+  database: string;
+  counts?: { promptSets: number; cameras: number; scenarios: number };
+}
+
+/** Connectivity + content probe for the Firestore config store, mirroring
+ *  gcsHealthCheck. Reads the instance's prompt-sets / cameras / scenarios to
+ *  confirm reachability and surface per-collection counts. Never throws.
+ *  `storeFactory` is injectable for deterministic tests. */
+export async function firestoreHealthCheck(
+  instance: string,
+  storeFactory: () => Promise<
+    Pick<ConfigStore, "readPromptSets" | "readCameras" | "readScenarios">
+  > = makeFirestoreConfigStore,
+): Promise<FirestoreHealthResult> {
+  const project =
+    process.env.FIRESTORE_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "isv-alliances";
+  const database = process.env.FIRESTORE_DATABASE_ID ?? "(default)";
+  if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return { status: "no-credentials", detail: "GOOGLE_APPLICATION_CREDENTIALS not set", project, database };
+  }
+  if (!instance) {
+    return { status: "error", detail: "VSS_INSTANCE_NAME not set", project, database };
+  }
+  try {
+    const store = await storeFactory();
+    const [promptSets, cameras, scenarios] = await Promise.all([
+      store.readPromptSets(instance),
+      store.readCameras(instance),
+      store.readScenarios(instance),
+    ]);
+    return {
+      status: "ok",
+      project,
+      database,
+      counts: { promptSets: promptSets.length, cameras: cameras.length, scenarios: scenarios.length },
+    };
+  } catch (err) {
+    return {
+      status: "error",
+      detail: err instanceof Error ? err.message.slice(0, 300) : String(err),
+      project,
+      database,
+    };
+  }
+}

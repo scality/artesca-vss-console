@@ -1,6 +1,7 @@
 import { Shell } from "@/components/Shell";
 import { ExternalLink } from "lucide-react";
 import { gcsHealthCheck, gcsCamerasGet, gcsPromptGet, gcsScenariosGet } from "@/lib/helpers/gcs-config";
+import { firestoreHealthCheck } from "@/lib/config-store/firestore";
 
 interface ServiceUrlRow {
   label: string;
@@ -151,6 +152,14 @@ export default async function AboutPage() {
           gcsScenariosGet(instance).catch(() => null),
         ])
       : [null, null, null];
+
+  // Firestore health (the k8s-path runtime-config canonical) — run at render time.
+  const firestoreHealth = await firestoreHealthCheck(instance).catch(() => ({
+    status: "error" as const,
+    detail: "health check threw unexpectedly",
+    project: process.env.FIRESTORE_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "isv-alliances",
+    database: process.env.FIRESTORE_DATABASE_ID ?? "(default)",
+  }));
 
   return (
     <Shell>
@@ -333,6 +342,70 @@ export default async function AboutPage() {
             . Mount the service account key at{" "}
             <code className="font-mono">/etc/gcs-config-rw.json</code> and set{" "}
             <code className="font-mono">GOOGLE_APPLICATION_CREDENTIALS</code>.
+          </p>
+        </section>
+
+        {/* Firestore config store health (k8s-path runtime-config canonical) */}
+        <section className="rounded-lg border border-border bg-card p-5 space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Firestore Config Store
+          </h2>
+
+          <div className="flex items-center gap-3">
+            <span
+              className={
+                firestoreHealth.status === "ok"
+                  ? "text-emerald-400 font-semibold text-sm"
+                  : firestoreHealth.status === "no-credentials"
+                    ? "text-amber-400 font-semibold text-sm"
+                    : "text-slate-400 font-semibold text-sm"
+              }
+            >
+              {firestoreHealth.status === "ok"
+                ? "available"
+                : firestoreHealth.status === "no-credentials"
+                  ? "no credentials"
+                  : "error"}
+            </span>
+            {firestoreHealth.detail && (
+              <span className="text-xs text-muted-foreground">{firestoreHealth.detail}</span>
+            )}
+          </div>
+
+          {firestoreHealth.status === "ok" && firestoreHealth.counts && (
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-border">
+                {[
+                  { surface: "Prompt sets", path: `instances/${instance}/prompts`, n: firestoreHealth.counts.promptSets },
+                  { surface: "Cameras", path: `instances/${instance}/cameras`, n: firestoreHealth.counts.cameras },
+                  { surface: "Scenarios", path: `instances/${instance}/scenarios`, n: firestoreHealth.counts.scenarios },
+                ].map(({ surface, path, n }) => (
+                  <tr key={surface} className="hover:bg-muted/20 transition-colors">
+                    <td className="py-2 pr-4">
+                      <p className="font-medium text-sm">{surface}</p>
+                      <p className="font-mono text-[10px] text-muted-foreground">{path}</p>
+                    </td>
+                    <td className="py-2">
+                      <span className="text-emerald-400 text-xs font-semibold">
+                        {n} doc{n === 1 ? "" : "s"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            Project{" "}
+            <code className="font-mono">{firestoreHealth.project}</code> · database{" "}
+            <code className="font-mono">{firestoreHealth.database}</code> · instance{" "}
+            <code className="font-mono">{instance || "(not configured)"}</code>. The k8s-path
+            runtime config (cameras / prompt-sets / scenarios) the console + reconcile-agent
+            read and write. Credentials from{" "}
+            <code className="font-mono">GOOGLE_APPLICATION_CREDENTIALS</code> (secret{" "}
+            <code className="font-mono">config-store-rw</code>); set{" "}
+            <code className="font-mono">VSS_INSTANCE_NAME</code> to select the instance.
           </p>
         </section>
 
