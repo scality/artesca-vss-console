@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { existsSync, readFileSync } from "node:fs";
 import { auth } from "@/lib/auth";
 import { CLUSTER } from "@/lib/cluster-refs";
+import { fromAlertBridge } from "@/lib/helpers/incident-wire";
 
 export const dynamic = "force-dynamic";
 
@@ -10,31 +11,6 @@ export const dynamic = "force-dynamic";
 // actually produces incidents (into ES) for live RTSP alert rules. The older
 // ALERT_WORKER_URL (vss-video-analytics-api) has no /api/incidents endpoint.
 const ALERT_BRIDGE_URL = CLUSTER.alertBridge.url;
-
-/** Map one alert-bridge incident → the console's Incident shape. The bridge
- *  emits {timestamp, category, type, isAnomaly, analyticsModule:{description,…},
- *  info:{streamId, reasoningDescription, triggerPhrase, verdict}}. */
-function fromAlertBridge(raw: unknown): unknown {
-  if (!raw || typeof raw !== "object") return raw;
-  const a = raw as Record<string, unknown>;
-  const info = (a.info ?? {}) as Record<string, unknown>;
-  const am = (a.analyticsModule ?? {}) as Record<string, unknown>;
-  const amInfo = (am.info ?? {}) as Record<string, unknown>;
-  return {
-    ts: a.timestamp ?? a.created_at ?? new Date().toISOString(),
-    scenarioId: (a.category as string) ?? "alert",
-    scenarioName: (am.description as string) ?? (a.category as string) ?? "Alert",
-    severity: a.isAnomaly ? "high" : "medium",
-    sensorId:
-      (info.streamId as string) ?? (amInfo.streamId as string) ?? "",
-    topic: (a.type as string) ?? "mdx-vlm-incidents",
-    summary:
-      (info.reasoningDescription as string) ??
-      (info.triggerPhrase as string) ??
-      "",
-    raw: a,
-  };
-}
 
 // docker runtime: the upstream blueprint's alert-bridge (captions →
 // incidents filter) only runs in --mode verification (2d_cv). For
