@@ -481,6 +481,7 @@ function summarisePod(pod: V1Pod, ns: string): PodSummary {
     age: podAge(pod.status?.startTime),
     node: pod.spec?.nodeName,
     gpus,
+    containers: (pod.spec?.containers ?? []).map((c) => c.name),
   };
 }
 
@@ -501,13 +502,15 @@ export async function collectPodSummaries(nsFilter?: string): Promise<PodsResult
         const succeeded = c.State === "exited" && exitCode === 0;
         const healthy = running && (status.includes("(healthy)") || !status.includes("("));
         const phase: PodSummary["phase"] = running ? "Running" : succeeded ? "Succeeded" : "Failed";
+        const cname = c.Names[0]?.replace(/^\//, "") ?? c.Id.slice(0, 12);
         return {
           namespace: svc,
-          name: c.Names[0]?.replace(/^\//, "") ?? c.Id.slice(0, 12),
+          name: cname,
           phase,
           ready: running ? healthy : succeeded,
           restarts: 0,
           age: c.Status ?? "?",
+          containers: [cname],
         };
       });
       return { pods, warnings };

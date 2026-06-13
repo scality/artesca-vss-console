@@ -12,6 +12,7 @@ export interface PodSummary {
   age: string; // "4h23m"
   node?: string;
   gpus?: number;
+  containers?: string[]; // container names (for the logs picker)
 }
 
 export type RecordingPolicy = "always" | "event-only" | "off";
