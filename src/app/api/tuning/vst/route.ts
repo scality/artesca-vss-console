@@ -95,6 +95,9 @@ interface SensorEntry {
   sensor_id?: string;
   sensorId?: string;
   id?: string;
+  name?: string;
+  state?: string;
+  sensorIp?: string;
   bitrate_kbps?: number;
   bitrate_mbps?: number;
   gov_length?: number;
@@ -116,7 +119,13 @@ interface VstTuningResponse {
   enableAgingPolicy: boolean;
   recorderEnableFrameDrop: boolean;
   observed?: {
-    sensors: Array<{ sensorId: string; bitrateMbps: number; gop: number }>;
+    sensors: Array<{
+      sensorId: string;
+      name: string;
+      state: string;
+      bitrateMbps: number;
+      gop: number;
+    }>;
   };
 }
 
@@ -193,26 +202,35 @@ async function fetchSensorList(): Promise<SensorEntry[] | null> {
 
 function parseSensorList(
   entries: SensorEntry[]
-): Array<{ sensorId: string; bitrateMbps: number; gop: number }> {
-  const result: Array<{ sensorId: string; bitrateMbps: number; gop: number }> = [];
+): Array<{ sensorId: string; name: string; state: string; bitrateMbps: number; gop: number }> {
+  const result: Array<{
+    sensorId: string;
+    name: string;
+    state: string;
+    bitrateMbps: number;
+    gop: number;
+  }> = [];
   for (const s of entries) {
     const sensorId = String(s.sensor_id ?? s.sensorId ?? s.id ?? "");
     if (!sensorId) continue;
-    // bitrate: prefer bitrate_mbps, else convert bitrate_kbps / 1000
+    // VST's /sensor/list is a device registry: it carries name + state but no
+    // live ingest stats. bitrate/gop stay 0 here (live codec/bitrate is enriched
+    // from mediamtx on the Cameras page) — only surface them if a source ever does.
+    const name = typeof s.name === "string" ? s.name : "";
+    const state = typeof s.state === "string" ? s.state : "";
     const bitrateMbps =
       typeof s.bitrate_mbps === "number"
         ? s.bitrate_mbps
         : typeof s.bitrate_kbps === "number"
         ? s.bitrate_kbps / 1000
         : 0;
-    // gop: accept gov_length or gop
     const gop =
       typeof s.gov_length === "number"
         ? s.gov_length
         : typeof s.gop === "number"
         ? s.gop
         : 0;
-    result.push({ sensorId, bitrateMbps, gop });
+    result.push({ sensorId, name, state, bitrateMbps, gop });
   }
   return result;
 }
