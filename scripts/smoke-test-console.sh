@@ -220,6 +220,10 @@ fake-key-body
 " \
   --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f -
 
+kubectl --context "$CONTEXT" -n "$NS" create secret generic config-store-rw \
+  --from-literal=key.json='{"type":"service_account","project_id":"smoke-test"}' \
+  --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f -
+
 # ---------------------------------------------------------------------------
 # Apply + wait
 # ---------------------------------------------------------------------------
