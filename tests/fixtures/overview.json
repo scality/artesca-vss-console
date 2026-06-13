@@ -39,8 +39,8 @@
     }
   ],
   "kafka": {
-    "vision-llm-requests": { "topic": "vision-llm-requests", "consumerLagMsgs": 0 },
-    "vision-llm-responses": { "topic": "vision-llm-responses", "consumerLagMsgs": 2 }
+    "vision-llm-requests": { "topic": "vision-llm-requests", "retainedMsgs": 0 },
+    "vision-llm-responses": { "topic": "vision-llm-responses", "retainedMsgs": 2 }
   },
   "s3": {
     "bucket": "nvidia-vss-video",

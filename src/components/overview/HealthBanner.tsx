@@ -76,21 +76,16 @@ function buildSignals(overview: OverviewSnapshot, warningCount: number): Signal[
   const kafka = Object.values(overview.kafka);
   if (kafka.length > 0) {
     const measured = kafka
-      .map((k) => k.consumerLagMsgs)
+      .map((k) => k.retainedMsgs)
       .filter((v): v is number => v !== null);
     const unreachable = measured.length === 0;
-    const lagSum = measured.reduce((s, v) => s + v, 0);
-    const health: H = unreachable
-      ? "warn"
-      : lagSum > 1000
-        ? "fail"
-        : lagSum > 100
-          ? "warn"
-          : "ok";
+    const depthSum = measured.reduce((s, v) => s + v, 0);
+    // retainedMsgs is topic depth, not consumer lag — informational only. The
+    // only real problem is an unreachable broker; depth never drives Critical.
     signals.push({
       label: "Kafka",
-      health,
-      detail: unreachable ? "unreachable" : `lag ${lagSum.toLocaleString()}`,
+      health: unreachable ? "warn" : "ok",
+      detail: unreachable ? "unreachable" : `${depthSum.toLocaleString()} msgs retained`,
     });
   }
 

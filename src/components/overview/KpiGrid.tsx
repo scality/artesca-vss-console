@@ -23,14 +23,14 @@ export function KpiGrid({ data }: KpiGridProps) {
         )
       : 0;
 
-  // Kafka lag sum — null lags mean "unreachable", not 0. If every topic is
-  // unmeasurable, the KPI must read unreachable rather than a false "0 / good".
+  // Kafka topic depth (messages retained) — null means "unreachable", not 0.
+  // Informational: depth is not consumer lag, so a non-zero value isn't "bad".
   const kafkaEntries = Object.values(data.kafka);
-  const measuredLags = kafkaEntries
-    .map((k) => k.consumerLagMsgs)
+  const measuredDepth = kafkaEntries
+    .map((k) => k.retainedMsgs)
     .filter((v): v is number => v !== null);
-  const kafkaUnreachable = kafkaEntries.length > 0 && measuredLags.length === 0;
-  const kafkaLagSum = measuredLags.reduce((s, v) => s + v, 0);
+  const kafkaUnreachable = kafkaEntries.length > 0 && measuredDepth.length === 0;
+  const kafkaDepthSum = measuredDepth.reduce((s, v) => s + v, 0);
 
   // S3 growth in MB/s from 24h bytes
   const growthMBps = (data.s3.growth24h / (24 * 3600 * 1024 * 1024)).toFixed(3);
@@ -76,18 +76,10 @@ export function KpiGrid({ data }: KpiGridProps) {
       />
 
       <KpiCard
-        label="Kafka Lag"
-        value={kafkaUnreachable ? "—" : kafkaLagSum.toLocaleString()}
-        sub={kafkaUnreachable ? "brokers unreachable" : "msgs across all topics"}
-        trend={
-          kafkaUnreachable
-            ? "flat"
-            : kafkaLagSum > 1000
-              ? "down"
-              : kafkaLagSum === 0
-                ? "up"
-                : "flat"
-        }
+        label="Kafka Depth"
+        value={kafkaUnreachable ? "—" : kafkaDepthSum.toLocaleString()}
+        sub={kafkaUnreachable ? "brokers unreachable" : "msgs retained across topics"}
+        trend="flat"
       />
 
       <KpiCard

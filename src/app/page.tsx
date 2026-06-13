@@ -233,7 +233,7 @@ export default async function OverviewPage() {
         {Object.keys(overview.kafka).length > 0 && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Kafka Consumer Lag
+              Kafka Topic Depth
             </h2>
             <div className="rounded-lg border border-border bg-card p-4">
               <KafkaLagTable kafka={overview.kafka} />
