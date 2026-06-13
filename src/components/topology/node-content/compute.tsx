@@ -804,17 +804,19 @@ function MediamtxStatus({ runtimeState }: { runtimeState?: NodeRuntimeState }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function CameraSimStatus({ runtimeState }: { runtimeState?: NodeRuntimeState }) {
+  const mtx = runtimeState?.mediamtx;
   return (
     <div className="space-y-4">
-      <PodStatusBlock pod={runtimeState?.pod} />
+      <PodStatusBlock pod={runtimeState?.pod} external="camera-sim EC2 host (no in-cluster pod)" />
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm mt-2">
-        <dt className="text-muted-foreground">EC2 state</dt>
-        <dd>—</dd>
+        <dt className="text-muted-foreground">RTSP reachable</dt>
+        <dd>{mtx ? (mtx.reachable ? "Yes" : "No") : "Unknown"}</dd>
         <dt className="text-muted-foreground">Path count</dt>
-        <dd>—</dd>
+        <dd>{mtx ? `${mtx.pathsReady}/${mtx.pathsTotal} ready` : "—"}</dd>
       </dl>
       <p className="text-xs text-muted-foreground">
-        EC2 instance state and path count unavailable from snapshot data.
+        EC2 power state isn&apos;t queried (console-aws lacks ec2:DescribeInstances);
+        reachability is inferred from the mediamtx RTSP API.
       </p>
     </div>
   );

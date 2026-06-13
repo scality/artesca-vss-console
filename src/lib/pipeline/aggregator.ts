@@ -1105,6 +1105,13 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
         ? "ok"
         : "warn";
     nodeMap["mediamtx"] = { health: mtxHealth, mediamtx: mediamtxState };
+    // camera-sim is the EC2 host running that mediamtx — reuse the same probe for
+    // its health + path count. Its EC2 power state needs ec2:DescribeInstances,
+    // which console-aws lacks, so it stays unqueried (reachability ⇒ host is up).
+    nodeMap["camera-sim"] = {
+      health: mediamtxState.reachable ? "ok" : "warn",
+      mediamtx: mediamtxState,
+    };
   }
 
   // External nodes have no K8s pod but are part of the topology
