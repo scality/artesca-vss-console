@@ -296,6 +296,28 @@ fi
 echo "==> applying Secrets"
 kubectl apply -f "$SECRETS_FILE"
 
+# Firestore credentials secret (shared by the console pod and the reconcile-agent).
+# Sourced from Secret Manager config-store-rw-key (project isv-alliances). Created
+# here so it exists before the console Deployment mounts it; reconcile-agent-deploy
+# reuses it. Idempotent — skips when already present.
+echo "==> ensuring config-store-rw secret (Firestore creds)"
+kubectl get namespace console >/dev/null 2>&1 || kubectl create namespace console
+if ! kubectl -n console get secret config-store-rw >/dev/null 2>&1; then
+  CS_KEY_TMP="$(mktemp)"
+  if gcloud secrets versions access latest --secret=config-store-rw-key \
+       --project=isv-alliances > "$CS_KEY_TMP" 2>/dev/null && [[ -s "$CS_KEY_TMP" ]]; then
+    kubectl -n console create secret generic config-store-rw \
+      --from-file=key.json="$CS_KEY_TMP"
+    echo "    created config-store-rw"
+  else
+    rm -f "$CS_KEY_TMP"
+    echo "ERROR: could not fetch config-store-rw-key from Secret Manager (project isv-alliances)." >&2
+    echo "       Run 'gcloud auth login' and ensure access to secret config-store-rw-key, then re-run." >&2
+    exit 1
+  fi
+  rm -f "$CS_KEY_TMP"
+fi
+
 # ---------------------------------------------------------------------------
 # Build + sideload the console image onto the node's containerd store.
 # Avoids the GHCR auth/visibility dance entirely — kubelet finds the image
@@ -409,6 +431,7 @@ s3_bucket_value = sys.argv[5]
 vss_namespace_value = sys.argv[6]
 console_legacy_namespaces = sys.argv[7]
 grafana_url_value = sys.argv[8]
+vss_instance_value = sys.argv[9]
 docs = list(yaml.safe_load_all(sys.stdin))
 for d in docs:
     if not d:
@@ -447,9 +470,12 @@ for d in docs:
         # Set CONSOLE_LEGACY_NAMESPACES so the console knows which namespace
         # topology is active ("1" = legacy 4-ns path, "0" = helm single-ns path).
         data["CONSOLE_LEGACY_NAMESPACES"] = console_legacy_namespaces
+        existing_inst = data.get("VSS_INSTANCE_NAME", "") or ""
+        if existing_inst in ("", "<vss-instance-name>"):
+            data["VSS_INSTANCE_NAME"] = vss_instance_value
 yaml.safe_dump_all([d for d in docs if d], sys.stdout, default_flow_style=False)
 ' "$IMAGE_REPO" "$NODE_HOSTNAME" "$CAMSIM_PUB_IP" "$S3_ENDPOINT_VALUE" "$S3_BUCKET_VALUE" \
-  "$VSS_NAMESPACE_VALUE" "$CONSOLE_LEGACY_NAMESPACES" "$GRAFANA_URL_VALUE" \
+  "$VSS_NAMESPACE_VALUE" "$CONSOLE_LEGACY_NAMESPACES" "$GRAFANA_URL_VALUE" "$VSS_INSTANCE" \
   | kubectl apply -f -
 
 # Resolve the image tag used by the just-applied manifest for the state file.
