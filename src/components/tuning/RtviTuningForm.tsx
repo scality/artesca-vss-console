@@ -41,39 +41,6 @@ const INITIAL_STEPS: StepState[] = [
   { label: "Done", status: "pending" },
 ];
 
-const MODEL_PROFILE_OPTIONS = [
-  {
-    value: "",
-    label: "Auto-detect (default)",
-    description:
-      "NIM picks the best FP8 profile for the detected GPU. Recommended for development.",
-  },
-  {
-    value: "55d063fe1cc5e3c0bd8eb943fcdaf66e9c56502a0ddb3901a9af7d86c0c1b125",
-    label: "L40S FP8 tp2 (baseline)",
-    description:
-      "Explicit pin for 2× L40S, FP8 weights, tensor-parallel split. Same as auto-detect on this hardware.",
-  },
-  {
-    value: "cbd8d45d270581ebba823e24cdfab3426dd82fb17a3cba9fc42b5bc802aad534",
-    label: "L40S FP8 tp2 + Eagle-2 (recommended for throughput)",
-    description:
-      "Speculative decoding: predicts multiple tokens per forward pass, verified by the full model. ~1.5-2× throughput, <1% quality regression on standard benchmarks. Validate on a Pyramid-representative eval set before showroom deploy.",
-  },
-  {
-    value: "f4be5f85a5619ea05f507add4d5bd91096c9793994f4f172b2797b864fbc3d73",
-    label: "L40S FP8 tp1 (single GPU)",
-    description:
-      "Only the first GPU runs the VLM. Frees GPU #2 for rtvi-embed or a second tenant.",
-  },
-  {
-    value: "6d3ac7d382db37f3d6af16ff882d1aaeeb769c473a48233d91db82a7a0d0a4ae",
-    label: "BF16 fallback (debug)",
-    description:
-      "BF16 weights, tp2. ~2× weight memory. Use only when FP8 hits an unexpected kernel issue.",
-  },
-] as const;
-
 interface CollapsibleSectionProps {
   title: string;
   children: React.ReactNode;
@@ -184,10 +151,6 @@ export function RtviTuningForm() {
     setLocal((prev) => (prev ? { ...prev, [key]: val } : null));
   };
 
-  const selectedProfile = MODEL_PROFILE_OPTIONS.find(
-    (o) => o.value === (local?.modelProfile ?? "")
-  );
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -290,8 +253,9 @@ export function RtviTuningForm() {
               </div>
               <p className="text-xs text-muted-foreground">
                 Capture-and-replay CUDA graphs for the model&apos;s forward pass. Adds ~10-20%
-                throughput. Was disabled to save memory on smaller GPUs; on L40S (48 GB)
-                there&apos;s plenty of room. Disable only if VRAM is genuinely tight.
+                throughput. Disabled to save memory on smaller GPUs; on a large-VRAM GPU
+                (e.g. L40S 48 GB, RTX PRO 6000 96 GB) there&apos;s plenty of room. Disable only
+                if VRAM is genuinely tight.
               </p>
             </div>
 
@@ -312,7 +276,7 @@ export function RtviTuningForm() {
               />
               <p className="text-xs text-muted-foreground">
                 vLLM scheduler ticks per forward pass. Higher = more pipelining, better GPU
-                utilization. Default 8; 16 is a safe bump on L40S. No quality impact.
+                utilization. Default 8; 16 is a safe bump on a large-VRAM GPU. No quality impact.
               </p>
             </div>
 
@@ -334,32 +298,45 @@ export function RtviTuningForm() {
               />
               <p className="text-xs text-muted-foreground">
                 Maximum tokens processed per forward pass. Higher = better GPU utilization on
-                prefill-heavy workloads. Default 5120; 8192 is the sweet spot for L40S.
+                prefill-heavy workloads. Default 5120; 8192 is a good bump on a large-VRAM GPU.
               </p>
             </div>
           </CollapsibleSection>
 
-          {/* ── Section 2: Speculative decoding ──────────────────────────── */}
+          {/* ── Section 2: Speculative decoding / model profile ──────────── */}
           <CollapsibleSection title="Speculative decoding">
             <div className="space-y-2">
               <Label htmlFor="model-profile">NIM_MODEL_PROFILE</Label>
-              <select
-                id="model-profile"
-                value={local.modelProfile}
-                onChange={(e) => update("modelProfile", e.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-              >
-                {MODEL_PROFILE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              {selectedProfile && (
-                <p className="text-xs text-muted-foreground">
-                  {selectedProfile.description}
-                </p>
-              )}
+              <div className="flex items-center gap-2">
+                <Input
+                  id="model-profile"
+                  type="text"
+                  value={local.modelProfile}
+                  placeholder="(empty = auto-detect)"
+                  onChange={(e) => update("modelProfile", e.target.value.trim())}
+                  className="font-mono text-xs"
+                />
+                {local.modelProfile && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => update("modelProfile", "")}
+                  >
+                    Auto
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {local.modelProfile
+                  ? "Explicit profile pinned. The hash must match the detected GPU — a profile baked for a different GPU fails with “no compatible profile.”"
+                  : "Auto-detect (recommended): the VLM picks the best profile for the detected GPU. This is the running default and is correct on any GPU."}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Profile hashes are specific to (model × NIM version × GPU). To pin one,
+                read it from the running model with <code>list-model-profiles</code> on the
+                NIM for your actual GPU — never copy a hash baked for a different GPU.
+              </p>
             </div>
           </CollapsibleSection>
 
