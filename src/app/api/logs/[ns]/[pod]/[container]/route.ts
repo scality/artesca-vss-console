@@ -9,9 +9,9 @@ import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { createSseResponse } from "@/lib/streams/sse";
 import { streamDockerLogs } from "@/lib/helpers/docker-sock";
-import { KubeConfig, Log } from "@kubernetes/client-node";
+import { Log } from "@kubernetes/client-node";
 import { PassThrough } from "stream";
-import { watchedNamespaces } from "@/lib/k8s";
+import { getKubeConfig, watchedNamespaces } from "@/lib/k8s";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -76,14 +76,11 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   return createSseResponse<{ ts: string; line: string }>(
     req.signal,
     async (write) => {
-      const kc = new KubeConfig();
-      try {
-        kc.loadFromCluster();
-      } catch {
-        kc.loadFromDefault();
-      }
-
-      const log = new Log(kc);
+      // Shared loader: gates loadFromCluster on the SA-token file. The inline
+      // try/catch form silently kept a bogus https://undefined:undefined server
+      // off-cluster (loadFromCluster no longer throws) → Log.log() new URL() →
+      // "Invalid URL". Reuse the one correct kubeconfig selector.
+      const log = new Log(getKubeConfig());
       const passthrough = new PassThrough();
 
       // Bridge Node.js stream → SSE.
