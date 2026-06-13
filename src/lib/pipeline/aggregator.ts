@@ -4,6 +4,7 @@ import { coreV1, listAllPodsInNs, runInPod, watchedNamespaces } from "@/lib/k8s"
 import { CLUSTER } from "@/lib/cluster-refs";
 import { promQuery } from "@/lib/helpers/prometheus";
 import { getKafka } from "@/lib/kafka";
+import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
 import { ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { makeS3Client, s3Endpoint } from "@/lib/s3";
 import type {
@@ -18,6 +19,7 @@ import type {
   FeedState,
   NimState,
   KafkaTopicState,
+  MediamtxState,
   DbState,
   RedisState,
 } from "@/lib/types/pipeline";
@@ -698,6 +700,34 @@ async function collectRedis(
   }
 }
 
+// ─── mediamtx (RTSP server on the camera-sim host) ────────────────────────────
+
+async function collectMediamtx(
+  warnings: string[]
+): Promise<MediamtxState | null> {
+  try {
+    const { paths, warning } = await withTimeout(
+      mediamtxListPaths(),
+      CALL_TIMEOUT_MS + 500
+    );
+    if (warning) {
+      warnings.push(`mediamtx: ${warning}`);
+      return { reachable: false, pathsReady: 0, pathsTotal: 0 };
+    }
+    // Count cameras, not raw paths: camera-sim publishes a `<name>-h264`
+    // transcode alongside each H.265 path for browser HLS preview.
+    const cams = paths.filter((p) => !p.name.endsWith("-h264"));
+    return {
+      reachable: true,
+      pathsReady: cams.filter((p) => p.ready).length,
+      pathsTotal: cams.length,
+    };
+  } catch (err) {
+    warnings.push(`mediamtx probe failed: ${String(err)}`);
+    return null;
+  }
+}
+
 // ─── Edge computation ─────────────────────────────────────────────────────────
 
 function buildEdges(
@@ -856,6 +886,7 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
     nimState,
     pgState,
     vstRedisState,
+    mediamtxState,
   ] = await Promise.all([
     collectPods(warnings),
     collectGpus(warnings),
@@ -869,6 +900,7 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
     // (k8s/nvidia-vss/alerts/README.md § "Known gaps"), so there is no separate Redis
     // in the alerts namespace to probe.
     collectRedis(CLUSTER.vst.namespace, "app=redis", warnings, "VST"),
+    collectMediamtx(warnings),
   ]);
 
   // ── Merge pods: worst-health pod wins per node ────────────────────────────
@@ -989,6 +1021,16 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
     health: vstRedisHealth,
     redis: vstRedisState ?? undefined,
   };
+
+  // ── mediamtx node (RTSP server on the camera-sim host) ─────────────────────
+  if (mediamtxState) {
+    const mtxHealth: PipelineHealth = !mediamtxState.reachable
+      ? "fail"
+      : mediamtxState.pathsTotal > 0
+        ? "ok"
+        : "warn";
+    nodeMap["mediamtx"] = { health: mtxHealth, mediamtx: mediamtxState };
+  }
 
   // External nodes have no K8s pod but are part of the topology
   for (const externalId of ["camera-sim", "mediamtx"]) {

@@ -96,6 +96,12 @@ export interface KafkaTopicState {
   lagMsgs: number | null;
 }
 
+export interface MediamtxState {
+  reachable: boolean;
+  pathsReady: number;
+  pathsTotal: number;
+}
+
 export interface NodeRuntimeState {
   health: PipelineHealth;
   pod?: PodState;
@@ -107,6 +113,7 @@ export interface NodeRuntimeState {
   feed?: FeedState;
   nim?: NimState;
   kafka?: { topics: KafkaTopicState[] };
+  mediamtx?: MediamtxState;
 }
 
 export interface PipelineSnapshot {

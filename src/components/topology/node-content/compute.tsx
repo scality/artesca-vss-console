@@ -85,9 +85,11 @@ export function clearNodeSparklines(nodeId: string): void {
 // Shared sub-components
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PodStatusBlock({ pod }: { pod?: PodState }) {
+function PodStatusBlock({ pod, external }: { pod?: PodState; external?: string }) {
   if (!pod) {
-    return <p className="text-sm text-muted-foreground">No pod data.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">{external ?? "No pod data."}</p>
+    );
   }
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
@@ -768,21 +770,31 @@ function DemoDataProducerConfig() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function MediamtxStatus({ runtimeState }: { runtimeState?: NodeRuntimeState }) {
+  const mtx = runtimeState?.mediamtx;
   const health = runtimeState?.health ?? "unknown";
-  const reachable =
-    health === "ok" ? "Yes" : health === "fail" ? "No" : "Unknown";
+  const reachable = mtx
+    ? mtx.reachable
+      ? "Yes"
+      : "No"
+    : health === "ok"
+      ? "Yes"
+      : health === "fail"
+        ? "No"
+        : "Unknown";
   return (
     <div className="space-y-4">
-      <PodStatusBlock pod={runtimeState?.pod} />
+      <PodStatusBlock pod={runtimeState?.pod} external="RTSP server on the camera-sim host (no in-cluster pod)" />
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm mt-2">
         <dt className="text-muted-foreground">Path count</dt>
-        <dd>—</dd>
+        <dd>{mtx ? `${mtx.pathsReady}/${mtx.pathsTotal} ready` : "—"}</dd>
         <dt className="text-muted-foreground">Reachable</dt>
         <dd>{reachable}</dd>
       </dl>
-      <p className="text-xs text-muted-foreground">
-        Path count unavailable from snapshot data.
-      </p>
+      {!mtx && (
+        <p className="text-xs text-muted-foreground">
+          Path count unavailable — mediamtx not probed in this snapshot.
+        </p>
+      )}
     </div>
   );
 }
