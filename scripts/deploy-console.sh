@@ -306,16 +306,21 @@ if ! kubectl -n console get secret config-store-rw >/dev/null 2>&1; then
   CS_KEY_TMP="$(mktemp)"
   if gcloud secrets versions access latest --secret=config-store-rw-key \
        --project=isv-alliances > "$CS_KEY_TMP" 2>/dev/null && [[ -s "$CS_KEY_TMP" ]]; then
-    kubectl -n console create secret generic config-store-rw \
-      --from-file=key.json="$CS_KEY_TMP"
-    echo "    created config-store-rw"
+    if kubectl -n console create secret generic config-store-rw \
+         --from-file=key.json="$CS_KEY_TMP"; then
+      rm -f "$CS_KEY_TMP"
+      echo "    created config-store-rw"
+    else
+      rm -f "$CS_KEY_TMP"
+      echo "ERROR: failed to create the config-store-rw secret in ns console." >&2
+      exit 1
+    fi
   else
     rm -f "$CS_KEY_TMP"
     echo "ERROR: could not fetch config-store-rw-key from Secret Manager (project isv-alliances)." >&2
     echo "       Run 'gcloud auth login' and ensure access to secret config-store-rw-key, then re-run." >&2
     exit 1
   fi
-  rm -f "$CS_KEY_TMP"
 fi
 
 # ---------------------------------------------------------------------------
