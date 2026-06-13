@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { createLogger } from "@/lib/logger";
 import { withRequestContext } from "@/lib/with-request-context";
+import { readDefaultPrompt } from "@/lib/helpers/default-prompt";
 
 const log = createLogger("api/prompt");
 import { z } from "zod";
@@ -29,23 +28,6 @@ let _gcsWriteChain: Promise<void> = Promise.resolve();
 function chainGcsWrite(fn: () => Promise<void>): Promise<void> {
   _gcsWriteChain = _gcsWriteChain.then(fn).catch((err) => log.error("gcs-write failed", { err }));
   return _gcsWriteChain;
-}
-
-/** Read the bundled default VLM system prompt (Pyramid retail loss-prevention
- *  scenario). Returns empty string if the file is missing — callers fall
- *  back to leaving the editor blank. The same text is applied at deploy
- *  time by scripts/stacks/nvidia-vss/bootstrap-compose.sh. */
-function readDefaultPrompt(): string {
-  try {
-    return readFileSync(
-      join(process.cwd(), "public/default-vlm-prompt.txt"),
-      "utf8",
-    )
-      .replace(/\r/g, "")
-      .trim();
-  } catch {
-    return "";
-  }
 }
 
 async function dockerInspectEnv(name: string): Promise<Record<string, string>> {
