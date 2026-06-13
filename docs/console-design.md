@@ -165,7 +165,7 @@ others are hidden in kiosk mode.
 
 | Route | Kiosk | Purpose |
 | --- | --- | --- |
-| `/` | [kiosk] | **Overview** — big cards: pod counts per namespace (traffic light per pod), NIM warmup state + token/sec, Kafka lag per topic, GPU util per card, S3 object count + growth rate, camera-sim instance state |
+| `/` | [kiosk] | **Overview** — big cards: pod counts per namespace (traffic light per pod), NIM warmup state + token/sec, Kafka topic depth per topic (messages retained — not consumer lag), GPU util per card, S3 object count + growth rate, camera-sim instance state |
 | `/topology` | [kiosk] | Interactive **React Flow** diagram — nodes = services, edges = connections (RTSP, gRPC, Kafka, HTTP). Live-colored by health. Click a node for its detail panel. |
 | `/incidents` | [kiosk] | Live feed (replaces the standalone alert dashboard for console users). Filter by scenario / sensor / severity / time-window. Click an incident → **play the source clip** (HLS via `hls.js`, server-side ffmpeg proxy from ARTESCA S3) + raw Kafka payload + thumbnail. |
 | `/cameras` | — | Table of cameras, each with N feeds (default 2 per Pyramid rail). Per-camera actions: edit / remove / restart. Per-feed actions: swap `.ts` file / disable / re-register. "Add camera" dialog uploads one or more `.ts` files → SCP to camera-sim → patch ConfigMap + restart replay + re-run register Job. |
@@ -188,7 +188,7 @@ All under `src/app/api/*`. JSON in + out except SSE streams.
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| GET | `/api/status/overview` | Aggregated pod counts + NIM + GPU + Kafka lag + S3 |
+| GET | `/api/status/overview` | Aggregated pod counts + NIM + GPU + Kafka topic depth + S3 |
 | GET | `/api/pods?ns=<ns>` | Pods in a namespace with summary status |
 | GET | `/api/pods/:ns/:name` | Single pod detail |
 | GET | `/api/cameras` | Registered sensors (VST) + replay-side sources (camera-sim) unified |
