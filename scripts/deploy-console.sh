@@ -263,14 +263,8 @@ fi
 # Apply the secrets (pre-apply required; kustomize skips non-kustomization files)
 # ---------------------------------------------------------------------------
 
-echo "==> ensuring namespaces (Secrets + RoleBindings across workload ns)"
-# Console Secrets land in ns: console. The RBAC bindings in 01-rbac.yaml
-# grant the console-sa read access in ns: vst, rtvi, agent, alerts,
-# demo-data, pyramid-ingress. Pre-create any that don't exist yet so
-# RoleBinding creation doesn't fail.
-for ns in console vst rtvi agent alerts demo-data pyramid-ingress; do
-  kubectl get ns "$ns" >/dev/null 2>&1 || kubectl create ns "$ns"
-done
+echo "==> ensuring namespace: console (for Secrets)"
+kubectl get ns console >/dev/null 2>&1 || kubectl create ns console
 
 echo "==> creating host directory for console PV (/srv/scality/console-data)"
 # Two paths:
@@ -424,6 +418,65 @@ else
   CONSOLE_LEGACY_NAMESPACES="1"
 fi
 echo "==> CONSOLE_LEGACY_NAMESPACES=$CONSOLE_LEGACY_NAMESPACES (VSS_DEPLOY_PATH=${VSS_DEPLOY_PATH:-legacy})"
+
+# ---------------------------------------------------------------------------
+# Resolve workload-namespace list and ensure each namespace exists.
+# Then generate console-writer Role + RoleBinding in each workload namespace
+# so console-sa can patch Deployments, ConfigMaps, and Jobs there.
+# These are NOT in the static k8s/console/01-rbac.yaml (which carries only
+# the cluster-scoped console-reader) to avoid namespace-mismatch errors when
+# VSS_NAMESPACE differs from a compile-time literal.
+# ---------------------------------------------------------------------------
+
+if [[ "$CONSOLE_LEGACY_NAMESPACES" == "0" ]]; then
+  _WORKLOAD_NS=("$VSS_NAMESPACE_VALUE" "demo-data" "pyramid-ingress")
+else
+  _WORKLOAD_NS=("vst" "rtvi" "agent" "alerts" "demo-data" "pyramid-ingress")
+fi
+
+echo "==> ensuring workload namespaces: ${_WORKLOAD_NS[*]}"
+for ns in "${_WORKLOAD_NS[@]}"; do
+  kubectl get ns "$ns" >/dev/null 2>&1 || kubectl create ns "$ns"
+done
+
+echo "==> applying console-writer Role + RoleBinding in each workload namespace"
+for ns in "${_WORKLOAD_NS[@]}"; do
+  kubectl apply -f - <<EOF
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: console-writer
+  namespace: ${ns}
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["get", "list", "patch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "delete", "get", "list"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: console-writer-binding
+  namespace: ${ns}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: console-writer
+subjects:
+- kind: ServiceAccount
+  name: console-sa
+  namespace: console
+EOF
+done
 
 kubectl kustomize "$CONSOLE_DIR" \
   | python3 -c '

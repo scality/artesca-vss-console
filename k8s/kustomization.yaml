@@ -1,7 +1,8 @@
-# Apply with:  kubectl apply -k k8s/console
+# Apply with:  scripts/deploy-console.sh (not kubectl apply -k directly — the
+# script creates workload namespaces and generates per-namespace console-writer
+# Role + RoleBinding before calling kustomize).
 # Prerequisites:
-#   - 10-secrets.yaml filled in and applied (cp 10-secrets.yaml.example 10-secrets.yaml && edit)
-#   - All six watched namespaces already deployed (vst, rtvi, agent, alerts, demo-data, pyramid-ingress)
+#   - 10-secrets.yaml filled in (cp 10-secrets.yaml.example 10-secrets.yaml && edit)
 #   - AWS credentials + EC2 SG ID available for console-aws Secret
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
