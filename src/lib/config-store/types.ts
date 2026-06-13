@@ -34,6 +34,7 @@ export interface ReconcileStatus {
     camerasPruned: number;
     promptUpdated: boolean;
     scenariosUpdated: boolean;
+    realtimeApplied?: number;
   };
   /** Human-readable drift notes (desired-vs-live differences observed). */
   drift: string[];
@@ -47,7 +48,7 @@ export interface ReconcileStatus {
 export function emptyStatus(agentVersion: string, now: string): ReconcileStatus {
   return {
     lastRunAt: now,
-    applied: { camerasAdded: 0, camerasPruned: 0, promptUpdated: false, scenariosUpdated: false },
+    applied: { camerasAdded: 0, camerasPruned: 0, promptUpdated: false, scenariosUpdated: false, realtimeApplied: 0 },
     drift: [],
     errors: [],
     agentVersion,

@@ -59,6 +59,12 @@ export async function reconcileInstanceCameras(
       const scenariosRes = await reconcileScenarios(desiredScenarios, adapter, opts.refs.scenarios);
       status.applied.scenariosUpdated = scenariosRes.updated;
       if (scenariosRes.error) status.errors.push(`scenarios: ${scenariosRes.error}`);
+
+      const promptSets = await store.readPromptSets(instance);
+      const { reconcileRealtime } = await import("@/lib/reconcile/realtime");
+      const rtRes = await reconcileRealtime(desired, promptSets, adapter, { liveStreamUrlFor: (c) => c.rtspUrl });
+      status.applied.realtimeApplied = rtRes.applied;
+      for (const e of rtRes.errors) status.errors.push(`realtime: ${e}`);
     }
   } catch (err) {
     status.errors.push(err instanceof Error ? err.message : String(err));
