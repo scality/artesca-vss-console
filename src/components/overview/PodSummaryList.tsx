@@ -17,6 +17,10 @@ interface PodSummaryListProps {
 
 function podHealth(pod: PodSummary): Health {
   if (pod.phase === "Failed") return "fail";
+  // A Succeeded pod is a completed Job — terminal success, not a degraded
+  // workload. Treat it as healthy so it doesn't float into the "needs
+  // attention" list or drag the namespace badge to WARN.
+  if (pod.phase === "Succeeded") return "ok";
   if (pod.phase === "Running" && pod.ready) return "ok";
   if (pod.phase === "Running" && !pod.ready) return "warn";
   if (pod.phase === "Pending") return "warn";

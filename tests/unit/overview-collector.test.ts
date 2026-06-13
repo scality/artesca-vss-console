@@ -162,6 +162,21 @@ function makeFailedPod(name: string, ns: string) {
   };
 }
 
+/** A completed Job pod — terminal success, no Ready condition (mirrors a
+ *  `kubectl run`-style one-shot like the leftover `aq` curl pod). */
+function makeSucceededPod(name: string, ns: string) {
+  return {
+    metadata: { name, namespace: ns },
+    status: {
+      phase: "Succeeded",
+      conditions: [],
+      containerStatuses: [{ restartCount: 0 }],
+      startTime: new Date().toISOString(),
+    },
+    spec: { nodeName: "test-node" },
+  };
+}
+
 /** A Kafka admin mock that connects and fetches offsets successfully. */
 function makeKafkaAdmin(topics: string[] = []) {
   return {
@@ -546,6 +561,19 @@ describe("collectPodSummaries — phase counts", () => {
     expect(failed.length).toBe(1);
     expect(failed[0].ready).toBe(false);
     expect(failed[0].restarts).toBe(2);
+  });
+
+  it("counts a Succeeded pod toward ready so a completed Job doesn't read as WARN", async () => {
+    // One Running+Ready pod + one completed Job (Succeeded, no Ready cond).
+    // The namespace must show ready === total, not total-1.
+    mockListAllPodsInNs.mockResolvedValue([
+      makeReadyPod("vss-agent", "vst"),
+      makeSucceededPod("aq", "vst"),
+    ]);
+
+    const { snapshot } = await collectOverviewSnapshot();
+
+    expect(snapshot.namespaces["vst"]).toEqual({ total: 2, ready: 2, failed: 0 });
   });
 });
 
