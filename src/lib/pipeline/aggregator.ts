@@ -368,6 +368,9 @@ async function collectCache(warnings: string[]): Promise<CacheState | null> {
 interface VstSensorRaw {
   sensor_id?: string;
   sensorId?: string;
+  name?: string;
+  state?: string;
+  sensorIp?: string;
   bitrate?: number;
   bitrate_mbps?: number;
   codec?: string;
@@ -407,8 +410,15 @@ async function collectFeeds(
 
     const nowMs = Date.now();
 
+    // RTSP host: prefer the operator-configured camera-sim host, fall back to
+    // the source IP VST recorded. The stream path is the camera `name` (the
+    // mediamtx path), NOT the VST sensorId UUID.
+    const rtspHost = process.env.CAMERA_SIM_HOST?.trim() || null;
+
     return sensors.map((s) => {
       const sensorId = s.sensor_id ?? s.sensorId ?? "unknown";
+      const name = s.name ?? null;
+      const host = rtspHost ?? s.sensorIp ?? null;
       const lastFrameTs =
         typeof s.last_frame_ts === "number" ? s.last_frame_ts : null;
       const rawCodec = (s.codec ?? "").toLowerCase();
@@ -423,6 +433,9 @@ async function collectFeeds(
         nodeId: `feed:${sensorId}`,
         state: {
           sensorId,
+          name,
+          state: s.state ?? null,
+          rtspUrl: host && name ? `rtsp://${host}:8554/${name}` : null,
           bitrateMbps: s.bitrate_mbps ?? (s.bitrate ? s.bitrate / 1000 : null),
           codec,
           resolution:
@@ -967,8 +980,17 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
   const feedNodeIds: string[] = [];
   for (const { nodeId, state } of feeds) {
     feedNodeIds.push(nodeId);
+    // VST `state` is the authoritative liveness signal (this VST build doesn't
+    // publish bitrate in the sensor list, so a bitrate-only check false-WARNed
+    // every registered sensor). online → ok; any other known state → warn.
     const feedHealth: PipelineHealth =
-      state.bitrateMbps !== null && state.bitrateMbps > 0 ? "ok" : "warn";
+      state.state === "online"
+        ? "ok"
+        : state.state != null
+          ? "warn"
+          : state.bitrateMbps !== null && state.bitrateMbps > 0
+            ? "ok"
+            : "warn";
     nodeMap[nodeId] = { health: feedHealth, feed: state };
   }
 
