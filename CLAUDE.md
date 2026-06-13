@@ -10,7 +10,7 @@ For the platform substrate, see the top-level [`CLAUDE.md`](../CLAUDE.md). Desig
 
 | Page | Purpose |
 | ---- | ------- |
-| `/` | Overview KPIs (cluster baseline, pod summaries, NIM health, recent incidents). Auto-refreshes every 5s via `OverviewAutoRefresh` (client) → `/api/status/overview`. The GPUs section surfaces a **Grafana access card** (URL + user + password in clear) linking to ARTESCA's `:8443` Grafana for historical GPU graphs — shown only when `CLUSTER.grafana.url` is set. |
+| `/` | Overview KPIs (cluster baseline, pod summaries, NIM health, recent incidents). Auto-refreshes every 5s via `OverviewAutoRefresh` (client) → `/api/status/overview`. A **reachability strip** (`ConnectivityStrip` → `/api/diagnostics/connectivity`, polled every 5s) shows per-backend console→cluster reachability — K8s API, Prometheus, camera-sim (mediamtx), Kafka, S3, and the **alert-bridge incidents source** (`GET /api/v1/realtime/incidents`, the path the Incidents page depends on); each probe is independent and fail-soft. The GPUs section surfaces a **Grafana access card** (URL + user + password in clear) linking to ARTESCA's `:8443` Grafana for historical GPU graphs — shown only when `CLUSTER.grafana.url` is set. |
 | `/topology` | Single-frame path diagram (camera-sim → VST → RTVI VLM → Agent → S3) with per-component health pulled from `/api/pods`. |
 | `/incidents` | Incident timeline. Visible in **kiosk mode** at `?mode=kiosk` (full-screen, no chrome — for the showroom display). |
 | `/cameras` | Camera registration UI. Writes to `pyramid-ingress` ConfigMap `cameras` + GCS canonical at `gs://scality-isv-labs-config/cameras/<vss-instance>.json`. |
