@@ -149,7 +149,7 @@ export async function applyPromptLive(
   // Helm path: patch env var directly on the Deployment.
   // Legacy path: patch ConfigMap.
   if (!CLUSTER.rtvi.runtimeEnvCm) {
-    const { appsV1 } = await import("../k8s");
+    const { appsV1, MERGE_PATCH_OPTS } = await import("../k8s");
     const deploy = await appsV1().readNamespacedDeployment({
       name: CLUSTER.rtvi.vlmDeployment,
       namespace: CLUSTER.rtvi.nimNamespace,
@@ -164,7 +164,7 @@ export async function applyPromptLive(
       name: CLUSTER.rtvi.vlmDeployment,
       namespace: CLUSTER.rtvi.nimNamespace,
       body: { spec: { template: { spec: { containers: [{ name: container.name, env: envPatch }] } } } },
-    });
+    }, MERGE_PATCH_OPTS);
     return;
   }
   await patchConfigMapRawKey(

@@ -82,6 +82,13 @@ vi.mock("@kubernetes/client-node", () => ({
   AppsV1Api: MockAppsV1Api,
   BatchV1Api: MockBatchV1Api,
   Exec: MockExec,
+  setHeaderOptions: vi.fn((_key: string, _value: string) => ({ middleware: [] })),
+  PatchStrategy: {
+    JsonPatch: "application/json-patch+json",
+    MergePatch: "application/merge-patch+json",
+    StrategicMergePatch: "application/strategic-merge-patch+json",
+    ServerSideApply: "application/apply-patch+yaml",
+  },
 }));
 
 // getKubeConfig() picks loadFromCluster vs loadFromDefault by probing the

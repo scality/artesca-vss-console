@@ -4,7 +4,7 @@ import { createLogger } from "@/lib/logger";
 import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/demo-data/rehearsal");
-import { appsV1 } from "@/lib/k8s";
+import { appsV1, MERGE_PATCH_OPTS } from "@/lib/k8s";
 import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { auditLog } from "@/lib/helpers/audit";
@@ -110,7 +110,7 @@ export const POST = withRequestContext(async function () {
           },
         },
       },
-    });
+    }, MERGE_PATCH_OPTS);
   } catch (err: unknown) {
     const { status, message } = extractK8sError(err);
     return NextResponse.json(
@@ -149,7 +149,7 @@ export const POST = withRequestContext(async function () {
             },
           },
         },
-      });
+      }, MERGE_PATCH_OPTS);
     } catch (err) {
       log.error("rehearsal restore failed", { err });
     }

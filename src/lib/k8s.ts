@@ -1,4 +1,4 @@
-import { KubeConfig, CoreV1Api, AppsV1Api, BatchV1Api, Exec, type V1Pod } from "@kubernetes/client-node";
+import { KubeConfig, CoreV1Api, AppsV1Api, BatchV1Api, Exec, type V1Pod, setHeaderOptions, PatchStrategy } from "@kubernetes/client-node";
 import { Writable } from "node:stream";
 import { existsSync } from "node:fs";
 import { createLogger } from "@/lib/logger";
@@ -38,6 +38,14 @@ export function appsV1(): AppsV1Api {
 export function batchV1(): BatchV1Api {
   return getKubeConfig().makeApiClient(BatchV1Api);
 }
+
+/**
+ * Options to set Content-Type: application/strategic-merge-patch+json on every
+ * merge-style patch call. The @kubernetes/client-node 1.x generated client
+ * defaults to application/json-patch+json (JSON Patch array format), which the
+ * apiserver rejects for plain merge-style object bodies with HTTP 400.
+ */
+export const MERGE_PATCH_OPTS = setHeaderOptions("Content-Type", PatchStrategy.StrategicMergePatch);
 
 export function watchedNamespaces(): string[] {
   const legacy = process.env.CONSOLE_LEGACY_NAMESPACES === "1";
@@ -188,10 +196,12 @@ export async function rolloutRestart(
   if (kind === "Deployment") {
     await appsV1().patchNamespacedDeployment(
       { name, namespace, body: patch },
+      MERGE_PATCH_OPTS,
     );
   } else {
     await appsV1().patchNamespacedStatefulSet(
       { name, namespace, body: patch },
+      MERGE_PATCH_OPTS,
     );
   }
 }

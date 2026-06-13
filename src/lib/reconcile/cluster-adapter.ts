@@ -1,7 +1,7 @@
 import "server-only";
 
 import { vstListSensors, vstAddSensor } from "@/lib/helpers/vst";
-import { appsV1, rolloutRestart } from "@/lib/k8s";
+import { appsV1, rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 
 /** A live sensor as the reconciler sees it (subset of VstSensor, renamed). */
@@ -72,7 +72,7 @@ export class VstClusterAdapter implements ClusterAdapter {
     await appsV1().patchNamespacedDeployment({
       name: deployment, namespace: ns,
       body: { spec: { template: { spec: { containers: [{ name: container.name, env }] } } } },
-    });
+    }, MERGE_PATCH_OPTS);
   }
 
   async getConfigMapKey(ns: string, cm: string, key: string): Promise<string | null> {
@@ -99,7 +99,7 @@ export class VstClusterAdapter implements ClusterAdapter {
     await appsV1().patchNamespacedDeployment({
       name: deployment, namespace: ns,
       body: { spec: { strategy } },
-    });
+    }, MERGE_PATCH_OPTS);
     return true;
   }
 }

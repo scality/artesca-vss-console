@@ -23,6 +23,7 @@ vi.mock("@/lib/k8s", () => ({
     patchNamespacedDeployment: vi.fn().mockResolvedValue({}),
   })),
   rolloutRestart: vi.fn().mockResolvedValue(undefined),
+  MERGE_PATCH_OPTS: { middleware: [] },
 }));
 
 // Force legacy layout so ConfigMap names, namespace, and NIM kind match test assertions.

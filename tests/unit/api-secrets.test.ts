@@ -20,6 +20,7 @@ vi.mock("@/lib/k8s", () => ({
     patchNamespacedDeployment: vi.fn(),
   })),
   rolloutRestart: vi.fn().mockResolvedValue(undefined),
+  MERGE_PATCH_OPTS: { middleware: [] },
 }));
 
 // Force legacy layout so secret namespaces ("rtvi", "alerts") match test assertions.

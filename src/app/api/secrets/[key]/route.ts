@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
-import { coreV1, rolloutRestart } from "@/lib/k8s";
+import { coreV1, rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
 import { withRequestContext } from "@/lib/with-request-context";
 import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
@@ -441,7 +441,7 @@ export const PATCH = withRequestContext(async function (
       name: spec.secretName,
       namespace: spec.namespace,
       body: { data: encodedData },
-    });
+    }, MERGE_PATCH_OPTS);
   } catch (err: unknown) {
     const { status, message } = extractK8sError(err);
     return NextResponse.json(

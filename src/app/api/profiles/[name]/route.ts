@@ -7,7 +7,7 @@ import { withRequestContext } from "@/lib/with-request-context";
 import { DemoProfileSchema } from "@/lib/schemas";
 import { auditLog } from "@/lib/helpers/audit";
 import { patchConfigMapKey, patchConfigMapRawKey, readConfigMapKey } from "@/lib/helpers/configmaps";
-import { rolloutRestart } from "@/lib/k8s";
+import { rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
 import { sshExec } from "@/lib/ssh";
 import type { Scenario } from "@/lib/types";
 import { CLUSTER } from "@/lib/cluster-refs";
@@ -214,7 +214,7 @@ export const PUT = withRequestContext(async function (
             name: CLUSTER.rtvi.vlmDeployment,
             namespace: CLUSTER.rtvi.nimNamespace,
             body: { spec: { template: { spec: { containers: [{ name: container.name, env: envPatch }] } } } },
-          });
+          }, MERGE_PATCH_OPTS);
         }
       } else {
         await patchConfigMapRawKey(CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.runtimeEnvCm, "RTVI_VLM_MODEL", profile.nimModel);

@@ -1,6 +1,6 @@
 import "server-only";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
-import { coreV1 } from "../k8s";
+import { coreV1, MERGE_PATCH_OPTS } from "../k8s";
 
 /**
  * Read a ConfigMap, parse the named key as YAML, and return both the raw string
@@ -43,11 +43,23 @@ export async function patchConfigMapKey(
     patch.metadata = { resourceVersion };
   }
 
-  await coreV1().patchNamespacedConfigMap({
-    name,
-    namespace,
-    body: patch,
-  });
+  try {
+    await coreV1().patchNamespacedConfigMap({
+      name,
+      namespace,
+      body: patch,
+    }, MERGE_PATCH_OPTS);
+  } catch (err: unknown) {
+    const e = err as { code?: number; body?: { reason?: string } };
+    if (e?.code === 404 || e?.body?.reason === "NotFound") {
+      await coreV1().createNamespacedConfigMap({
+        namespace,
+        body: { metadata: { name }, data: { [key]: newYaml } },
+      });
+    } else {
+      throw err;
+    }
+  }
 }
 
 /**
@@ -68,11 +80,23 @@ export async function patchConfigMapRawKey(
     patch.metadata = { resourceVersion };
   }
 
-  await coreV1().patchNamespacedConfigMap({
-    name,
-    namespace,
-    body: patch,
-  });
+  try {
+    await coreV1().patchNamespacedConfigMap({
+      name,
+      namespace,
+      body: patch,
+    }, MERGE_PATCH_OPTS);
+  } catch (err: unknown) {
+    const e = err as { code?: number; body?: { reason?: string } };
+    if (e?.code === 404 || e?.body?.reason === "NotFound") {
+      await coreV1().createNamespacedConfigMap({
+        namespace,
+        body: { metadata: { name }, data: { [key]: value } },
+      });
+    } else {
+      throw err;
+    }
+  }
 }
 
 /**
@@ -94,5 +118,5 @@ export async function replaceConfigMapData(
     name,
     namespace,
     body: patch,
-  });
+  }, MERGE_PATCH_OPTS);
 }
