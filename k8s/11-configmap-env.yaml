@@ -78,6 +78,20 @@ data:
   # ARTESCA --base-domain (substituted by deploy-console.sh, same as S3_ENDPOINT).
   GRAFANA_URL: "https://<base-domain>:8443/"
 
+  # ── Firestore config store (k8s path) ────────────────────────────────────────
+  # VSS_INSTANCE_NAME: which instance's Firestore config docs the console reads/
+  #   writes (instances/<name>/{prompt,cameras,scenarios}). Placeholder is
+  #   substituted with the real instance name by deploy-console.sh (same
+  #   mechanism as CAMERA_SIM_HOST).
+  VSS_INSTANCE_NAME: "<vss-instance-name>"
+  # Firestore credentials — mounted from the config-store-rw secret (see
+  # 20-console.yaml). Fixed path, same as the reconcile-agent.
+  GOOGLE_APPLICATION_CREDENTIALS: "/etc/config-store/key.json"
+  # The dedicated reconcile-agent owns Firestore→cluster convergence. The
+  # interactive console must NOT also run the background reconcile loop, or it
+  # would race the agent. "1" = console is UI-only for config.
+  CONSOLE_DISABLE_RECONCILE_LOOP: "1"
+
   # ── SQLite database ───────────────────────────────────────────────────────────
   # Backed by PVC console-data (5 Gi, ReadWriteOnce).
   CONSOLE_DATA_DIR: "/data"
