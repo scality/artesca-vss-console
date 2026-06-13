@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { SgWhitelistTable } from "@/components/settings/SgWhitelistTable";
 import { AddCidrDialog } from "@/components/settings/AddCidrDialog";
 import { KioskToggle } from "@/components/settings/KioskToggle";
-import { FeatureFlagsCard } from "@/components/settings/FeatureFlagsCard";
 import { RbacInspector } from "@/components/settings/RbacInspector";
 import { RotationNagBanner } from "@/components/secrets/RotationNagBanner";
 import { useToast } from "@/hooks/use-toast";
@@ -160,9 +159,6 @@ export default function SettingsPage() {
             </p>
           </CardContent>
         </Card>
-
-        {/* Feature flags */}
-        <FeatureFlagsCard />
 
         {/* RBAC inspector */}
         <RbacInspector />
