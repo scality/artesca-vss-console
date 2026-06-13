@@ -196,6 +196,15 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
           await auditLog("prompt-set-upsert", `firestore/${ctx.instance}`, { setId: set.id });
         }
         if (deleteSetId !== undefined) {
+          const currentActiveId = ctx.store.readActivePromptId
+            ? await ctx.store.readActivePromptId(ctx.instance)
+            : null;
+          if (currentActiveId === deleteSetId) {
+            return NextResponse.json(
+              { error: "Cannot delete the active prompt set. Activate another set first." },
+              { status: 409 },
+            );
+          }
           await ctx.store.deletePromptSet(ctx.instance, deleteSetId, actor);
           await auditLog("prompt-set-delete", `firestore/${ctx.instance}`, { setId: deleteSetId });
         }
