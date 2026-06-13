@@ -20,6 +20,7 @@ import {
 import { PromptEditor } from "@/components/prompt/PromptEditor";
 import { PromptPreviewPane } from "@/components/prompt/PromptPreviewPane";
 import { ModelCardGrid } from "@/components/prompt/ModelCardGrid";
+import { PromptSetManager } from "@/components/prompt/PromptSetManager";
 import { CloudUpload } from "lucide-react";
 
 const GcsFieldSchema = z.object({
@@ -30,6 +31,13 @@ const GcsFieldSchema = z.object({
   model: z.string().optional(),
 });
 
+const PromptSetSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  text: z.string(),
+  model: z.string().optional(),
+});
+
 const PromptResponseSchema = z.object({
   prompt: z.string(),
   model: z.string(),
@@ -37,6 +45,8 @@ const PromptResponseSchema = z.object({
   runtime: z.string().optional(),
   defaultPrompt: z.string().optional(),
   gcs: GcsFieldSchema.optional(),
+  sets: z.array(PromptSetSchema).optional(),
+  activePromptId: z.string().nullable().optional(),
 });
 
 export default function PromptPage() {
@@ -250,8 +260,18 @@ export default function PromptPage() {
           </div>
         )}
 
+        {data && (
+          <PromptSetManager
+            sets={data.sets ?? []}
+            activePromptId={data.activePromptId}
+          />
+        )}
+
         {data && draft !== null && (
           <>
+            <div className="flex items-center gap-1.5 mt-2 mb-1">
+              <h3 className="text-sm font-semibold">Edit active prompt</h3>
+            </div>
             <PromptEditor
               original={data.prompt}
               value={draft}

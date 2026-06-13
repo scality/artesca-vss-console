@@ -8,6 +8,9 @@ export interface PromptDoc {
   model?: string;
 }
 
+/** A named, reusable VLM system prompt ("use case"). */
+export interface PromptSet { id: string; name: string; text: string; model?: string }
+
 /** A single alert-scenario entry stored in the config store. */
 export interface ScenarioEntry {
   id: string;
@@ -69,8 +72,16 @@ export interface ConfigStore {
   deleteCamera(instance: string, id: string, updatedBy: string): Promise<void>;
   readStatus(instance: string): Promise<ReconcileStatus | null>;
   writeStatus(instance: string, status: ReconcileStatus): Promise<void>;
+  /**
+   * Resolves the active prompt-set's `{prompt, model}` when set; else the legacy single prompt doc.
+   */
   readPrompt(instance: string): Promise<PromptDoc | null>;
   writePrompt(instance: string, prompt: PromptDoc, updatedBy: string): Promise<void>;
   readScenarios(instance: string): Promise<ScenarioEntry[]>;
   writeScenarios(instance: string, scenarios: ScenarioEntry[], updatedBy: string): Promise<void>;
+  readPromptSets(instance: string): Promise<PromptSet[]>;
+  upsertPromptSet(instance: string, set: PromptSet, updatedBy: string): Promise<void>;
+  deletePromptSet(instance: string, id: string, updatedBy: string): Promise<void>;
+  readActivePromptId(instance: string): Promise<string | null>;
+  setActivePromptId(instance: string, id: string, updatedBy: string): Promise<void>;
 }

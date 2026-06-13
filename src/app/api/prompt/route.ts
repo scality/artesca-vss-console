@@ -91,11 +91,15 @@ export async function GET() {
     const defaultPrompt = readDefaultPrompt();
     try {
       const ctx = await makeReconcileContext();
-      const doc = await ctx.store.readPrompt(ctx.instance);
-      return NextResponse.json({ prompt: doc?.prompt ?? "", model: doc?.model ?? "", defaultPrompt, gcs: { available: false }, warnings });
+      const [doc, sets, activePromptId] = await Promise.all([
+        ctx.store.readPrompt(ctx.instance),
+        (ctx.store.readPromptSets ? ctx.store.readPromptSets(ctx.instance) : Promise.resolve([])) as Promise<import("@/lib/config-store/types").PromptSet[]>,
+        (ctx.store.readActivePromptId ? ctx.store.readActivePromptId(ctx.instance) : Promise.resolve(null)) as Promise<string | null>,
+      ]);
+      return NextResponse.json({ prompt: doc?.prompt ?? "", model: doc?.model ?? "", sets, activePromptId, defaultPrompt, gcs: { available: false }, warnings });
     } catch (err) {
       warnings.push(`config store unavailable: ${err instanceof Error ? err.message : String(err)}`);
-      return NextResponse.json({ prompt: "", model: "", defaultPrompt, gcs: { available: false }, warnings });
+      return NextResponse.json({ prompt: "", model: "", sets: [], activePromptId: null, defaultPrompt, gcs: { available: false }, warnings });
     }
   }
 }
@@ -120,6 +124,12 @@ const PatchPromptSchema = z.object({
   model: z.string().optional(),
 });
 
+const PromptSetPatch = z.object({
+  set: z.object({ id: z.string().min(1), name: z.string().min(1), text: z.string(), model: z.string().optional() }).optional(),
+  deleteSetId: z.string().optional(),
+  activePromptId: z.string().optional(),
+});
+
 export const PATCH = withRequestContext(async (req: NextRequest) => {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -128,12 +138,12 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
   if (blocked) return blocked;
 
   const body = await req.json().catch(() => null);
-  const parsed = PatchPromptSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Validation failed", issues: parsed.error.issues }, { status: 400 });
-  }
 
   if (DOCKER_MODE) {
+    const parsed = PatchPromptSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation failed", issues: parsed.error.issues }, { status: 400 });
+    }
     const { prompt: newPrompt } = parsed.data;
     try {
       const { id } = await dockerRecreateWithEnv(RTVI_VLM_CONTAINER, {
@@ -172,6 +182,42 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
   {
     const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
     const { reconcilePrompt } = await import("@/lib/reconcile/prompt");
+    const warnings: string[] = [];
+
+    // Prompt-set library ops: {set} / {deleteSetId} / {activePromptId}
+    const setsParsed = PromptSetPatch.safeParse(body);
+    if (setsParsed.success && (setsParsed.data.set !== undefined || setsParsed.data.deleteSetId !== undefined || setsParsed.data.activePromptId !== undefined)) {
+      const { set, deleteSetId, activePromptId } = setsParsed.data;
+      try {
+        const ctx = await makeReconcileContext();
+        const actor = session.user?.email ?? "console";
+        if (set !== undefined) {
+          await ctx.store.upsertPromptSet(ctx.instance, set, actor);
+          await auditLog("prompt-set-upsert", `firestore/${ctx.instance}`, { setId: set.id });
+        }
+        if (deleteSetId !== undefined) {
+          await ctx.store.deletePromptSet(ctx.instance, deleteSetId, actor);
+          await auditLog("prompt-set-delete", `firestore/${ctx.instance}`, { setId: deleteSetId });
+        }
+        if (activePromptId !== undefined) {
+          await ctx.store.setActivePromptId(ctx.instance, activePromptId, actor);
+          const desired = await ctx.store.readPrompt(ctx.instance);
+          const res = await reconcilePrompt(desired, ctx.adapter, ctx.refs.prompt);
+          if (res.error) warnings.push(res.error);
+          await auditLog("prompt-active-set", `firestore/${ctx.instance}`, { activePromptId });
+        }
+        return NextResponse.json({ ok: true, ...(warnings.length ? { warnings } : {}) });
+      } catch (err) {
+        const msg = err instanceof ReconcileContextError ? err.message : String(err);
+        return NextResponse.json({ error: `config store write failed: ${msg}` }, { status: 502 });
+      }
+    }
+
+    // Single-prompt edit: {prompt, model?}
+    const parsed = PatchPromptSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation failed", issues: parsed.error.issues }, { status: 400 });
+    }
     const { prompt, model } = parsed.data;
     try {
       const ctx = await makeReconcileContext();
