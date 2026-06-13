@@ -55,7 +55,8 @@ K8S_PORT=16443
 KAFKA_PORT=9092
 PROM_PORT=19090
 VST_PORT=13000
-for p in "$DEV_PORT" "$K8S_PORT" "$KAFKA_PORT" "$PROM_PORT" "$VST_PORT"; do
+AB_PORT=19080
+for p in "$DEV_PORT" "$K8S_PORT" "$KAFKA_PORT" "$PROM_PORT" "$VST_PORT" "$AB_PORT"; do
   if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then
     [[ "$p" == "$DEV_PORT" && "$START_DEV" -eq 0 ]] && continue
     echo "error: port $p already in use." >&2
@@ -99,9 +100,11 @@ discover_tunnel_ips() {
   KAFKA_IP="$(rsh "$K -n $VSS_NS get svc kafka-kafka -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
   PROM_IP="$(rsh "$K -n metalk8s-monitoring get pod -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].status.podIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
   VST_IP="$(rsh "$K -n $VSS_NS get svc vss-vios-sensor -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
+  # alert-bridge: the realtime-incidents source the console's /incidents page reads.
+  AB_IP="$(rsh "$K -n $VSS_NS get svc vss-alert-bridge -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
 }
 discover_tunnel_ips
-say "ns=$VSS_NS  kafka=${KAFKA_IP:-?}  prometheus=${PROM_IP:-?}  vst=${VST_IP:-?}  (K8s→:$K8S_PORT, Kafka→:$KAFKA_PORT, Prom→:$PROM_PORT, VST→:$VST_PORT)"
+say "ns=$VSS_NS  kafka=${KAFKA_IP:-?}  prometheus=${PROM_IP:-?}  vst=${VST_IP:-?}  alert-bridge=${AB_IP:-?}  (K8s→:$K8S_PORT, Kafka→:$KAFKA_PORT, Prom→:$PROM_PORT, VST→:$VST_PORT, AB→:$AB_PORT)"
 
 # ── 2b. Discover camera-sim host + auto-authorize this laptop on its SG :9997 ──
 # The camera-sim is a separate instance; the console probes its mediamtx REST API
@@ -190,6 +193,10 @@ say "Writing $ENVF"
   [[ -n "${PROM_IP:-}" ]] && echo "PROMETHEUS_URL=http://127.0.0.1:${PROM_PORT}"
   # VST sensor API via the local forward (cluster-refs builds these from env).
   # Path is /api/v1/sensor[...] — verified against this build's vss-vios-sensor.
+  if [[ -n "${AB_IP:-}" ]]; then
+    # Point the console's /incidents source at the local alert-bridge forward.
+    echo "ALERT_BRIDGE_URL=http://127.0.0.1:${AB_PORT}"
+  fi
   if [[ -n "${VST_IP:-}" ]]; then
     echo "VST_SENSOR_URL=http://127.0.0.1:${VST_PORT}/api/v1/sensor"
     echo "VST_SENSOR_LIST_URL=http://127.0.0.1:${VST_PORT}/api/v1/sensor/list"
@@ -231,6 +238,7 @@ open_tunnel() {
   [[ -n "${KAFKA_IP:-}" ]] && FWD+=( -L "${KAFKA_PORT}:${KAFKA_IP}:9092" )
   [[ -n "${PROM_IP:-}" ]]  && FWD+=( -L "${PROM_PORT}:${PROM_IP}:9090" )
   [[ -n "${VST_IP:-}" ]]   && FWD+=( -L "${VST_PORT}:${VST_IP}:30000" )
+  [[ -n "${AB_IP:-}" ]]    && FWD+=( -L "${AB_PORT}:${AB_IP}:9080" )
   ssh -o ControlMaster=no -o ControlPath=none -o ExitOnForwardFailure=yes \
       -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o LogLevel=QUIET \
       "${REMOTE_SSH_OPTS[@]}" "${FWD[@]}" -N "$REMOTE_SSH_TARGET" &
@@ -255,6 +263,7 @@ cat <<NOTE
 
   ✓ K8s API + S3 wired. Kafka: $([[ "$HOSTS_OK" -eq 1 ]] && echo "kafka-kafka alias present → reachable" || echo "unreachable — run once with --with-hosts to add the persistent 127.0.0.1 kafka-kafka alias (sudo)")
   $([[ -n "${VST_IP:-}" ]] && echo "✓ VST sensor API → forwarded (127.0.0.1:$VST_PORT)" || echo "⚠ VST sensor svc (vss-vios-sensor) not found — VST stays unreachable")
+  $([[ -n "${AB_IP:-}" ]] && echo "✓ Incidents (alert-bridge) → forwarded (127.0.0.1:$AB_PORT)" || echo "⚠ alert-bridge svc not found — Incidents page stays empty")
   ⚠ Prometheus stays unreachable (ARTESCA auth; console sends no creds).
   $([[ -n "${CAMSIM_HOST:-}" ]] \
     && echo "✓ camera-sim → $CAMSIM_HOST:9997 (this laptop's /32 is auto-authorized on the camera-sim SG :9997, self-healing on IP drift)" \

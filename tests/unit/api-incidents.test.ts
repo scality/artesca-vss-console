@@ -6,10 +6,12 @@ vi.mock("@/lib/auth", () => ({
   auth: vi.fn().mockResolvedValue({ user: { name: "operator" } }),
 }));
 
-// incidents route reads CLUSTER.alertWorker.url from cluster-refs
+// incidents route reads CLUSTER.alertBridge.url from cluster-refs (the realtime
+// alert-bridge is the incident source on the Helm path).
 vi.mock("@/lib/cluster-refs", () => ({
   CLUSTER: {
     alertWorker: { url: "http://vss-video-analytics-api.vss-base.svc.cluster.local:8081" },
+    alertBridge: { url: "http://vss-alert-bridge.vss-base.svc.cluster.local:9080" },
   },
 }));
 
@@ -51,21 +53,18 @@ beforeEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("GET /api/incidents", () => {
-  it("happy path: returns incident list from alert-worker", async () => {
-    const fakeIncidents = [
-      {
-        ts: "2026-05-10T10:00:00Z",
-        scenarioId: "shoplifting",
-        scenarioName: "Shoplifting",
-        severity: "high",
-        sensorId: "cam-01",
-        topic: "mdx-vlm",
-        summary: "Suspicious behaviour detected",
-      },
-    ];
+  it("happy path: maps alert-bridge incidents to the console Incident shape", async () => {
+    const bridgeIncident = {
+      timestamp: "2026-05-10T10:00:00Z",
+      category: "retail_activity",
+      type: "mdx-vlm-incidents",
+      isAnomaly: true,
+      analyticsModule: { description: "Shoplifting detector" },
+      info: { streamId: "cam-01", reasoningDescription: "Suspicious behaviour detected" },
+    };
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ incidents: fakeIncidents }),
+      json: async () => ({ incidents: [bridgeIncident] }),
     } as unknown as Response);
 
     const req = makeRequest();
@@ -73,13 +72,23 @@ describe("GET /api/incidents", () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.incidents).toEqual(fakeIncidents);
+    expect(body.incidents).toHaveLength(1);
+    expect(body.incidents[0]).toMatchObject({
+      ts: "2026-05-10T10:00:00Z",
+      scenarioId: "retail_activity",
+      scenarioName: "Shoplifting detector",
+      severity: "high",
+      sensorId: "cam-01",
+      topic: "mdx-vlm-incidents",
+      summary: "Suspicious behaviour detected",
+    });
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/v1/realtime/incidents");
     // default limit is 50
     expect(fetchMock.mock.calls[0][0]).toContain("limit=50");
   });
 
-  it("?limit=10 is forwarded to alert-worker and clamped within 1–500", async () => {
+  it("?limit=10 is forwarded to the alert-bridge and clamped within 1–500", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({ incidents: [] }),
@@ -92,7 +101,7 @@ describe("GET /api/incidents", () => {
     expect(fetchMock.mock.calls[0][0]).toContain("limit=10");
   });
 
-  it("alert-worker returns empty list → incidents:[]", async () => {
+  it("alert-bridge returns empty list → incidents:[]", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({ incidents: [] }),

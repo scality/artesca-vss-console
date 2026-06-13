@@ -2,13 +2,39 @@ import { NextResponse, type NextRequest } from "next/server";
 import { existsSync, readFileSync } from "node:fs";
 import { auth } from "@/lib/auth";
 import { CLUSTER } from "@/lib/cluster-refs";
-import { fromWire } from "@/lib/helpers/incident-wire";
 
 export const dynamic = "force-dynamic";
 
-// k8s runtime: alert-worker exposes :9100 via hostPort (k8s/nvidia-vss/alerts/);
-// console reads via the ClusterIP service. ALERT_WORKER_URL overrides.
-const ALERT_WORKER_URL = CLUSTER.alertWorker.url;
+// k8s runtime: incidents come from the realtime alert-bridge
+// (vss-alert-bridge) GET /api/v1/realtime/incidents — it's the service that
+// actually produces incidents (into ES) for live RTSP alert rules. The older
+// ALERT_WORKER_URL (vss-video-analytics-api) has no /api/incidents endpoint.
+const ALERT_BRIDGE_URL = CLUSTER.alertBridge.url;
+
+/** Map one alert-bridge incident → the console's Incident shape. The bridge
+ *  emits {timestamp, category, type, isAnomaly, analyticsModule:{description,…},
+ *  info:{streamId, reasoningDescription, triggerPhrase, verdict}}. */
+function fromAlertBridge(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const a = raw as Record<string, unknown>;
+  const info = (a.info ?? {}) as Record<string, unknown>;
+  const am = (a.analyticsModule ?? {}) as Record<string, unknown>;
+  const amInfo = (am.info ?? {}) as Record<string, unknown>;
+  return {
+    ts: a.timestamp ?? a.created_at ?? new Date().toISOString(),
+    scenarioId: (a.category as string) ?? "alert",
+    scenarioName: (am.description as string) ?? (a.category as string) ?? "Alert",
+    severity: a.isAnomaly ? "high" : "medium",
+    sensorId:
+      (info.streamId as string) ?? (amInfo.streamId as string) ?? "",
+    topic: (a.type as string) ?? "mdx-vlm-incidents",
+    summary:
+      (info.reasoningDescription as string) ??
+      (info.triggerPhrase as string) ??
+      "",
+    raw: a,
+  };
+}
 
 // docker runtime: the upstream blueprint's alert-bridge (captions →
 // incidents filter) only runs in --mode verification (2d_cv). For
@@ -83,7 +109,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const resp = await fetch(
-      `${ALERT_WORKER_URL}/api/incidents/recent?limit=${encodeURIComponent(String(safeLimit))}`,
+      `${ALERT_BRIDGE_URL}/api/v1/realtime/incidents?limit=${encodeURIComponent(String(safeLimit))}`,
       {
         next: { revalidate: 0 },
         signal: AbortSignal.timeout(5_000),
@@ -92,22 +118,23 @@ export async function GET(req: NextRequest) {
 
     if (!resp.ok) {
       return NextResponse.json(
-        { error: `alert-worker returned HTTP ${resp.status}`, incidents: [] },
+        { error: `alert-bridge returned HTTP ${resp.status}`, incidents: [] },
         { status: 502 }
       );
     }
 
+    // alert-bridge wraps the list: { status, incidents: [...], count, total }.
     const data = await resp.json();
-    const incidents = Array.isArray(data)
-      ? data.map(fromWire)
+    const list: unknown[] = Array.isArray(data)
+      ? data
       : Array.isArray(data?.incidents)
-      ? { ...data, incidents: (data.incidents as unknown[]).map(fromWire) }
-      : data;
-    return NextResponse.json(incidents);
+        ? (data.incidents as unknown[])
+        : [];
+    return NextResponse.json({ incidents: list.map(fromAlertBridge) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { error: `alert-worker unreachable: ${msg}`, incidents: [] },
+      { error: `alert-bridge unreachable: ${msg}`, incidents: [] },
       { status: 503 }
     );
   }
