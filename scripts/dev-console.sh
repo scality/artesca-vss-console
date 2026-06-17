@@ -107,7 +107,17 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
-[[ -n "$INSTANCE" ]] || resolve_vss_instance
+# Resolve the target instance. An explicit --instance wins — but if it has no
+# live state (torn down / never launched here), fall back to auto-detect rather
+# than dying. The menubar launcher pins a fixed name that goes stale on teardown;
+# auto-detect keeps it working as long as exactly one VSS instance is live.
+if [[ -z "$INSTANCE" ]]; then
+  resolve_vss_instance
+elif [[ ! -f "$REPO_ROOT/scripts/instances/$INSTANCE/.stack-state.env" ]]; then
+  echo "[dev-console] WARN: requested instance '$INSTANCE' has no live state — auto-detecting." >&2
+  INSTANCE=""
+  resolve_vss_instance
+fi
 INST_DIR="$REPO_ROOT/scripts/instances/$INSTANCE"
 [[ -d "$INST_DIR" ]] || { echo "error: $INST_DIR not found" >&2; exit 2; }
 
@@ -169,17 +179,31 @@ chmod 600 "$KCFG"
 
 # ── 2. Discover Kafka ClusterIP + VSS namespace ───────────────────────────────
 K="sudo -n kubectl --kubeconfig=/etc/kubernetes/admin.conf"
-VSS_NS="${STACK_ID:+vss-${SCALITY_BP_PROFILE:-alerts}}"; VSS_NS="${VSS_NS:-vss-alerts}"
+# Resolve the VSS namespace from the node. The bp-profile-derived name is only a
+# fallback; the deployed namespace (e.g. vss-base) is authoritative and varies by
+# stack/profile. Prefer the derived name when it exists, else the first vss-* ns.
+_derived_ns="${STACK_ID:+vss-${SCALITY_BP_PROFILE:-alerts}}"; _derived_ns="${_derived_ns:-vss-alerts}"
+_vss_nslist="$(rsh "$K get ns -o name 2>/dev/null" 2>/dev/null | sed 's#namespace/##' | grep -E '^vss-' || true)"
+if printf '%s\n' "$_vss_nslist" | grep -qx "$_derived_ns" 2>/dev/null; then
+  VSS_NS="$_derived_ns"
+else
+  VSS_NS="$(printf '%s\n' "$_vss_nslist" | head -1 || true)"; VSS_NS="${VSS_NS:-$_derived_ns}"
+fi
 # Dynamic forward targets, re-resolved on every (re)connect. Kafka + VST are
 # ClusterIPs (stable across a stop/start), but Prometheus is a headless-svc POD
 # IP that changes when the pod reschedules — so the reconnect loop MUST refresh
 # these, not reuse stale values.
+# Each lookup is best-effort: a missing service (e.g. no kafka/alert-bridge on a
+# VIOS-only baseline) must yield an EMPTY var, not abort the script. Bare
+# `VAR="$(… | grep | head)"` under `set -eo pipefail` dies when grep matches
+# nothing, so each assignment is guarded with `|| true`. Downstream code already
+# treats every IP as optional (`[[ -n "${VAR:-}" ]] && …`).
 discover_tunnel_ips() {
-  KAFKA_IP="$(rsh "$K -n $VSS_NS get svc kafka-kafka -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
-  PROM_IP="$(rsh "$K -n metalk8s-monitoring get pod -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].status.podIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
-  VST_IP="$(rsh "$K -n $VSS_NS get svc vss-vios-sensor -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
+  KAFKA_IP="$(rsh "$K -n $VSS_NS get svc kafka-kafka -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)" || true
+  PROM_IP="$(rsh "$K -n metalk8s-monitoring get pod -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].status.podIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)" || true
+  VST_IP="$(rsh "$K -n $VSS_NS get svc vss-vios-sensor -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)" || true
   # alert-bridge: the realtime-incidents source the console's /incidents page reads.
-  AB_IP="$(rsh "$K -n $VSS_NS get svc vss-alert-bridge -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)"
+  AB_IP="$(rsh "$K -n $VSS_NS get svc vss-alert-bridge -o jsonpath='{.spec.clusterIP}' 2>/dev/null" 2>/dev/null | grep -oE '^[0-9.]+' | head -1)" || true
 }
 discover_tunnel_ips
 say "ns=$VSS_NS  kafka=${KAFKA_IP:-?}  prometheus=${PROM_IP:-?}  vst=${VST_IP:-?}  alert-bridge=${AB_IP:-?}  (K8s→:$K8S_PORT, Kafka→:$KAFKA_PORT, Prom→:$PROM_PORT, VST→:$VST_PORT, AB→:$AB_PORT)"
