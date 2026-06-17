@@ -6,9 +6,13 @@
 # lists pods reliably; we forward each service the console needs.
 #
 # Usage:
-#   scripts/dev-console.sh --instance <name> [--port N] [--no-dev] [--with-hosts]
+#   scripts/dev-console.sh [--instance <name>] [--port N] [--no-dev] [--with-hosts]
 #
-#   --instance <name>   instance under scripts/instances/<name>/ (required)
+#   --instance <name>   instance under scripts/instances/<name>/. Optional — when
+#                       omitted, auto-selects the running VSS instance: the VSS
+#                       stack dir with a live .stack-state.env (torn-down ones
+#                       keep only .bak files). If several qualify, the one whose
+#                       EC2 instance is actually running wins.
 #   --port <N>          dev-server port (default 5003). Use another (e.g. 5013)
 #                       to run ALONGSIDE the menubar-managed console on :5003.
 #   --no-dev            set up tunnels + .env.local but don't start a server.
@@ -27,6 +31,69 @@ REPO_ROOT="$(cd "$HERE/.." && pwd)"
 # shellcheck source=lib-remote.sh
 source "$HERE/lib-remote.sh"
 
+# ── instance discovery ───────────────────────────────────────────────────────
+# Emit "<name>\t<stack-id>\t<state-mtime-epoch>" for every instance dir with a
+# live .stack-state.env. Torn-down instances keep only .bak files, so they're
+# excluded automatically.
+_live_instances() {
+  local d f name stack mt
+  for d in "$REPO_ROOT"/scripts/instances/*/; do
+    f="${d}.stack-state.env"
+    [[ -f "$f" ]] || continue
+    name="$(basename "$d")"
+    stack="$(sed -n 's/^STACK_ID=//p' "$f" | head -1)"
+    mt="$(stat -f %m "$f" 2>/dev/null || echo 0)"
+    printf '%s\t%s\t%s\n' "$name" "${stack:-?}" "$mt"
+  done
+  return 0
+}
+
+# Auto-select the running VSS instance when --instance is omitted.
+resolve_vss_instance() {
+  local cands count
+  # VSS stacks only (STACK_ID contains "vss"), most-recently-active first.
+  cands="$(_live_instances | awk -F'\t' '$2 ~ /vss/' | sort -t$'\t' -k3,3nr)"
+  if [[ -z "$cands" ]]; then
+    echo "error: no VSS instance has live state under scripts/instances/." >&2
+    echo "       launch one (deployer / launch-stack.sh) or pass --instance <name>." >&2
+    exit 2
+  fi
+  count="$(printf '%s\n' "$cands" | wc -l | tr -d ' ')"
+  if [[ "$count" -eq 1 ]]; then
+    INSTANCE="$(printf '%s\n' "$cands" | head -1 | cut -f1)"
+    echo "[dev-console] auto-selected VSS instance: $INSTANCE (only one with live state)" >&2
+    return 0
+  fi
+  # Several candidates: narrow to the EC2-running one (best-effort; needs SSO).
+  local running=() rname stack mt cf prof reg iid st
+  while IFS=$'\t' read -r rname stack mt; do
+    [[ -n "$rname" ]] || continue
+    cf="$REPO_ROOT/scripts/instances/$rname/.stack-state.env"
+    prof="$(sed -n 's/^AWS_PROFILE=//p' "$cf" | head -1)"
+    reg="$(sed -n 's/^AWS_REGION=//p' "$cf" | head -1)"
+    iid="$(sed -n 's/^INSTANCE_ID=//p' "$cf" | head -1)"
+    [[ -n "$prof" && -n "$reg" && -n "$iid" ]] || continue
+    st="$(aws ec2 describe-instances --profile "$prof" --region "$reg" \
+            --instance-ids "$iid" \
+            --query 'Reservations[].Instances[].State.Name' \
+            --output text 2>/dev/null || true)"
+    [[ "$st" == "running" ]] && running+=("$rname")
+  done <<< "$cands"
+  if [[ "${#running[@]}" -eq 1 ]]; then
+    INSTANCE="${running[0]}"
+    echo "[dev-console] auto-selected running VSS instance: $INSTANCE" >&2
+    return 0
+  fi
+  echo "error: multiple VSS instances have live state — pass --instance <name>." >&2
+  echo "       candidates (most-recent first):" >&2
+  printf '%s\n' "$cands" | while IFS=$'\t' read -r rname stack mt; do
+    [[ -n "$rname" ]] || continue
+    printf '         %-30s stack=%s\n' "$rname" "$stack" >&2
+  done
+  [[ "${#running[@]}" -gt 1 ]] && echo "       running in EC2: ${running[*]}" >&2
+  exit 2
+}
+
 INSTANCE=""; START_DEV=1; WITH_HOSTS=0; DEV_PORT=5003
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,7 +107,7 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
-[[ -n "$INSTANCE" ]] || { echo "error: --instance <name> required" >&2; exit 2; }
+[[ -n "$INSTANCE" ]] || resolve_vss_instance
 INST_DIR="$REPO_ROOT/scripts/instances/$INSTANCE"
 [[ -d "$INST_DIR" ]] || { echo "error: $INST_DIR not found" >&2; exit 2; }
 
@@ -67,6 +134,17 @@ for p in "$DEV_PORT" "$K8S_PORT" "$KAFKA_PORT" "$PROM_PORT" "$VST_PORT" "$AB_POR
 done
 
 # ── Load instance state ──────────────────────────────────────────────────────
+if [[ ! -f "$INST_DIR/.stack-state.env" ]]; then
+  echo "error: $INST_DIR/.stack-state.env not found — instance '$INSTANCE' has no live state." >&2
+  echo "       It was likely torn down (only .bak files remain) or never launched on this laptop." >&2
+  echo "       Instances with live state:" >&2
+  _live_instances | while IFS=$'\t' read -r ln ls lm; do
+    [[ -n "$ln" ]] || continue
+    printf '         %-30s stack=%s\n' "$ln" "$ls" >&2
+  done
+  echo "       Reconstruct from cloud:  scripts/discover-instances.sh --import $INSTANCE" >&2
+  exit 2
+fi
 set -a
 # shellcheck disable=SC1091
 source "$INST_DIR/.stack-state.env"
