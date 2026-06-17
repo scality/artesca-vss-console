@@ -1,7 +1,29 @@
-import { Kafka, type Consumer, type EachMessagePayload } from "kafkajs";
+import { Kafka, logLevel as KafkaLogLevel, type Consumer, type EachMessagePayload } from "kafkajs";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger("kafka");
+
+// kafkajs's default logger writes connection failures straight to console.error,
+// which Next.js dev surfaces as a disruptive red "Console Error" overlay — even
+// though the overview Kafka probe handles an unreachable broker fail-soft
+// (warnings[] + the ConnectivityStrip) and consumeTopic has its own CRASH handler.
+// Route kafkajs's internal logs through the app logger at debug so they never hit
+// console.error/.warn; Kafka health is reported through those proper channels.
+function kafkaLogCreator() {
+  return ({
+    namespace,
+    label,
+    log: entry,
+  }: {
+    namespace: string;
+    level: number;
+    label: string;
+    log: { message: string; [key: string]: unknown };
+  }) => {
+    const { message, timestamp: _t, logger: _l, ...rest } = entry;
+    log.debug(`kafkajs ${label}${namespace ? ` ${namespace}` : ""}: ${message}`, rest);
+  };
+}
 
 const globalForKafka = globalThis as unknown as { __kafka?: Kafka | null };
 
