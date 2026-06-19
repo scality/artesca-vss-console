@@ -180,9 +180,24 @@ export interface GpuSharingMode {
   migStrategy: string | null;
 }
 
+/** A model the agent uses that is NOT served on a local GPU — e.g. the LLM
+ *  offloaded to NVIDIA's hosted API. Surfaced so the per-GPU allocation view
+ *  makes "this model isn't on any card, it runs remote" explicit. */
+export interface RemoteModel {
+  /** "LLM" or "VLM" — which agent role this model fills. */
+  role: string;
+  /** Model id the agent requests (e.g. nvidia/nvidia-nemotron-nano-9b-v2). */
+  name: string;
+  /** The remote endpoint host the agent calls (e.g. integrate.api.nvidia.com). */
+  endpoint: string;
+}
+
 export interface GpuAllocationSnapshot {
   gpus: GpuAllocation[];
   pending: PendingGpuWorkload[];
+  /** Models served off-cluster (remote LLM/VLM endpoints the agent calls) —
+   *  not bound to any local GPU. */
+  remoteModels: RemoteModel[];
   /** True when DCGM exposed per-pod labels — false means device-only data. */
   perWorkload: boolean;
   /** Detected GPU sharing strategy + config (from K8s node labels). */
@@ -223,6 +238,64 @@ function gpuOf(m: Record<string, string>): string {
 function deviceVal(results: PromResult[], gpuIdx: string): number {
   const found = results.find((r) => gpuOf(r.metric) === gpuIdx);
   return found ? parseFloat(found.value[1]) || 0 : 0;
+}
+
+/** Host of an http(s) URL, or the raw string when it doesn't parse. */
+function urlHost(url: string): string {
+  const m = /^https?:\/\/([^/:]+)/.exec(url.trim());
+  return m ? m[1] : url.trim();
+}
+
+/** True when a base URL points off-cluster (public FQDN) rather than at an
+ *  in-cluster service (bare name like `vss-rtvi-vlm`, or a `.svc` / `.local`
+ *  cluster name). A dotted public host (integrate.api.nvidia.com) is remote. */
+function isRemoteUrl(url: string): boolean {
+  const host = urlHost(url);
+  if (!host || !/^https?:\/\//.test(url.trim())) return false;
+  if (!host.includes(".")) return false; // bare cluster service name
+  if (host.endsWith(".local") || host.includes(".svc")) return false;
+  return true;
+}
+
+/** Resolve models the agent uses that are served off-cluster (remote LLM/VLM).
+ *  Reads the vss-agent container env (LLM_BASE_URL/LLM_NAME, VLM_BASE_URL/
+ *  VLM_NAME); a base URL whose host is a public FQDN means that model runs
+ *  remote, not on a local GPU. First agent pod is authoritative. */
+async function resolveRemoteModels(
+  core: CoreV1Api,
+  warnings: string[],
+): Promise<RemoteModel[]> {
+  const out: RemoteModel[] = [];
+  try {
+    for (const ns of watchedNamespaces()) {
+      const pods = await listAllPodsInNs(core, ns);
+      const agent = pods.find((p) => {
+        const n = p.metadata?.name ?? "";
+        return n.startsWith("vss-agent") && !n.startsWith("vss-agent-ui");
+      });
+      if (!agent) continue;
+      const env = new Map<string, string>();
+      for (const c of agent.spec?.containers ?? []) {
+        for (const e of c.env ?? []) {
+          if (typeof e.value === "string" && !env.has(e.name)) env.set(e.name, e.value);
+        }
+      }
+      const roles: Array<[string, string, string]> = [
+        ["LLM", env.get("LLM_BASE_URL") ?? "", env.get("LLM_NAME") ?? ""],
+        ["VLM", env.get("VLM_BASE_URL") ?? "", env.get("VLM_NAME") ?? ""],
+      ];
+      for (const [role, url, model] of roles) {
+        if (url && isRemoteUrl(url)) {
+          out.push({ role, name: model || "(model)", endpoint: urlHost(url) });
+        }
+      }
+      return out;
+    }
+  } catch (err) {
+    log.warn("remote model resolution failed", { err: String(err) });
+    warnings.push(`Remote model resolution failed: ${String(err)}`);
+  }
+  return out;
 }
 
 /**
@@ -441,9 +514,12 @@ export async function collectGpuAllocation(): Promise<GpuAllocationSnapshot> {
   }
   scheduledWorkloads.sort((a, b) => b.gpuCount - a.gpuCount);
 
+  const remoteModels = await resolveRemoteModels(core, warnings);
+
   return {
     gpus,
     pending,
+    remoteModels,
     perWorkload,
     sharing,
     scheduler: { totalGpu, allocatedGpu, workloads: scheduledWorkloads },

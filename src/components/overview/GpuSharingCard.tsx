@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Cloud, Loader2 } from "lucide-react";
 import type {
   GpuAllocationSnapshot,
   GpuAllocation,
@@ -326,6 +326,7 @@ export function GpuSharingCard() {
             <p className="text-sm text-muted-foreground">No GPU workloads found.</p>
           )}
         </div>
+        <RemoteModelsPanel models={data.remoteModels} />
         <PendingPanel pending={data.pending} />
       </div>
     );
@@ -340,7 +341,33 @@ export function GpuSharingCard() {
         ))}
       </div>
 
+      <RemoteModelsPanel models={data.remoteModels} />
       <PendingPanel pending={data.pending} />
+    </div>
+  );
+}
+
+/** Models the agent uses that run off-cluster (not on any local GPU) — makes
+ *  "the LLM is remote, served at <host>" explicit next to the GPU allocation. */
+function RemoteModelsPanel({ models }: { models: GpuAllocationSnapshot["remoteModels"] }) {
+  if (!models || models.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-sky-500/40 bg-sky-500/10 p-4 space-y-2">
+      <div className="flex items-center gap-2 text-sm font-medium text-sky-300">
+        <Cloud className="h-4 w-4" />
+        Remote models — served off-cluster, not on a local GPU
+      </div>
+      <ul className="space-y-1">
+        {models.map((m) => (
+          <li key={`${m.role}/${m.name}`} className="text-xs flex items-center gap-2 flex-wrap">
+            <span className="shrink-0 rounded border border-sky-500/40 bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
+              {m.role} · Remote
+            </span>
+            <span className="font-mono text-foreground">{m.name}</span>
+            <span className="text-muted-foreground">→ {m.endpoint}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
