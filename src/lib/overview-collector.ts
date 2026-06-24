@@ -68,7 +68,13 @@ function emptySnapshot(takenAt: string): OverviewSnapshot {
 }
 
 function isDockerMode(): boolean {
-  return process.env.CONSOLE_RUNTIME === "docker" || !hasKubeconfig();
+  // CONSOLE_RUNTIME is an explicit override in both directions. Only fall back
+  // to kubeconfig autodetection when it is unset — otherwise mode would depend
+  // on whether a ~/.kube/config happens to exist on the host (true on a dev
+  // laptop, false in CI), which made the k8s-mode unit tests environment-flaky.
+  if (process.env.CONSOLE_RUNTIME === "docker") return true;
+  if (process.env.CONSOLE_RUNTIME === "k8s") return false;
+  return !hasKubeconfig();
 }
 
 /** Bucket compose containers by service name and aggregate health. Maps the
