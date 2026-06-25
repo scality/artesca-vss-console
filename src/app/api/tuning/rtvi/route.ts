@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { z } from "zod";
 import { coreV1, appsV1, rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
 import { withRequestContext } from "@/lib/with-request-context";
 import { patchConfigMapRawKey } from "@/lib/helpers/configmaps";
@@ -9,24 +8,12 @@ import { CLUSTER } from "@/lib/cluster-refs";
 import { inspectContainer, dockerRecreateWithEnv } from "@/lib/helpers/docker-sock";
 import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
+import { RtviTuningSchema } from "./schema";
 
 export const dynamic = "force-dynamic";
 
 const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
 const NIM_CONTAINER = "cosmos-reason2-8b";
-
-const RtviTuningSchema = z.object({
-  maxNumSeqs: z.number().int().positive().optional(),
-  kvCachePercent: z.number().min(0).max(1).optional(),
-  maxModelLen: z.number().int().positive().optional(),
-  modelProfile: z.string().optional(),
-  disableCudaGraph: z.boolean().optional(),
-  numSchedulerSteps: z.number().int().min(1).max(32).optional(),
-  maxNumBatchedTokens: z.number().int().min(1024).max(32768).optional(),
-}).refine(
-  (d) => Object.values(d).some((v) => v !== undefined),
-  { message: "At least one tuning field is required" }
-);
 
 // Defaults align with k8s/nvidia-vss/rtvi/11-configmap-runtime-env.yaml + the
 // RtviTuningForm client contract (field names `maxNumSeqs`, `kvCachePct`,
@@ -40,6 +27,7 @@ const RTVI_TUNING_DEFAULTS = {
   disableCudaGraph: false,
   numSchedulerSteps: 8,
   maxNumBatchedTokens: 5120,
+  maxGenerationTokens: 16384,
 } as const;
 
 function parseIntOrDefault(raw: string | undefined, fallback: number): number {
@@ -105,6 +93,7 @@ export async function GET() {
       disableCudaGraph: env["NIM_DISABLE_CUDA_GRAPH"] === "1",
       numSchedulerSteps: parseIntOrDefault(env["VLLM_NUM_SCHEDULER_STEPS"], RTVI_TUNING_DEFAULTS.numSchedulerSteps),
       maxNumBatchedTokens: parseIntOrDefault(env["VLLM_MAX_NUM_BATCHED_TOKENS"], RTVI_TUNING_DEFAULTS.maxNumBatchedTokens),
+      maxGenerationTokens: parseIntOrDefault(env["VLM_MAX_GENERATION_TOKENS"], RTVI_TUNING_DEFAULTS.maxGenerationTokens),
       runtime: "docker",
     });
   }
@@ -140,6 +129,7 @@ export async function GET() {
     disableCudaGraph: vlmEnv["NIM_DISABLE_CUDA_GRAPH"] === "1",
     numSchedulerSteps: parseIntOrDefault(vlmEnv["VLLM_NUM_SCHEDULER_STEPS"], RTVI_TUNING_DEFAULTS.numSchedulerSteps),
     maxNumBatchedTokens: parseIntOrDefault(vlmEnv["VLLM_MAX_NUM_BATCHED_TOKENS"], RTVI_TUNING_DEFAULTS.maxNumBatchedTokens),
+    maxGenerationTokens: parseIntOrDefault(vlmEnv["VLM_MAX_GENERATION_TOKENS"], RTVI_TUNING_DEFAULTS.maxGenerationTokens),
   });
 }
 
@@ -248,6 +238,9 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     if (tuning.maxNumBatchedTokens !== undefined) {
       envPatch["VLLM_MAX_NUM_BATCHED_TOKENS"] = String(tuning.maxNumBatchedTokens);
     }
+    if (tuning.maxGenerationTokens !== undefined) {
+      envPatch["VLM_MAX_GENERATION_TOKENS"] = String(tuning.maxGenerationTokens);
+    }
     try {
       const { id } = await dockerRecreateWithEnv(NIM_CONTAINER, envPatch);
       await auditLog("tuning-rtvi", `docker/${NIM_CONTAINER}`, { patches: envPatch });
@@ -320,6 +313,10 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
   }
   if (tuning.maxNumBatchedTokens !== undefined) {
     vlmEnvPatches["VLLM_MAX_NUM_BATCHED_TOKENS"] = String(tuning.maxNumBatchedTokens);
+    hasVlmPatches = true;
+  }
+  if (tuning.maxGenerationTokens !== undefined) {
+    vlmEnvPatches["VLM_MAX_GENERATION_TOKENS"] = String(tuning.maxGenerationTokens);
     hasVlmPatches = true;
   }
 
