@@ -1,23 +1,32 @@
 // GET /api/clips/[sensor]/[ts]/[segment]
-// Serves an HLS .ts segment from the clip cache.
-// MIME: video/mp2t
+// Serves the HLS playlist (index.m3u8 — what the browser player loads) and the
+// .ts segments from the clip cache. The player requests the playlist at this
+// path (.../[ts]/index.m3u8) so its relative segment URLs resolve to
+// .../[ts]/segNNN.ts, which this same route serves.
+// MIME: application/vnd.apple.mpegurl (playlist) | video/mp2t (segment)
 
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { cachePath, isCacheFresh } from "@/lib/streams/clip-cache";
+import { serveClipPlaylist } from "@/lib/streams/serve-clip";
 import * as fs from "fs";
 
 interface RouteParams {
   params: Promise<{ sensor: string; ts: string; segment: string }>;
 }
 
-export async function GET(req: NextRequest, { params }: RouteParams) {
+export async function GET(_req: NextRequest, { params }: RouteParams) {
   const session = await auth();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { sensor, ts, segment } = await params;
+
+  // The player loads the playlist from this path so relative seg URLs resolve.
+  if (segment === "index.m3u8") {
+    return serveClipPlaylist(sensor, ts);
+  }
 
   // Only serve .ts segment files.
   if (!segment.endsWith(".ts")) {
