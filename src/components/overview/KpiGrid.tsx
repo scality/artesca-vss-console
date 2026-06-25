@@ -90,8 +90,17 @@ export function KpiGrid({ data }: KpiGridProps) {
       />
 
       <KpiCard
-        label="Camera Sim"
-        value={`${data.cameraSim.pathsReady}/${data.cameraSim.pathsTotal}`}
+        label="Cameras"
+        value={
+          data.cameraSim.cameras && data.cameraSim.cameras.length > 0
+            ? `${data.cameraSim.cameras.filter((c) => c.live).length}/${data.cameraSim.cameras.length}`
+            : `${data.cameraSim.pathsReady}/${data.cameraSim.pathsTotal}`
+        }
+        sub={
+          data.cameraSim.cameras && data.cameraSim.cameras.length > 0
+            ? `${data.cameraSim.cameras.filter((c) => c.type === "synthetic").length} sim · ${data.cameraSim.cameras.filter((c) => c.type === "real").length} real`
+            : "camera-sim"
+        }
         footer={
           <StatusBadge
             health={

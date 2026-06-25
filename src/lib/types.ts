@@ -123,6 +123,11 @@ export interface OverviewSnapshot {
     instanceState: "running" | "stopped" | "unreachable";
     pathsReady: number;
     pathsTotal: number;
+    // All registered cameras, both the synthetic camera-sim streams and the
+    // real (e.g. faytech) cameras VST records directly. `live` = mediamtx path
+    // ready (synthetic) or VST online + has-timeline (real). Empty on the
+    // docker overview path (no VST sensor list there).
+    cameras?: { name: string; type: "synthetic" | "real"; live: boolean }[];
   };
 }
 
