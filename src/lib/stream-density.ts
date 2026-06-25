@@ -47,7 +47,7 @@ export async function collectStreamDensity(
     promQuery("DCGM_FI_DEV_FB_TOTAL"),
   ]);
 
-  for (const r of [reqRate, over1s, p95, tokens, gpuUtil]) {
+  for (const r of [reqRate, over1s, p95, tokens, gpuUtil, gpuUsed, gpuTotal]) {
     if (r.warning) warnings.push(r.warning);
   }
 
