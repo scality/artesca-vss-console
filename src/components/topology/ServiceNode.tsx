@@ -11,6 +11,8 @@ export interface ServiceNodeData {
   namespace?: string;
   podCount?: number;
   restarts?: number;
+  hasIncoming?: boolean;
+  hasOutgoing?: boolean;
   [key: string]: unknown;
 }
 
@@ -37,7 +39,7 @@ export const ServiceNode = memo(function ServiceNode({
   selected,
 }: NodeProps) {
   const nodeData = data as ServiceNodeData;
-  const { label, health, namespace, podCount, restarts } = nodeData;
+  const { label, health, namespace, podCount, restarts, hasIncoming, hasOutgoing } = nodeData;
 
   return (
     <div
@@ -52,7 +54,7 @@ export const ServiceNode = memo(function ServiceNode({
         .filter(Boolean)
         .join(" ")}
     >
-      <Handle type="target" position={Position.Left} className="!bg-border" />
+      {hasIncoming !== false && <Handle type="target" position={Position.Left} className="!bg-border" />}
 
       <div className="flex items-center gap-2">
         <span
@@ -78,7 +80,7 @@ export const ServiceNode = memo(function ServiceNode({
         </div>
       )}
 
-      <Handle type="source" position={Position.Right} className="!bg-border" />
+      {hasOutgoing !== false && <Handle type="source" position={Position.Right} className="!bg-border" />}
     </div>
   );
 });

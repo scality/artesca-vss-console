@@ -10,6 +10,8 @@ export interface FeedNodeData {
   label: string;
   sensorId?: string;  // optional so Agent 2's mergeTopologyData doesn't need to populate it
   runtime?: NodeRuntimeState;
+  hasIncoming?: boolean;
+  hasOutgoing?: boolean;
   [key: string]: unknown;
 }
 
@@ -56,7 +58,7 @@ const DOT_CLASS: Record<DotVariant, string> = {
 
 export const FeedNode = memo(function FeedNode({ data, selected }: NodeProps) {
   const nodeData = data as FeedNodeData;
-  const { label, sensorId, runtime } = nodeData;
+  const { label, sensorId, runtime, hasIncoming, hasOutgoing } = nodeData;
 
   const feed = runtime?.feed;
   const dotVariant = feedDotVariant(runtime);
@@ -85,7 +87,7 @@ export const FeedNode = memo(function FeedNode({ data, selected }: NodeProps) {
         .join(" ")}
       style={{ width: "160px", height: "40px" }}
     >
-      <Handle type="target" position={Position.Left} className="!bg-border" />
+      {hasIncoming !== false && <Handle type="target" position={Position.Left} className="!bg-border" />}
 
       {/* Main row: icon + dot + label */}
       <div className="flex items-center gap-1.5">
@@ -103,7 +105,7 @@ export const FeedNode = memo(function FeedNode({ data, selected }: NodeProps) {
         </p>
       )}
 
-      <Handle type="source" position={Position.Right} className="!bg-border" />
+      {hasOutgoing !== false && <Handle type="source" position={Position.Right} className="!bg-border" />}
     </div>
   );
 });

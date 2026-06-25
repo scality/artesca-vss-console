@@ -17,6 +17,8 @@ export interface StorageNodeData {
   runtime?: NodeRuntimeState;
   subtype: "s3" | "cache" | "postgres" | "redis";
   namespace?: string;
+  hasIncoming?: boolean;
+  hasOutgoing?: boolean;
   [key: string]: unknown;
 }
 
@@ -136,7 +138,7 @@ function InlineFillBar({ pct }: { pct: number }) {
 // ── Main node ─────────────────────────────────────────────────────────────
 
 export const StorageNode = memo(function StorageNode({ data, selected }: NodeProps) {
-  const { label, runtime, subtype, namespace, health: dataHealth } =
+  const { label, runtime, subtype, namespace, health: dataHealth, hasIncoming, hasOutgoing } =
     data as StorageNodeData;
   const health: PipelineHealth = runtime?.health ?? dataHealth ?? "unknown";
   const sub = subLabel(subtype as StorageNodeData["subtype"], runtime);
@@ -157,7 +159,7 @@ export const StorageNode = memo(function StorageNode({ data, selected }: NodePro
         .filter(Boolean)
         .join(" ")}
     >
-      <Handle type="target" position={Position.Left} className="!bg-border" />
+      {hasIncoming !== false && <Handle type="target" position={Position.Left} className="!bg-border" />}
 
       {/* Header row: icon + label + health dot */}
       <div className="flex items-center gap-2">
@@ -193,7 +195,7 @@ export const StorageNode = memo(function StorageNode({ data, selected }: NodePro
         </p>
       )}
 
-      <Handle type="source" position={Position.Right} className="!bg-border" />
+      {hasOutgoing !== false && <Handle type="source" position={Position.Right} className="!bg-border" />}
     </div>
   );
 });
