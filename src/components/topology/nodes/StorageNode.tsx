@@ -19,6 +19,9 @@ export interface StorageNodeData {
   namespace?: string;
   hasIncoming?: boolean;
   hasOutgoing?: boolean;
+  /** Flow direction for this node's pipeline row: "lr" = left-to-right (even rows),
+   *  "rl" = right-to-left (odd rows in the serpentine layout). Controls handle sides. */
+  flowDir?: "lr" | "rl";
   [key: string]: unknown;
 }
 
@@ -138,7 +141,7 @@ function InlineFillBar({ pct }: { pct: number }) {
 // ── Main node ─────────────────────────────────────────────────────────────
 
 export const StorageNode = memo(function StorageNode({ data, selected }: NodeProps) {
-  const { label, runtime, subtype, namespace, health: dataHealth, hasIncoming, hasOutgoing } =
+  const { label, runtime, subtype, namespace, health: dataHealth, hasIncoming, hasOutgoing, flowDir } =
     data as StorageNodeData;
   const health: PipelineHealth = runtime?.health ?? dataHealth ?? "unknown";
   const sub = subLabel(subtype as StorageNodeData["subtype"], runtime);
@@ -146,6 +149,12 @@ export const StorageNode = memo(function StorageNode({ data, selected }: NodePro
   const cacheData = (subtype === "cache" && runtime?.cache?.fillPct != null)
     ? runtime.cache
     : null;
+
+  // Handle sides follow the row's flow direction:
+  //   "lr" (even rows, default) — target on Left, source on Right
+  //   "rl" (odd rows, serpentine return) — target on Right, source on Left
+  const targetPos = flowDir === "rl" ? Position.Right : Position.Left;
+  const sourcePos = flowDir === "rl" ? Position.Left  : Position.Right;
 
   return (
     <div
@@ -159,7 +168,7 @@ export const StorageNode = memo(function StorageNode({ data, selected }: NodePro
         .filter(Boolean)
         .join(" ")}
     >
-      {hasIncoming !== false && <Handle type="target" position={Position.Left} className="!bg-border" />}
+      {hasIncoming !== false && <Handle type="target" position={targetPos} className="!bg-border" />}
 
       {/* Header row: icon + label + health dot */}
       <div className="flex items-center gap-2">
@@ -195,7 +204,7 @@ export const StorageNode = memo(function StorageNode({ data, selected }: NodePro
         </p>
       )}
 
-      {hasOutgoing !== false && <Handle type="source" position={Position.Right} className="!bg-border" />}
+      {hasOutgoing !== false && <Handle type="source" position={sourcePos} className="!bg-border" />}
     </div>
   );
 });
