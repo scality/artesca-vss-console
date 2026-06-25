@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, PlusCircle, CloudUpload } from "lucide-react";
+import { classifyListState } from "@/lib/diagnostics/list-state";
 import { CameraRow } from "./CameraRow";
 import { AddCameraDialog } from "./AddCameraDialog";
 import type { PromptSet } from "@/components/prompt/PromptSetManager";
@@ -172,20 +173,40 @@ export function CameraTable() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.cameras.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={7}
-                      className="text-center text-muted-foreground py-8"
-                    >
-                      No cameras registered. Add one to get started.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  data.cameras.map((camera) => (
+                {(() => {
+                  const listState = classifyListState(data.warnings, data.cameras.length);
+                  if (listState === "error") {
+                    const msg =
+                      (data.warnings ?? []).find((w) => /config store unavailable/i.test(w)) ??
+                      "config store unavailable";
+                    return (
+                      <TableRow>
+                        <TableCell colSpan={7} className="py-6">
+                          <div className="rounded border border-brand-red/40 bg-red-50 px-3 py-2 text-sm text-brand-red">
+                            <strong>Persistence unavailable</strong> — cameras could not be loaded (this is not an empty list).
+                            <div className="mt-1 font-mono text-xs opacity-80">{msg}</div>
+                            <div className="mt-1 text-xs">See Diagnostics → Config store (Firestore).</div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
+                  if (listState === "empty") {
+                    return (
+                      <TableRow>
+                        <TableCell
+                          colSpan={7}
+                          className="text-center text-muted-foreground py-8"
+                        >
+                          No cameras registered. Add one to get started.
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
+                  return data.cameras.map((camera) => (
                     <CameraRow key={camera.id} camera={camera} eip={data.eip} promptSets={promptSets} />
-                  ))
-                )}
+                  ));
+                })()}
               </TableBody>
             </Table>
           </div>
