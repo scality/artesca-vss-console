@@ -20,6 +20,7 @@ describe("statusWord", () => {
     expect(statusWord(b({ ok: true }))).toBe("ok");
     expect(statusWord(b({ severity: "warn", ok: true }))).toBe("degraded");
     expect(statusWord(b({ ok: false, detail: "VSS_INSTANCE_NAME unset" }))).toBe("not configured");
+    expect(statusWord(b({ ok: false, detail: "connection timed out" }))).toBe("timeout");
     expect(statusWord(b({ ok: false, detail: "boom" }))).toBe("unreachable");
   });
 });

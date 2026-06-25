@@ -7,7 +7,7 @@ import { severityOf, statusWord } from "@/lib/diagnostics/backend-status";
 
 // contract: keep in sync with lib/diagnostics/connectivity.ts
 interface BackendStatus {
-  id: "k8s" | "prometheus" | "mediamtx" | "kafka" | "s3" | "alert-bridge" | "config-store";
+  id: string; // mirrors connectivity.ts BackendStatus['id']; kept loose — id isn't used in render
   label: string;
   ok: boolean;
   severity?: "ok" | "warn" | "error";
@@ -127,14 +127,16 @@ export function ConnectivityPanel() {
       {/* Results table */}
       {fetchState.phase === "ok" && (
         <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
-          {fetchState.data.backends.map((b) => (
+          {fetchState.data.backends.map((b) => {
+            const sev = severityOf(b);
+            return (
             <div
               key={b.id}
               className="flex items-center gap-3 px-4 py-2.5 text-sm bg-muted/5 hover:bg-muted/20 transition-colors"
             >
               {/* Status dot */}
               <span
-                className={`h-2 w-2 shrink-0 rounded-full ${DOT[severityOf(b)]}`}
+                className={`h-2 w-2 shrink-0 rounded-full ${DOT[sev]}`}
                 aria-label={statusWord(b)}
               />
 
@@ -142,7 +144,7 @@ export function ConnectivityPanel() {
               <span className="w-32 font-medium shrink-0">{b.label}</span>
 
               {/* Status word */}
-              <span className={`text-xs font-medium shrink-0 ${TXT[severityOf(b)]}`}>
+              <span className={`text-xs font-medium shrink-0 ${TXT[sev]}`}>
                 {statusWord(b)}
               </span>
 
@@ -154,7 +156,8 @@ export function ConnectivityPanel() {
                 {b.latencyMs} ms
               </span>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
