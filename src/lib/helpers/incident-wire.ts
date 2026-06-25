@@ -24,6 +24,24 @@ export function fromWire(raw: unknown): unknown {
  * the human camera name (e.g. "aisle-1"); `info.streamId` is the internal UUID — prefer
  * the name. Used by both /api/incidents (REST) and /api/incidents/live (SSE).
  */
+/**
+ * Severity per alert category. The realtime-rule incidents carry an
+ * alert_type/category but no severity; map the known showroom categories to a
+ * meaningful tier instead of flagging every anomaly "high". Unknown categories
+ * fall back to isAnomaly (high) / medium so new scenarios still surface.
+ */
+const CATEGORY_SEVERITY: Record<string, "high" | "medium" | "low"> = {
+  "self-checkout-theft": "high",
+  "forklift-safety": "high",
+  intrusion: "high",
+  "shelf-restock": "low",
+};
+
+function severityForCategory(category: unknown, isAnomaly: unknown): "high" | "medium" | "low" {
+  const c = typeof category === "string" ? category : "";
+  return CATEGORY_SEVERITY[c] ?? (isAnomaly ? "high" : "medium");
+}
+
 export function fromAlertBridge(raw: unknown): unknown {
   if (!raw || typeof raw !== "object") return raw;
   const a = raw as Record<string, unknown>;
@@ -33,7 +51,7 @@ export function fromAlertBridge(raw: unknown): unknown {
     ts: a.timestamp ?? a.created_at ?? new Date().toISOString(),
     scenarioId: (a.category as string) ?? "alert",
     scenarioName: (am.description as string) ?? (a.category as string) ?? "Alert",
-    severity: a.isAnomaly ? "high" : "medium",
+    severity: severityForCategory(a.category, a.isAnomaly),
     sensorId:
       (info.sensorId as string) ??
       (a.sensorId as string) ??
