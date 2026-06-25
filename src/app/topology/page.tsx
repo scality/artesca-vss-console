@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { useQuery } from "@tanstack/react-query";
-import Dagre from "@dagrejs/dagre";
 import {
   ReactFlow,
   Background,
@@ -17,6 +16,7 @@ import {
   type NodeMouseHandler,
   type NodeChange,
   type NodeProps,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -167,40 +167,66 @@ function mergeTopologyEdges(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Auto-layout — left→right layered DAG (dagre)
+// Flow layout — columns in left→right pipeline order
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Node positions are computed from the dependency edges instead of being
-// hand-placed in the API: dagre ranks nodes by pipeline depth (RTSP source →
-// VST ingest → VLM/NIM → agent/alerts → storage), spaces them evenly, and
-// minimises edge crossings — no overlapping nodes or label-on-node collisions.
+// The /api/topology payload authors each node's x in pipeline-flow order
+// (RTSP source → VST ingest → VLM/NIM → agent/analytics → storage). We honour
+// that order directly: nodes are bucketed into columns by their authored x
+// (sorted ascending = flow order), evenly spaced left→right, and stacked
+// vertically within each stage. This guarantees the boxes always read in flow
+// order — edge-based auto-ranking (dagre) reordered columns because the real
+// graph has inference/read-back edges (nim↔vlm, agent→sensor) that form cycles.
 // A user's manual drag (savedPositions) always wins; "Reset layout" clears
 // those and the graph snaps back to this computed layout.
 
-const NODE_W = 200;
-const NODE_H = 68;
+const STAGE_W = 200; // authored-x span that collapses into one pipeline stage
+const COL_GAP = 248; // horizontal spacing between pipeline stages
+const ROW_GAP = 168; // vertical spacing within a stage (node cards run ~90px tall)
+const ORIGIN_X = 40;
+const CENTER_Y = 280;
 
-function applyDagreLayout(
+function applyFlowLayout(
   nodes: Node<TopologyNodeData>[],
-  edges: Edge[],
   savedPositions: Record<string, { x: number; y: number }>,
 ): Node<TopologyNodeData>[] {
   if (nodes.length === 0) return nodes;
-  const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: "LR", nodesep: 56, ranksep: 130, marginx: 32, marginy: 32 });
-  const ids = new Set(nodes.map((n) => n.id));
-  nodes.forEach((n) => g.setNode(n.id, { width: NODE_W, height: NODE_H }));
-  edges.forEach((e) => {
-    if (ids.has(e.source) && ids.has(e.target)) g.setEdge(e.source, e.target);
-  });
-  Dagre.layout(g);
-  return nodes.map((n) => {
-    if (savedPositions[n.id]) return n; // honour user drag
-    const p = g.node(n.id);
-    if (!p) return n;
-    // dagre returns node centres; React Flow positions are top-left.
-    return { ...n, position: { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 } };
-  });
+  // Lay out only the nodes the user hasn't manually placed.
+  const auto = nodes.filter((n) => !savedPositions[n.id]);
+  if (auto.length === 0) return nodes;
+
+  // Collapse the authored x's into pipeline STAGES (round to STAGE_W buckets):
+  // co-located services (a service + its db/cache/queue) share one column,
+  // which keeps the diagram compact instead of one thin column per node, while
+  // preserving the left→right flow order (sink stays rightmost).
+  const minX = Math.min(...auto.map((n) => n.position.x));
+  const stageOf = (n: Node<TopologyNodeData>) => Math.round((n.position.x - minX) / STAGE_W);
+  const stages = [...new Set(auto.map(stageOf))].sort((a, b) => a - b);
+  const colIndex = new Map(stages.map((s, i) => [s, i]));
+
+  // Bucket nodes per stage, then stack each column vertically (by authored y).
+  const byColumn = new Map<number, Node<TopologyNodeData>[]>();
+  for (const n of auto) {
+    const ci = colIndex.get(stageOf(n)) ?? 0;
+    const list = byColumn.get(ci) ?? [];
+    list.push(n);
+    byColumn.set(ci, list);
+  }
+
+  const placed: Record<string, { x: number; y: number }> = {};
+  for (const [ci, list] of byColumn) {
+    list.sort((a, b) => a.position.y - b.position.y);
+    list.forEach((node, i) => {
+      placed[node.id] = {
+        x: ORIGIN_X + ci * COL_GAP,
+        y: CENTER_Y + (i - (list.length - 1) / 2) * ROW_GAP,
+      };
+    });
+  }
+
+  return nodes.map((n) =>
+    savedPositions[n.id] ? n : { ...n, position: placed[n.id] ?? n.position },
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -233,6 +259,10 @@ export default function TopologyPage() {
   // Persist user-dragged positions in localStorage so they survive polls + reloads.
   // Initialized synchronously at mount so the ref is populated before any poll fires.
   const savedPositionsRef = useRef<Record<string, { x: number; y: number }>>(readSavedPositions());
+
+  // React Flow instance — captured on init so we can re-frame the graph when the
+  // node set changes (keeps the whole pipeline in view, no horizontal panning).
+  const rfRef = useRef<ReactFlowInstance<Node<TopologyNodeData>, Edge> | null>(null);
 
   const handleNodesChange = useCallback((changes: NodeChange<Node<TopologyNodeData>>[]) => {
     onNodesChange(changes);
@@ -356,14 +386,23 @@ export default function TopologyPage() {
   useEffect(() => {
     const merged = mergeTopologyData(topologyPayload ?? null, snapshot, savedPositionsRef.current);
     const mergedEdges = mergeTopologyEdges(topologyPayload ?? null, snapshot);
-    const laidOut = applyDagreLayout(merged, mergedEdges, savedPositionsRef.current);
+    const laidOut = applyFlowLayout(merged, savedPositionsRef.current);
     const mergedIds = new Set(laidOut.map((n) => n.id));
-    for (const prevId of prevNodeIdsRef.current) {
+    const prevIds = prevNodeIdsRef.current;
+    const nodeSetChanged =
+      mergedIds.size !== prevIds.size || [...mergedIds].some((id) => !prevIds.has(id));
+    for (const prevId of prevIds) {
       if (!mergedIds.has(prevId)) clearNodeSparklines(prevId);
     }
     prevNodeIdsRef.current = mergedIds;
     setNodes(laidOut);
     setEdges(mergedEdges);
+    // Re-frame the whole graph only when the node set changes (first load /
+    // structural change) — not on every 5 s health tick, so a user's manual
+    // pan/zoom is preserved. Keeps the full pipeline in view without panning.
+    if (nodeSetChanged && mergedIds.size > 0) {
+      requestAnimationFrame(() => rfRef.current?.fitView({ padding: 0.12, duration: 300 }));
+    }
     if ((topologyPayload?.nodes?.length ?? 0) > 0) {
       // reason: monotonic boolean latch (false→true only); depends on async
       // query data so lazy initializer is not an option. No cascading risk
@@ -425,13 +464,14 @@ export default function TopologyPage() {
           <ReactFlow
             nodes={nodes}
             edges={edges}
+            onInit={(inst) => { rfRef.current = inst; }}
             onNodesChange={handleNodesChange}
             onEdgesChange={onEdgesChange}
             onNodeClick={onNodeClick}
             nodeTypes={NODE_TYPES}
             edgeTypes={EDGE_TYPES}
             fitView
-            fitViewOptions={{ padding: 0.3 }}
+            fitViewOptions={{ padding: 0.15 }}
             attributionPosition="bottom-right"
             colorMode="light"
           >
