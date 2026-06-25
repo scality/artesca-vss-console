@@ -3,15 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { severityOf, statusWord } from "@/lib/diagnostics/backend-status";
 
 // contract: keep in sync with lib/diagnostics/connectivity.ts
 interface BackendStatus {
-  id: "k8s" | "prometheus" | "mediamtx" | "kafka" | "s3";
+  id: "k8s" | "prometheus" | "mediamtx" | "kafka" | "s3" | "alert-bridge" | "config-store";
   label: string;
   ok: boolean;
+  severity?: "ok" | "warn" | "error";
   detail: string;
   latencyMs: number;
 }
+
+const DOT = { ok: "bg-emerald-600", warn: "bg-amber-500", error: "bg-red-600" } as const;
+const TXT = { ok: "text-emerald-700", warn: "text-amber-600", error: "text-brand-red" } as const;
 
 interface ConnectivityResponse {
   takenAt: string;
@@ -129,12 +134,17 @@ export function ConnectivityPanel() {
             >
               {/* Status dot */}
               <span
-                className={`h-2 w-2 shrink-0 rounded-full ${b.ok ? "bg-emerald-600" : "bg-red-600"}`}
-                aria-label={b.ok ? "reachable" : "unreachable"}
+                className={`h-2 w-2 shrink-0 rounded-full ${DOT[severityOf(b)]}`}
+                aria-label={statusWord(b)}
               />
 
               {/* Label */}
               <span className="w-32 font-medium shrink-0">{b.label}</span>
+
+              {/* Status word */}
+              <span className={`text-xs font-medium shrink-0 ${TXT[severityOf(b)]}`}>
+                {statusWord(b)}
+              </span>
 
               {/* Detail — grows to fill available space */}
               <span className="flex-1 text-muted-foreground truncate">{b.detail}</span>

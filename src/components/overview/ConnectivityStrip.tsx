@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { BackendStatus } from "@/lib/diagnostics/connectivity";
+import { severityOf, statusWord } from "@/lib/diagnostics/backend-status";
 
 // Per-backend reachability, polled independently of the overview snapshot so it
 // reflects the console→cluster path directly. The K8s-API dot goes green as
@@ -14,27 +15,19 @@ interface ConnectivityResponse {
   backends: BackendStatus[];
 }
 
-// Short, color-independent status word so the state is legible as text (e.g.
-// when pasted) and not conveyed by the dot colour alone.
-function statusWord(b: BackendStatus): string {
-  if (b.ok) return "ok";
-  const d = b.detail.toLowerCase();
-  if (d.includes("not configured") || d.includes("unset")) return "not configured";
-  if (d.includes("timed out") || d.includes("timeout")) return "timeout";
-  return "unreachable";
-}
+const DOT = { ok: "bg-emerald-500", warn: "bg-amber-500", error: "bg-red-500" } as const;
+const TXT = { ok: "text-emerald-700", warn: "text-amber-600", error: "text-brand-red" } as const;
 
 function Dot({ b }: { b: BackendStatus }) {
-  const color = b.ok ? "bg-emerald-500" : "bg-red-500";
-  const textColor = b.ok ? "text-emerald-700" : "text-brand-red";
+  const sev = severityOf(b);
   return (
     <span
       className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
       title={b.detail}
     >
-      <span className={`h-2 w-2 rounded-full shrink-0 ${color}`} />
+      <span className={`h-2 w-2 rounded-full shrink-0 ${DOT[sev]}`} />
       <span>{b.label}</span>
-      <span className={`font-medium ${textColor}`}>{statusWord(b)}</span>
+      <span className={`font-medium ${TXT[sev]}`}>{statusWord(b)}</span>
     </span>
   );
 }
