@@ -9,6 +9,7 @@ import { Shell } from "@/components/Shell";
 import { RtviTuningForm } from "@/components/tuning/RtviTuningForm";
 import { AlertsTuningForm } from "@/components/tuning/AlertsTuningForm";
 import { VstRecordingForm } from "@/components/tuning/VstRecordingForm";
+import { StreamDensityCard } from "@/components/tuning/StreamDensityCard";
 import { Loader2, Cpu, AlertTriangle } from "lucide-react";
 
 const PromptResponseSchema = z.object({
@@ -101,6 +102,8 @@ export default function TuningPage() {
             )}
           </div>
         )}
+
+        <StreamDensityCard />
 
         <div className="rounded-lg border border-border p-5">
           <RtviTuningForm />
