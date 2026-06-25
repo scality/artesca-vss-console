@@ -26,6 +26,7 @@ const TuningResponseSchema = z.object({
   disableCudaGraph: z.boolean().default(false),
   numSchedulerSteps: z.number().int().default(8),
   maxNumBatchedTokens: z.number().int().default(5120),
+  maxGenerationTokens: z.number().int().default(16384),
 });
 
 type Tuning = z.infer<typeof TuningResponseSchema>;
@@ -132,6 +133,7 @@ export function RtviTuningForm() {
           disableCudaGraph: local.disableCudaGraph,
           numSchedulerSteps: local.numSchedulerSteps,
           maxNumBatchedTokens: local.maxNumBatchedTokens,
+          maxGenerationTokens: local.maxGenerationTokens,
         }),
       });
       if (!res.ok) throw new Error("Patch failed");
@@ -251,6 +253,31 @@ export function RtviTuningForm() {
               per-sequence VRAM. Range 1024–131072, default 32768.
             </p>
             <Recommended>32768 — sufficient here; raise only if a request is being truncated.</Recommended>
+          </div>
+
+          <div className="space-y-1">
+            <Label>max output tokens (VLM_MAX_GENERATION_TOKENS)</Label>
+            <Input
+              type="number"
+              min={64}
+              max={16384}
+              step={64}
+              value={local.maxGenerationTokens}
+              onChange={(e) =>
+                update(
+                  "maxGenerationTokens",
+                  Math.max(64, Math.min(16384, parseInt(e.target.value) || 16384))
+                )
+              }
+              className="w-40"
+            />
+            <p className="text-xs text-muted-foreground">
+              Hard cap on tokens the VLM may generate per chunk. Cosmos Reason 2 is a reasoning model —
+              its chain-of-thought output often dominates per-chunk cost, so this is the highest-impact
+              throughput lever. For Yes/No alerts a tight cap multiplies stream capacity. Range 64–16384,
+              default 16384. Pair with a concise, structured system prompt on the Prompt page.
+            </p>
+            <Recommended>256–512 for structured alert prompts; raise only if responses are being truncated.</Recommended>
           </div>
 
           {/* ── Section 1: Inference engine (advanced) ───────────────────── */}
