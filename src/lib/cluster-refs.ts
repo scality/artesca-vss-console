@@ -184,17 +184,15 @@ const GRAFANA_LOGIN_HINT =
 // ─── Alert bridge ────────────────────────────────────────────────────────────
 // Helm:   vss-video-analytics-api Deployment in vss-<profile>, port 8081.
 //         No HTTP health endpoint exposed by the console — only Kafka consumers.
-// Legacy: alert-worker Deployment in namespace alerts, port 9100.
-// The console previously hit /cooldown and /health on the alert-worker.
-// The Helm equivalent is vss-video-analytics-api but it has a different API.
-// The ALERT_WORKER_URL is preserved for any direct health probes; under Helm
-// it points at vss-video-analytics-api. The scenarios ConfigMap no longer
-// exists in the Helm chart — see SCENARIOS below.
+// alert-worker Deployment + Service on :9100 — the scenario classification /
+// dashboard layer. Legacy ran it in namespace "alerts"; the Helm path deploys
+// it into VSS_NS via k8s/nvidia-vss-helm-overlay/50-alert-worker.yaml, reading
+// the `scenarios` ConfigMap (see SCENARIOS below) the console patches.
 const ALERT_WORKER_URL = LEGACY
   ? (process.env.ALERT_WORKER_URL ??
       "http://alert-worker.alerts.svc.cluster.local:9100")
   : (process.env.ALERT_WORKER_URL ??
-      `http://vss-video-analytics-api.${VSS_NS}.svc.cluster.local:8081`);
+      `http://alert-worker.${VSS_NS}.svc.cluster.local:9100`);
 
 // The realtime alert-bridge (vss-alert-bridge) is the actual incident SOURCE on
 // the Helm path: it produces incidents into Elasticsearch and serves them at
@@ -296,10 +294,10 @@ const SCENARIOS = LEGACY
       alertWorkerDeployment: "alert-worker",
     } as const)
   : ({
-      namespace: "pyramid-ingress",
+      namespace: VSS_NS,
       configMap: "scenarios",
       yamlKey: "scenarios.yaml",
-      alertWorkerDeployment: "vss-video-analytics-api",
+      alertWorkerDeployment: "alert-worker",
     } as const);
 
 // ─── Alerts tuning ────────────────────────────────────────────────────────────

@@ -24,6 +24,10 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
+        # fsGroup so the non-root user can read group-readable (0440) secret
+        # mounts (config-store key.json, ssh PEM) — without it the projected
+        # secret files are root:root 0400 and reads fail with EACCES.
+        fsGroup: 1001
       containers:
       - name: console
         # CI bumps this tag via kustomize image override on every push to main.
@@ -115,11 +119,12 @@ spec:
       - name: camera-sim-ssh-key
         secret:
           secretName: console-ssh
-          defaultMode: 0400
+          defaultMode: 0440
       - name: config-store-key
         secret:
           secretName: config-store-rw
-          defaultMode: 0400
+          # 0440 + pod fsGroup 1001 → readable by the non-root console user
+          defaultMode: 0440
 
 ---
 # ClusterIP Service — lets in-cluster callers (health probes, future AI agents)
