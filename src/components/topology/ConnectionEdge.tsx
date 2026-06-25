@@ -76,8 +76,17 @@ export const ConnectionEdge = memo(function ConnectionEdge({
 
   const health: EdgeHealth = runtime?.health ?? "unknown";
   const strokeColor = runtime ? HEALTH_STROKE[health] : protocolColor(protocol);
-  const dashArray = HEALTH_DASH[health];
   const isFlowing = health === "flowing";
+
+  // A feedback edge flows right-to-left in the pipeline (source node sits to the
+  // right of the target). Apply a dashed stroke + reduced opacity to read as a
+  // control/return path rather than a mis-wired forward input.
+  // The 8 px threshold avoids false-positives on roughly co-located nodes.
+  const isFeedback = sourceX > targetX + 8;
+  const dashArray = isFeedback && !isFlowing ? "5 4" : HEALTH_DASH[health];
+  const edgeOpacity = isFeedback && !isFlowing
+    ? 0.55
+    : health === "unknown" ? 0.75 : 0.9;
 
   // Label: prefer runtime pre-formatted label, then static edge label.
   const displayLabel = (runtime?.label && runtime.label.length > 0)
@@ -103,7 +112,7 @@ export const ConnectionEdge = memo(function ConnectionEdge({
         style={{
           stroke: strokeColor,
           strokeWidth: isFlowing ? 2 : 1.5,
-          opacity: health === "unknown" ? 0.75 : 0.9,
+          opacity: edgeOpacity,
           strokeDasharray: dashArray,
         }}
         className={isFlowing ? "edge-flowing" : undefined}

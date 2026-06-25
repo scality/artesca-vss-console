@@ -49,6 +49,9 @@ interface TopologyNodeData {
   runtime?: NodeRuntimeState;
   // FeedNode fields (Agent 3 shape)
   sensorId?: string;
+  // Handle visibility: true = show, false = hide. undefined = show (safe default).
+  hasIncoming?: boolean;
+  hasOutgoing?: boolean;
   // Index signature required by React Flow NodeData constraint
   [key: string]: unknown;
 }
@@ -121,8 +124,14 @@ function mergeTopologyData(
   payload: TopologyPayload | null,
   snapshot: PipelineSnapshot | null,
   savedPositions: Record<string, { x: number; y: number }>,
+  edges: TopologyApiEdge[],
 ): Node<TopologyNodeData>[] {
   const apiNodes = payload?.nodes ?? [];
+
+  // Compute handle visibility from the edge list.
+  const hasIncomingSet = new Set(edges.map((e) => e.target));
+  const hasOutgoingSet = new Set(edges.map((e) => e.source));
+
   return apiNodes.map((n, idx) => {
     const runtimeState = snapshot?.nodes[n.id];
     const health: PipelineHealth = runtimeState?.health ?? n.health ?? "unknown";
@@ -142,6 +151,8 @@ function mergeTopologyData(
         restarts: n.restarts,
         sensorId: n.sensorId,
         runtime: runtimeState,
+        hasIncoming: hasIncomingSet.has(n.id),
+        hasOutgoing: hasOutgoingSet.has(n.id),
       },
     };
   });
@@ -384,7 +395,8 @@ export default function TopologyPage() {
   // nodes that have disappeared (e.g. a camera feed was removed).
   const prevNodeIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const merged = mergeTopologyData(topologyPayload ?? null, snapshot, savedPositionsRef.current);
+    const apiEdges = topologyPayload?.edges ?? [];
+    const merged = mergeTopologyData(topologyPayload ?? null, snapshot, savedPositionsRef.current, apiEdges);
     const mergedEdges = mergeTopologyEdges(topologyPayload ?? null, snapshot);
     const laidOut = applyFlowLayout(merged, savedPositionsRef.current);
     const mergedIds = new Set(laidOut.map((n) => n.id));
