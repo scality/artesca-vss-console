@@ -34,9 +34,9 @@ const TIME_WINDOWS: Array<{ value: TimeWindow; label: string }> = [
 const SEVERITIES: Array<Incident["severity"]> = ["low", "medium", "high"];
 
 const SEVERITY_COLORS: Record<Incident["severity"], string> = {
-  low: "text-blue-400 border-blue-500/40 bg-blue-500/10",
-  medium: "text-yellow-400 border-yellow-500/40 bg-yellow-500/10",
-  high: "text-red-400 border-red-500/40 bg-red-500/10",
+  low: "text-blue-700 border-blue-200 bg-blue-50",
+  medium: "text-amber-700 border-amber-200 bg-amber-50",
+  high: "text-red-700 border-red-200 bg-red-50",
 };
 
 export function IncidentsFilters({

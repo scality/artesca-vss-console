@@ -53,7 +53,7 @@ export function RehearsalButton({ disabled }: RehearsalButtonProps) {
     <div className="flex flex-col items-start gap-2">
       <Button
         size="lg"
-        className="bg-yellow-500 hover:bg-yellow-400 text-black font-semibold px-6"
+        className="bg-brand-orange hover:bg-brand-orange/90 text-white font-semibold px-6"
         disabled={disabled || active}
         onClick={startRehearsal}
       >

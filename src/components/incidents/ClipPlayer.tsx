@@ -32,9 +32,9 @@ interface ClipPlayerProps {
 
 // ─── Severity badge colours (matches IncidentDetail palette) ─────────────────
 const SEVERITY_BADGE: Record<Incident["severity"], string> = {
-  low: "bg-blue-500/15 text-blue-400 border-blue-500/30",
-  medium: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
-  high: "bg-red-500/15 text-red-400 border-red-500/30",
+  low: "bg-blue-50 text-blue-700 border-blue-200",
+  medium: "bg-amber-50 text-amber-700 border-amber-200",
+  high: "bg-red-50 text-red-700 border-red-200",
 };
 
 // ─── Fallback card — data-only view when clip is unavailable ──────────────────

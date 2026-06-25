@@ -1,69 +1,53 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import "./brand.css";
 
-@layer base {
-  :root {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
+/* Semantic token bridge — maps the console's existing semantic names to brand
+ * LIGHT values so the Radix/CVA primitives in components/ui/* keep working
+ * (bg-card / text-muted-foreground / border-border / bg-primary all resolve)
+ * while rendering in the Scality 2026 portal palette. */
+@theme {
+  --color-background: #f7f8fa; /* portal surface */
+  --color-foreground: #323245; /* brand-almost-black */
 
-    --card: 222 47% 15%;
-    --card-foreground: 210 40% 98%;
+  --color-card: #ffffff;
+  --color-card-foreground: #323245;
 
-    --popover: 222 47% 15%;
-    --popover-foreground: 210 40% 98%;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #323245;
 
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
+  --color-primary: #0aada6; /* brand-teal */
+  --color-primary-foreground: #ffffff;
 
-    --secondary: 217 19% 27%;
-    --secondary-foreground: 210 40% 98%;
+  --color-secondary: #e6eaee; /* brand-light-gray */
+  --color-secondary-foreground: #323245;
 
-    --muted: 217 19% 27%;
-    --muted-foreground: 215 20% 65%;
+  --color-muted: #f7f8fa;
+  --color-muted-foreground: #686884; /* brand-slate */
 
-    --accent: 217 19% 27%;
-    --accent-foreground: 210 40% 98%;
+  --color-accent: #e6f7f5; /* brand-teal-soft */
+  --color-accent-foreground: #0aada6; /* brand-teal */
 
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
+  --color-destructive: #e84855; /* brand-red */
+  --color-destructive-foreground: #ffffff;
 
-    --border: 217 19% 27%;
-    --input: 217 19% 27%;
-    --ring: 217 91% 60%;
-
-    --radius: 0.5rem;
-  }
-
-  /* Light theme (not default — console is dark-first) */
-  .light {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 217 91% 60%;
-  }
+  --color-border: #e6eaee; /* brand-light-gray */
+  --color-input: #e6eaee;
+  --color-ring: #0aada6; /* brand-teal */
 }
 
+/* Tailwind v4's default border/divide color is currentColor; the console's
+ * primitives assume a neutral border, so pin it to the brand border token. */
 @layer base {
-  * {
-    @apply border-border;
+  *,
+  ::after,
+  ::before {
+    border-color: var(--color-border);
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }

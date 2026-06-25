@@ -25,8 +25,8 @@ function statusWord(b: BackendStatus): string {
 }
 
 function Dot({ b }: { b: BackendStatus }) {
-  const color = b.ok ? "bg-green-500" : "bg-red-500";
-  const textColor = b.ok ? "text-green-500" : "text-red-400";
+  const color = b.ok ? "bg-emerald-500" : "bg-red-500";
+  const textColor = b.ok ? "text-emerald-700" : "text-brand-red";
   return (
     <span
       className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"

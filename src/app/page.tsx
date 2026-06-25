@@ -84,12 +84,12 @@ export default async function OverviewPage() {
               </span>
             )}
             {dockerMode && (
-              <span className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-xs font-medium text-sky-400">
+              <span className="rounded border border-brand-teal/30 bg-brand-teal-soft px-2 py-1 text-xs font-medium text-brand-teal">
                 COMPOSE
               </span>
             )}
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
-              <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
               Updated {new Date(overview.takenAt).toLocaleTimeString()}
             </span>
           </div>
@@ -104,13 +104,13 @@ export default async function OverviewPage() {
         {/* Degraded-probe banner — lists which probes failed so empty panels
             are explained rather than silently absent. */}
         {warnings.length > 0 && (
-          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
-            <p className="text-sm font-medium text-yellow-300">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm font-medium text-amber-700">
               {warnings.length} probe{warnings.length > 1 ? "s" : ""} degraded — affected panels may be empty
             </p>
             <ul className="mt-2 space-y-1">
               {warnings.map((w) => (
-                <li key={w} className="font-mono text-xs text-yellow-200/80 break-all">
+                <li key={w} className="font-mono text-xs text-amber-700/70 break-all">
                   • {w}
                 </li>
               ))}
@@ -120,9 +120,9 @@ export default async function OverviewPage() {
 
         {/* Compose-mode empty hint */}
         {dockerMode && Object.keys(overview.namespaces).length === 0 && (
-          <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-300">
+          <div className="rounded-lg border border-brand-teal/30 bg-brand-teal-soft p-4 text-sm text-brand-teal">
             <p className="font-medium">Compose-mode runtime — no compose containers detected.</p>
-            <p className="mt-1 text-sky-300/80">
+            <p className="mt-1 text-brand-teal/80">
               Run <code>scripts/stacks/nvidia-vss/bootstrap-compose.sh</code> on the workspace to bring up the stack.
               KPIs and topology populate automatically once containers are running.
             </p>
@@ -173,16 +173,16 @@ export default async function OverviewPage() {
             {/* Monitoring access — URL + login surfaced in clear so the operator
                 can open the historical GPU dashboard without hunting for creds. */}
             {CLUSTER.grafana.url && (
-              <div className="mb-4 rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-4">
+              <div className="mb-4 rounded-lg border border-brand-light-gray bg-muted p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-medium uppercase tracking-wider text-indigo-300">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                     Historical graphs — Grafana
                   </p>
                   <a
                     href={CLUSTER.grafana.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs font-medium text-indigo-400 hover:text-indigo-300 hover:underline"
+                    className="text-xs font-medium text-brand-teal hover:text-brand-teal/80 hover:underline"
                   >
                     Open Grafana ↗
                   </a>
@@ -195,7 +195,7 @@ export default async function OverviewPage() {
                         href={CLUSTER.grafana.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-indigo-400 hover:text-indigo-300 hover:underline"
+                        className="text-brand-teal hover:text-brand-teal/80 hover:underline"
                       >
                         {CLUSTER.grafana.url}
                       </a>

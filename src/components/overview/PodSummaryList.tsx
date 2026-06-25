@@ -58,7 +58,7 @@ function PodRow({ pod }: { pod: PodSummary }) {
       <span className="font-mono truncate">{pod.name}</span>
       <div className="flex items-center gap-2 shrink-0">
         {pod.restarts > 0 && (
-          <span className="text-yellow-400 tabular-nums">r:{pod.restarts}</span>
+          <span className="text-amber-700 tabular-nums">r:{pod.restarts}</span>
         )}
         <StatusBadge health={podHealth(pod)} label={pod.phase} />
       </div>

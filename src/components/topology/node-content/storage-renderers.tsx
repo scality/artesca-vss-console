@@ -69,16 +69,16 @@ function CeilingGauge({ s3 }: { s3: S3State }) {
   const ceilingGiB = s3.ceilingGiB;
   const colorClass =
     pct > 90
-      ? "[&>div]:bg-red-500"
+      ? "[&>div]:bg-red-600"
       : pct > 70
-        ? "[&>div]:bg-yellow-500"
-        : "[&>div]:bg-green-500";
+        ? "[&>div]:bg-amber-500"
+        : "[&>div]:bg-emerald-600";
 
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>Storage ceiling</span>
-        <span className={pct > 90 ? "text-red-400 font-medium" : pct > 70 ? "text-yellow-400 font-medium" : "text-green-400"}>
+        <span className={pct > 90 ? "text-red-700 font-medium" : pct > 70 ? "text-amber-700 font-medium" : "text-emerald-700"}>
           {pct.toFixed(1)}%
         </span>
       </div>
@@ -254,7 +254,7 @@ function TestPutButton() {
         )}
       </Button>
       {msg && (
-        <p className={`text-xs ${state === "ok" ? "text-green-400" : "text-red-400"}`}>
+        <p className={`text-xs ${state === "ok" ? "text-emerald-700" : "text-red-700"}`}>
           {msg}
         </p>
       )}
@@ -484,7 +484,7 @@ function VstLocalCacheStatus({ runtimeState, snapshot }: TabRendererProps) {
         </TierNote>
         <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-2">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-yellow-400" />
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
             <span className="text-sm font-medium">Live cache stats unavailable</span>
           </div>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
@@ -510,10 +510,10 @@ function VstLocalCacheStatus({ runtimeState, snapshot }: TabRendererProps) {
   const pct = cache.fillPct;
   const barColor =
     pct !== null && pct > 90
-      ? "[&>div]:bg-red-500"
+      ? "[&>div]:bg-red-600"
       : pct !== null && pct > 75
-        ? "[&>div]:bg-yellow-500"
-        : "[&>div]:bg-green-500";
+        ? "[&>div]:bg-amber-500"
+        : "[&>div]:bg-emerald-600";
 
   const dropRate = cache.frameDropRatePerMin;
   const dropCount = cache.frameDropCount;
@@ -540,10 +540,10 @@ function VstLocalCacheStatus({ runtimeState, snapshot }: TabRendererProps) {
           <span
             className={
               pct !== null && pct > 90
-                ? "text-red-400 font-medium"
+                ? "text-red-700 font-medium"
                 : pct !== null && pct > 75
-                  ? "text-yellow-400 font-medium"
-                  : "text-green-400"
+                  ? "text-amber-700 font-medium"
+                  : "text-emerald-700"
             }
           >
             {pct !== null ? `${pct.toFixed(1)}%` : "—"}
@@ -569,13 +569,13 @@ function VstLocalCacheStatus({ runtimeState, snapshot }: TabRendererProps) {
         ) : (
           <div className="flex items-center gap-2">
             {isDropCrit ? (
-              <AlertOctagon className="h-4 w-4 text-red-400" />
+              <AlertOctagon className="h-4 w-4 text-red-700" />
             ) : dropRate !== null && dropRate > 0 ? (
-              <AlertTriangle className="h-4 w-4 text-yellow-400" />
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
             ) : null}
             <span
               className={`text-xl font-mono font-semibold ${
-                isDropCrit ? "text-red-400" : dropRate !== null && dropRate > 0 ? "text-yellow-400" : ""
+                isDropCrit ? "text-red-700" : dropRate !== null && dropRate > 0 ? "text-amber-700" : ""
               }`}
             >
               {dropRate !== null ? dropRate.toFixed(1) : dropCount!.toLocaleString()}
@@ -656,7 +656,7 @@ function VstPostgresStatus({ runtimeState }: TabRendererProps) {
       {/* Up/down */}
       <div className="flex items-center gap-2">
         <span
-          className={`h-2.5 w-2.5 rounded-full ${db.up ? "bg-green-500" : "bg-red-500"}`}
+          className={`h-2.5 w-2.5 rounded-full ${db.up ? "bg-emerald-600" : "bg-red-600"}`}
         />
         <span className="text-sm font-medium">{db.up ? "Connected" : "Unavailable"}</span>
       </div>
@@ -711,7 +711,7 @@ function RedisStatus(
       {/* Up/down */}
       <div className="flex items-center gap-2">
         <span
-          className={`h-2.5 w-2.5 rounded-full ${redis.up ? "bg-green-500" : "bg-red-500"}`}
+          className={`h-2.5 w-2.5 rounded-full ${redis.up ? "bg-emerald-600" : "bg-red-600"}`}
         />
         <span className="text-sm font-medium">{redis.up ? "Connected" : "Unavailable"}</span>
       </div>

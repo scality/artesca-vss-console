@@ -462,12 +462,12 @@ export default function TopologyPage() {
                   3. Default → spinner while the first response is in-flight. */}
               {topologyError && !everReceivedNodes ? (
                 <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                  <AlertTriangle className="h-5 w-5 text-amber-500/70" />
+                  <AlertTriangle className="h-5 w-5 text-amber-600" />
                   <span className="text-sm">Topology unavailable — retrying</span>
                 </div>
               ) : spinnerTimedOut && !everReceivedNodes ? (
                 <div className="pointer-events-auto flex flex-col items-center gap-3 text-center text-muted-foreground">
-                  <AlertTriangle className="h-6 w-6 text-amber-500/60" />
+                  <AlertTriangle className="h-6 w-6 text-amber-600" />
                   <span className="text-sm">Topology unavailable — check cluster health on the</span>
                   <Link
                     href="/"

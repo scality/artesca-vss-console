@@ -111,7 +111,7 @@ export function CameraTable() {
           {data?.gcs?.available === true && (
             <p className="text-xs text-muted-foreground mt-0.5">
               GCS:{" "}
-              <span className="text-emerald-400">
+              <span className="text-emerald-700">
                 {data.gcs.totalCameras ?? 0} cameras persisted
                 {data.gcs.lastUpdatedBy ? ` · last by ${data.gcs.lastUpdatedBy}` : ""}
               </span>

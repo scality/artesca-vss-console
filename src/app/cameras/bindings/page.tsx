@@ -114,7 +114,7 @@ function BindingCell({ camera, scenario, onToggle, pending }: CellProps) {
   if (binding === "glob") {
     return (
       <button
-        className={`${base} text-emerald-600 hover:bg-emerald-600/10`}
+        className={`${base} text-emerald-700 hover:bg-emerald-50`}
         onClick={onToggle}
         disabled={pending}
         title="Matched by sensor_filter glob — click to make explicit override"
@@ -127,7 +127,7 @@ function BindingCell({ camera, scenario, onToggle, pending }: CellProps) {
   if (binding === "explicit") {
     return (
       <button
-        className={`${base} text-emerald-400 hover:bg-emerald-400/10`}
+        className={`${base} text-emerald-700 hover:bg-emerald-50`}
         onClick={onToggle}
         disabled={pending}
         title="Explicit scenario binding — click to remove"
@@ -280,11 +280,11 @@ export default function CameraBindingsPage() {
 
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
-            <Check className="h-3.5 w-3.5 text-emerald-400" />
+            <Check className="h-3.5 w-3.5 text-emerald-700" />
             Explicit override
           </span>
           <span className="flex items-center gap-1.5">
-            <Check className="h-3.5 w-3.5 text-emerald-600 opacity-60" />
+            <Check className="h-3.5 w-3.5 text-emerald-700 opacity-60" />
             Glob match (no override)
           </span>
           <span className="flex items-center gap-1.5">
@@ -326,7 +326,7 @@ export default function CameraBindingsPage() {
                       {!sc.enabled && (
                         <Badge
                           variant="outline"
-                          className="text-[9px] px-1 py-0 border-slate-600 text-slate-500 mt-0.5"
+                          className="text-[9px] px-1 py-0 border-brand-light-gray text-muted-foreground mt-0.5"
                         >
                           off
                         </Badge>
@@ -344,7 +344,7 @@ export default function CameraBindingsPage() {
                         {camera.scenarioIds !== undefined && (
                           <Badge
                             variant="outline"
-                            className="text-[9px] px-1 py-0 border-blue-600 text-blue-400"
+                            className="text-[9px] px-1 py-0 border-brand-indigo/40 text-brand-indigo"
                           >
                             override
                           </Badge>

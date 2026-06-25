@@ -108,7 +108,7 @@ export default function DemoDataPage() {
             <div className="flex items-center gap-4">
               <Badge
                 variant={state.replicas > 0 ? "default" : "secondary"}
-                className={state.replicas > 0 ? "bg-green-600" : ""}
+                className={state.replicas > 0 ? "bg-emerald-700" : ""}
               >
                 {state.replicas > 0 ? "Running" : "Stopped"} — {state.replicas} replica{state.replicas !== 1 ? "s" : ""}
               </Badge>

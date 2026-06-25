@@ -32,7 +32,7 @@ export function DiagnosticCard({ test, running, onRun, onShowOutput }: Diagnosti
           {test.lastResult && (
             <Badge
               variant={test.lastResult === "pass" ? "default" : "destructive"}
-              className={`shrink-0 text-[10px] ${test.lastResult === "pass" ? "bg-green-600" : ""}`}
+              className={`shrink-0 text-[10px] ${test.lastResult === "pass" ? "bg-emerald-700" : ""}`}
             >
               {test.lastResult}
             </Badge>

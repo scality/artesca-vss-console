@@ -177,7 +177,7 @@ export function ScenarioTable() {
           {data?.gcs?.available === true && (
             <p className="text-xs text-muted-foreground mt-0.5">
               GCS:{" "}
-              <span className="text-emerald-400">
+              <span className="text-emerald-700">
                 {data.gcs.totalScenarios ?? 0} scenarios persisted
                 {data.gcs.lastUpdatedBy ? ` · last by ${data.gcs.lastUpdatedBy}` : ""}
               </span>
@@ -217,7 +217,7 @@ export function ScenarioTable() {
       </div>
 
       {conflictBanner && (
-        <div className="flex items-start gap-2 rounded-md border border-yellow-600/50 bg-yellow-600/10 p-3 text-sm text-yellow-400">
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
           <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
           <div>
             Another operator changed scenarios — the server state has been
@@ -236,7 +236,7 @@ export function ScenarioTable() {
       )}
 
       {isDirty && (
-        <div className="text-xs text-yellow-400 bg-yellow-400/10 rounded px-3 py-1.5 border border-yellow-400/20">
+        <div className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-1.5 border border-amber-200">
           Unsaved changes — click Save to review and apply.
         </div>
       )}

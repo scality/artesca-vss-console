@@ -200,13 +200,13 @@ export default function IncidentsPage() {
           </div>
           <div className="flex items-center gap-2">
             {streamStatus === "connected" ? (
-              <span className="inline-flex items-center gap-1.5 text-xs text-green-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+              <span className="inline-flex items-center gap-1.5 text-xs text-emerald-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 Live
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 text-xs text-amber-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+              <span className="inline-flex items-center gap-1.5 text-xs text-amber-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
                 Reconnecting…
               </span>
             )}
@@ -220,7 +220,7 @@ export default function IncidentsPage() {
               return (
                 <span
                   className={`text-xs tabular-nums ${
-                    stale ? "text-amber-400" : "text-muted-foreground"
+                    stale ? "text-amber-700" : "text-muted-foreground"
                   }`}
                   title="Time since the last incident was received"
                 >
@@ -233,8 +233,8 @@ export default function IncidentsPage() {
 
         {/* Kiosk-friendly reconnect banner — non-modal, auto-clears when SSE recovers */}
         {streamStatus !== "connected" && (
-          <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-pulse" />
+          <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 animate-pulse" />
             <span>
               Live stream interrupted — reconnecting
               {sseFailed ? " (polling for updates)" : "…"}

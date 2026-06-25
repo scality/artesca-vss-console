@@ -129,7 +129,7 @@ export function ConnectivityPanel() {
             >
               {/* Status dot */}
               <span
-                className={`h-2 w-2 shrink-0 rounded-full ${b.ok ? "bg-green-500" : "bg-red-500"}`}
+                className={`h-2 w-2 shrink-0 rounded-full ${b.ok ? "bg-emerald-600" : "bg-red-600"}`}
                 aria-label={b.ok ? "reachable" : "unreachable"}
               />
 

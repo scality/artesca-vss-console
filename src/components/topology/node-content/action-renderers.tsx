@@ -197,7 +197,7 @@ export function CameraSimActionsRenderer({ snapshot }: TabRendererProps) {
       {addedSensorId && !mutation.isPending && (
         <p className="text-xs text-muted-foreground">
           {vstRegistered
-            ? <span className="text-green-500 font-medium">Registered ✓ — {addedSensorId} is live in VST.</span>
+            ? <span className="text-emerald-700 font-medium">Registered ✓ — {addedSensorId} is live in VST.</span>
             : <>Waiting for VST to register the new feed — this usually takes 3–8 s.</>
           }
         </p>
@@ -303,7 +303,7 @@ function RolloutRestartRenderer({ componentKey }: RolloutRestartRendererProps) {
             size="sm"
             disabled={mutation.isPending}
             onClick={() => mutation.mutate()}
-            className="border-amber-500 text-amber-600 hover:bg-amber-500/10 hover:text-amber-600"
+            className="border-amber-500 text-amber-700 hover:bg-amber-50 hover:text-amber-700"
           >
             <RotateCw className="mr-1.5 h-3.5 w-3.5" />
             {mutation.isPending ? "Restarting…" : "Confirm"}
@@ -327,7 +327,7 @@ function RolloutRestartRenderer({ componentKey }: RolloutRestartRendererProps) {
         variant="outline"
         size="sm"
         onClick={() => setConfirm(true)}
-        className="w-full border-amber-500 text-amber-600 hover:bg-amber-500/10 hover:text-amber-600"
+        className="w-full border-amber-500 text-amber-700 hover:bg-amber-50 hover:text-amber-700"
       >
         <RotateCw className="mr-1.5 h-3.5 w-3.5" />
         Restart
@@ -469,7 +469,7 @@ export function DemoDataActionsRenderer(_props: TabRendererProps) {
         </p>
         <Button
           size="sm"
-          className="bg-yellow-500 hover:bg-yellow-400 text-black font-semibold w-full"
+          className="bg-amber-500 hover:bg-amber-600 text-white font-semibold w-full"
           disabled={!enabled || rehearsalActive || rehearsalMutation.isPending}
           onClick={() => rehearsalMutation.mutate()}
         >

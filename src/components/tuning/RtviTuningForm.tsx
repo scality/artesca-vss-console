@@ -71,7 +71,7 @@ function CollapsibleSection({ title, children }: CollapsibleSectionProps) {
 /** Inline "recommended starting value" hint, shown under a knob's description. */
 function Recommended({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-medium text-indigo-300">
+    <p className="text-xs font-medium text-brand-teal">
       Recommended: {children}
     </p>
   );
@@ -362,7 +362,7 @@ export function RtviTuningForm() {
           </CollapsibleSection>
 
           {isDirty && (
-            <div className="text-xs text-yellow-400 bg-yellow-400/10 rounded px-3 py-1.5 border border-yellow-400/20">
+            <div className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-1.5 border border-amber-200">
               Unsaved changes
             </div>
           )}
@@ -383,7 +383,7 @@ export function RtviTuningForm() {
               {steps.map((step, i) => (
                 <li key={i} className="flex items-center gap-2 text-sm">
                   {step.status === "running" && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
-                  {step.status === "done" && <span className="text-green-500">✓</span>}
+                  {step.status === "done" && <span className="text-emerald-700">✓</span>}
                   {step.status === "pending" && <span className="text-muted-foreground">○</span>}
                   {step.status === "error" && <span className="text-destructive">✗</span>}
                   <span className={step.status === "done" ? "line-through text-muted-foreground" : ""}>{step.label}</span>
@@ -391,9 +391,9 @@ export function RtviTuningForm() {
               ))}
             </ul>
           ) : (
-            <div className="flex items-start gap-2 rounded-md border border-yellow-600/40 bg-yellow-600/10 p-3">
-              <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
-              <p className="text-sm text-yellow-300">
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
+              <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5 shrink-0" />
+              <p className="text-sm text-amber-700">
                 The VLM will restart — expect ~30 s inference downtime.
               </p>
             </div>

@@ -53,8 +53,8 @@ function HealthChip({ health }: { health?: WorkloadHealth }) {
 
   const bad = !!stateReason || !ready;
   const cls = bad
-    ? "border-red-500/40 bg-red-500/10 text-red-300"
-    : "border-amber-500/40 bg-amber-500/10 text-amber-300";
+    ? "border-red-200 bg-red-50 text-brand-red"
+    : "border-amber-200 bg-amber-50 text-amber-700";
   const text = stateReason
     ? `⟳${restartCount} · ${stateReason}`
     : !ready
@@ -108,12 +108,12 @@ function SharingModePanel({ sharing }: { sharing: GpuSharingMode }) {
   const info = SHARING_INFO[sharing.strategy];
   const badgeColor =
     sharing.strategy === "mig"
-      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
       : sharing.strategy === "exclusive"
-        ? "border-sky-500/40 bg-sky-500/10 text-sky-300"
+        ? "border-brand-teal/30 bg-brand-teal-soft text-brand-teal"
         : sharing.strategy === "unknown"
           ? "border-border bg-muted/30 text-muted-foreground"
-          : "border-amber-500/40 bg-amber-500/10 text-amber-300";
+          : "border-amber-200 bg-amber-50 text-amber-700";
 
   const cfg: string[] = [];
   if (sharing.physicalGpu !== null) cfg.push(`${sharing.physicalGpu} physical`);
@@ -197,7 +197,7 @@ function GpuRow({ gpu, perWorkload }: { gpu: GpuAllocation; perWorkload: boolean
           // No per-pod attribution: show device-level fill only.
           <div
             style={{ width: `${Math.min(100, usedPct)}%` }}
-            className="bg-sky-500/70"
+            className="bg-brand-teal"
           />
         )}
       </div>
@@ -352,15 +352,15 @@ export function GpuSharingCard() {
 function RemoteModelsPanel({ models }: { models: GpuAllocationSnapshot["remoteModels"] }) {
   if (!models || models.length === 0) return null;
   return (
-    <div className="rounded-lg border border-sky-500/40 bg-sky-500/10 p-4 space-y-2">
-      <div className="flex items-center gap-2 text-sm font-medium text-sky-300">
+    <div className="rounded-lg border border-brand-teal/30 bg-brand-teal-soft p-4 space-y-2">
+      <div className="flex items-center gap-2 text-sm font-medium text-brand-teal">
         <Cloud className="h-4 w-4" />
         Remote models — served off-cluster, not on a local GPU
       </div>
       <ul className="space-y-1">
         {models.map((m) => (
           <li key={`${m.role}/${m.name}`} className="text-xs flex items-center gap-2 flex-wrap">
-            <span className="shrink-0 rounded border border-sky-500/40 bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
+            <span className="shrink-0 rounded border border-brand-teal/30 bg-brand-teal-soft px-1.5 py-0.5 text-[10px] font-medium text-brand-teal">
               {m.role} · Remote
             </span>
             <span className="font-mono text-foreground">{m.name}</span>
@@ -378,8 +378,8 @@ function PendingPanel({ pending }: { pending: GpuAllocationSnapshot["pending"] }
     <>
       {/* Over-subscription: GPU workloads the scheduler couldn't place */}
       {pending.length > 0 && (
-        <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-4 space-y-2">
-          <div className="flex items-center gap-2 text-sm font-medium text-red-300">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium text-brand-red">
             <AlertTriangle className="h-4 w-4" />
             {pending.length} GPU workload{pending.length !== 1 ? "s" : ""} unscheduled
           </div>
@@ -388,7 +388,7 @@ function PendingPanel({ pending }: { pending: GpuAllocationSnapshot["pending"] }
               <li key={`${p.namespace}/${p.pod}`} className="text-xs">
                 <span className="font-mono">{shortName(p.pod)}</span>
                 <span className="text-muted-foreground"> · {p.namespace} · needs {p.gpuRequest} GPU</span>
-                <p className="text-[11px] text-red-300/70 mt-0.5">{p.reason}</p>
+                <p className="text-[11px] text-red-600/70 mt-0.5">{p.reason}</p>
               </li>
             ))}
           </ul>

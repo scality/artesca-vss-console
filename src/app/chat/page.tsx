@@ -65,8 +65,8 @@ function parseReasoning(content: string): { steps: ReasoningStep[]; answer: stri
 
 function ReasoningBlock({ steps }: { steps: ReasoningStep[] }) {
   return (
-    <div className="mb-2 rounded border border-slate-700 bg-slate-900/60 text-[11px]">
-      <div className="border-b border-slate-700 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-slate-500">
+    <div className="mb-2 rounded border border-brand-light-gray bg-muted text-[11px]">
+      <div className="border-b border-brand-light-gray px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
         agent reasoning · {steps.length} step{steps.length !== 1 ? "s" : ""}
       </div>
       {steps.map((s, i) => {
@@ -74,16 +74,16 @@ function ReasoningBlock({ steps }: { steps: ReasoningStep[] }) {
         return (
           <div
             key={i}
-            className={`border-b border-slate-800 px-2 py-1.5 last:border-0 ${isToolCall ? "bg-indigo-950/20" : ""}`}
+            className={`border-b border-brand-light-gray px-2 py-1.5 last:border-0 ${isToolCall ? "bg-accent" : ""}`}
           >
             <div
               className={`mb-0.5 font-mono text-[10px] uppercase tracking-wide ${
-                isToolCall ? "text-indigo-400" : "text-slate-500"
+                isToolCall ? "text-brand-indigo" : "text-muted-foreground"
               }`}
             >
               {s.title}
             </div>
-            <div className="whitespace-pre-wrap break-words text-slate-400">{s.body}</div>
+            <div className="whitespace-pre-wrap break-words text-foreground">{s.body}</div>
           </div>
         );
       })}
@@ -272,16 +272,16 @@ export default function ChatPage() {
         <header className="flex items-baseline justify-between gap-3">
           <div>
             <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-              <Bot className="h-5 w-5 text-emerald-400" />
+              <Bot className="h-5 w-5 text-brand-teal" />
               VSS Chat
             </h1>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-muted-foreground">
               Talk to the VLM via vss-agent. The agent has access to
               every registered camera + recent recordings.
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 text-[11px] font-mono text-slate-400">
+            <label className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground">
               <input
                 type="checkbox"
                 checked={showReasoning}
@@ -295,10 +295,10 @@ export default function ChatPage() {
               disabled={loading || g4a.phase === "running"}
               className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-mono transition-colors disabled:opacity-50 ${
                 g4a.phase === "pass"
-                  ? "border-emerald-700 bg-emerald-950/40 text-emerald-300"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                   : g4a.phase === "fail"
-                  ? "border-rose-700 bg-rose-950/40 text-rose-300"
-                  : "border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100"
+                  ? "border-red-200 bg-red-50 text-brand-red"
+                  : "border-input bg-card text-muted-foreground hover:text-foreground"
               }`}
               title="Fire a standard G4a probe query and check the agent responds coherently"
             >
@@ -320,7 +320,7 @@ export default function ChatPage() {
             <button
               onClick={clear}
               disabled={messages.length === 0}
-              className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-400 hover:text-slate-100 disabled:opacity-50"
+              className="rounded border border-input bg-card px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
             >
               clear
             </button>
@@ -332,7 +332,7 @@ export default function ChatPage() {
                   "noopener,noreferrer",
                 )
               }
-              className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-400 hover:text-slate-100"
+              className="rounded border border-input bg-card px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
               title="Open the upstream NVIDIA VSS UI (metropolis-vss-ui on port 3000)"
             >
               open upstream UI →
@@ -341,17 +341,17 @@ export default function ChatPage() {
         </header>
 
         {g4a.phase === "pass" && (
-          <div className="flex items-start gap-2 rounded border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-[11px] text-emerald-300">
+          <div className="flex items-start gap-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-700">
             <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <div>
               <span className="font-semibold font-mono">G4a — agent answered coherently.</span>
-              <span className="ml-2 text-emerald-400/80">{g4a.note}…</span>
+              <span className="ml-2 text-emerald-600">{g4a.note}…</span>
             </div>
             <button onClick={() => setG4a({ phase: "idle" })} className="ml-auto shrink-0 opacity-50 hover:opacity-100 text-xs">✕</button>
           </div>
         )}
         {g4a.phase === "fail" && (
-          <div className="flex items-start gap-2 rounded border border-rose-800 bg-rose-950/30 px-3 py-2 text-[11px] text-rose-300">
+          <div className="flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-brand-red">
             <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <div>
               <span className="font-semibold font-mono">G4a — probe failed.</span>
@@ -363,15 +363,15 @@ export default function ChatPage() {
 
         <div
           ref={scrollRef}
-          className="flex-1 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-sm"
+          className="flex-1 overflow-y-auto rounded-lg border border-border bg-card p-3 text-sm"
         >
           {messages.length === 0 && (
-            <div className="flex h-full items-center justify-center text-center text-slate-600">
+            <div className="flex h-full items-center justify-center text-center text-muted-foreground">
               <div>
-                <Bot className="mx-auto mb-2 h-8 w-8 text-slate-700" />
+                <Bot className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
                 <div>Ask the VLM something about the cameras or recent events.</div>
                 <div className="mt-1 text-xs">
-                  e.g. <span className="font-mono text-slate-500">how many cameras are streaming?</span>
+                  e.g. <span className="font-mono text-brand-slate">how many cameras are streaming?</span>
                 </div>
               </div>
             </div>
@@ -387,31 +387,31 @@ export default function ChatPage() {
               <div key={i} className="mb-4 flex gap-3">
                 <div className="shrink-0">
                   {m.role === "user" ? (
-                    <User className="h-5 w-5 text-sky-400" />
+                    <User className="h-5 w-5 text-brand-indigo" />
                   ) : (
-                    <Bot className="h-5 w-5 text-emerald-400" />
+                    <Bot className="h-5 w-5 text-brand-teal" />
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
                     {m.role}
                   </div>
                   {showReasoning && steps.length > 0 && <ReasoningBlock steps={steps} />}
-                  <div className="mt-0.5 whitespace-pre-wrap break-words text-slate-100">
+                  <div className="mt-0.5 whitespace-pre-wrap break-words text-foreground">
                     {display || (
-                      <span className="italic text-slate-500">(empty after stripping reasoning)</span>
+                      <span className="italic text-muted-foreground">(empty after stripping reasoning)</span>
                     )}
                   </div>
                   {cannedFailure && (
-                    <div className="mt-2 rounded border border-amber-800 bg-amber-950/40 p-2 text-[11px] text-amber-300">
+                    <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-700">
                       <div className="font-semibold">Upstream agent fallback — workflow failed internally.</div>
-                      <div className="mt-1 text-amber-300/80">
+                      <div className="mt-1 text-amber-600">
                         Common causes: NIM not warmed up · no cameras registered with VST ·
                         knowledge-graph empty · LLM tool call timed out. Check{" "}
-                        <code className="rounded bg-slate-800 px-1 text-amber-200">kubectl logs -n $VSS_NS -l app.kubernetes.io/name=vss-agent</code>{" "}
+                        <code className="rounded bg-muted px-1 text-amber-700">kubectl logs -n $VSS_NS -l app.kubernetes.io/name=vss-agent</code>{" "}
                         on the cluster.
                         {hasReasoningBlocks && !showReasoning && (
-                          <> Toggle <span className="font-mono text-amber-200">show reasoning</span> above to see the agent&apos;s internal trace.</>
+                          <> Toggle <span className="font-mono text-amber-700">show reasoning</span> above to see the agent&apos;s internal trace.</>
                         )}
                       </div>
                     </div>
@@ -421,7 +421,7 @@ export default function ChatPage() {
             );
           })}
           {loading && (
-            <div className="flex items-center gap-2 text-xs text-slate-500">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               vss-agent is thinking…
             </div>
@@ -429,19 +429,19 @@ export default function ChatPage() {
         </div>
 
         {error && (
-          <div className="rounded border border-rose-800 bg-rose-950/40 p-2 text-xs font-mono text-rose-300">
+          <div className="rounded border border-red-200 bg-red-50 p-2 text-xs font-mono text-brand-red">
             {error}
           </div>
         )}
 
-        <div className="flex items-center gap-3 text-[11px] text-slate-400">
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
           <label className="flex items-center gap-1.5">
-            <Video className="h-3.5 w-3.5 text-slate-500" />
+            <Video className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="uppercase tracking-wide text-[10px]">Scope</span>
             <select
               value={scope}
               onChange={(e) => setScope(e.target.value)}
-              className="rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-[11px] text-slate-200 hover:border-slate-500 focus:border-emerald-700 focus:outline-none"
+              className="rounded border border-input bg-card px-2 py-1 font-mono text-[11px] text-foreground hover:border-border focus:border-brand-teal focus:outline-none"
               disabled={loading}
               title="Restrict the agent to a specific camera. Pick 'All cameras' to query the whole fleet."
             >
@@ -461,16 +461,16 @@ export default function ChatPage() {
             </select>
           </label>
           {cameras !== null && cameras.length === 0 && (
-            <span className="italic text-slate-600">
+            <span className="italic text-muted-foreground">
               No cameras registered — use{" "}
-              <a href="/cameras" className="underline hover:text-slate-300">
+              <a href="/cameras" className="underline hover:text-foreground">
                 /cameras
               </a>{" "}
               to add one.
             </span>
           )}
           {scopedCamera && (
-            <span className="text-emerald-400">
+            <span className="text-brand-teal">
               Asking about <span className="font-mono">{scopedCamera.id}</span>
             </span>
           )}
@@ -494,13 +494,13 @@ export default function ChatPage() {
             }}
             placeholder="Ask vss-agent…  (Enter to send, Shift+Enter for newline)"
             rows={2}
-            className="flex-1 resize-y rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-700 focus:outline-none"
+            className="flex-1 resize-y rounded border border-input bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand-teal focus:outline-none"
             disabled={loading}
           />
           <button
             type="submit"
             disabled={loading || !input.trim()}
-            className="flex shrink-0 items-center gap-1.5 self-stretch rounded border border-emerald-700 bg-emerald-950/40 px-4 text-sm text-emerald-300 hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex shrink-0 items-center gap-1.5 self-stretch rounded border border-brand-teal bg-brand-teal-soft px-4 text-sm text-brand-teal hover:brightness-95 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Send className="h-4 w-4" />
             Send

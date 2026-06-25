@@ -46,9 +46,9 @@ function feedDotVariant(runtime: NodeRuntimeState | undefined): DotVariant {
 }
 
 const DOT_CLASS: Record<DotVariant, string> = {
-  green:  "bg-green-400",
-  yellow: "bg-yellow-400",
-  red:    "bg-red-400",
+  green:  "bg-emerald-600",
+  yellow: "bg-amber-500",
+  red:    "bg-red-600",
   grey:   "bg-muted-foreground",
 };
 

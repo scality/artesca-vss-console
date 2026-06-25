@@ -324,8 +324,8 @@ export function VstRecordingForm() {
                 <span
                   className={
                     s.state.toLowerCase() === "online"
-                      ? "text-green-500"
-                      : "text-yellow-500"
+                      ? "text-emerald-700"
+                      : "text-amber-700"
                   }
                 >
                   {" "}
@@ -570,9 +570,9 @@ export function VstRecordingForm() {
                   the ingest rate.
                 </p>
                 {!local.recorderEnableFrameDrop && (
-                  <div className="mt-2 flex items-start gap-2 rounded-md border border-yellow-600/40 bg-yellow-600/10 p-2">
-                    <AlertTriangle className="h-3.5 w-3.5 text-yellow-500 mt-0.5 shrink-0" />
-                    <p className="text-xs text-yellow-300">
+                  <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-700 mt-0.5 shrink-0" />
+                    <p className="text-xs text-amber-700">
                       Disabling frame drop may cause the recorder to stall under
                       load; frames back up in memory instead of being dropped.
                     </p>
@@ -588,7 +588,7 @@ export function VstRecordingForm() {
           </div>
 
           {isDirty && (
-            <div className="text-xs text-yellow-400 bg-yellow-400/10 rounded px-3 py-1.5 border border-yellow-400/20">
+            <div className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-1.5 border border-amber-200">
               Unsaved changes
             </div>
           )}
@@ -618,7 +618,7 @@ export function VstRecordingForm() {
                     <Loader2 className="h-4 w-4 animate-spin text-primary" />
                   )}
                   {step.status === "done" && (
-                    <span className="text-green-500">✓</span>
+                    <span className="text-emerald-700">✓</span>
                   )}
                   {step.status === "pending" && (
                     <span className="text-muted-foreground">○</span>
@@ -665,9 +665,9 @@ export function VstRecordingForm() {
               )}
 
               {/* Warning banner */}
-              <div className="flex items-start gap-2 rounded-md border border-yellow-600/40 bg-yellow-600/10 p-3">
-                <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
-                <p className="text-sm text-yellow-300">
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
+                <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5 shrink-0" />
+                <p className="text-sm text-amber-700">
                   VST sensor and stream processor will restart — expect a 5–10 s
                   recording gap while RTSP streams reconnect.
                 </p>

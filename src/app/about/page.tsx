@@ -264,10 +264,10 @@ export default async function AboutPage() {
             <span
               className={
                 gcsHealth.status === "ok"
-                  ? "text-emerald-400 font-semibold text-sm"
+                  ? "text-emerald-700 font-semibold text-sm"
                   : gcsHealth.status === "no-credentials"
-                    ? "text-amber-400 font-semibold text-sm"
-                    : "text-slate-400 font-semibold text-sm"
+                    ? "text-amber-700 font-semibold text-sm"
+                    : "text-muted-foreground font-semibold text-sm"
               }
             >
               {gcsHealth.status === "ok"
@@ -320,9 +320,9 @@ export default async function AboutPage() {
                     </td>
                     <td className="py-2">
                       {obj ? (
-                        <span className="text-emerald-400 text-xs font-semibold">object exists</span>
+                        <span className="text-emerald-700 text-xs font-semibold">object exists</span>
                       ) : (
-                        <span className="text-slate-500 text-xs">object missing</span>
+                        <span className="text-muted-foreground text-xs">object missing</span>
                       )}
                       {detail && (
                         <p className="text-[10px] text-muted-foreground mt-0.5">{detail}</p>
@@ -355,10 +355,10 @@ export default async function AboutPage() {
             <span
               className={
                 firestoreHealth.status === "ok"
-                  ? "text-emerald-400 font-semibold text-sm"
+                  ? "text-emerald-700 font-semibold text-sm"
                   : firestoreHealth.status === "no-credentials"
-                    ? "text-amber-400 font-semibold text-sm"
-                    : "text-slate-400 font-semibold text-sm"
+                    ? "text-amber-700 font-semibold text-sm"
+                    : "text-muted-foreground font-semibold text-sm"
               }
             >
               {firestoreHealth.status === "ok"
@@ -386,7 +386,7 @@ export default async function AboutPage() {
                       <p className="font-mono text-[10px] text-muted-foreground">{path}</p>
                     </td>
                     <td className="py-2">
-                      <span className="text-emerald-400 text-xs font-semibold">
+                      <span className="text-emerald-700 text-xs font-semibold">
                         {n} doc{n === 1 ? "" : "s"}
                       </span>
                     </td>

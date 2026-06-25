@@ -32,7 +32,7 @@ export function DiagnosticOutputDrawer({
             {result && (
               <Badge
                 variant={result === "pass" ? "default" : "destructive"}
-                className={result === "pass" ? "bg-green-600" : ""}
+                className={result === "pass" ? "bg-emerald-700" : ""}
               >
                 {result}
               </Badge>
