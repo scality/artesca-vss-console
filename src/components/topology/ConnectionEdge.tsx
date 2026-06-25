@@ -31,11 +31,14 @@ function protocolColor(protocol: string): string {
 
 type EdgeHealth = EdgeRuntimeState["health"];
 
+// Tuned for the light canvas: solid mid-tones stay visible on #f7f8fa.
+// The old light-on-dark strokes — especially the near-transparent `unknown` —
+// vanished on white, which is the common state when the cluster is degraded.
 const HEALTH_STROKE: Record<EdgeHealth, string> = {
-  flowing: "hsl(217 91% 60%)",                        // --primary
-  idle:    "hsl(215 20% 65% / 0.4)",                  // --muted-foreground at 40%
-  error:   "hsl(0 63% 31%)",                          // --destructive
-  unknown: "hsl(215 20% 65% / 0.15)",
+  flowing: "hsl(var(--primary))",   // brand teal — strong on white
+  idle:    "hsl(215 16% 58%)",      // solid slate
+  error:   "hsl(0 72% 45%)",        // red — clearly visible on white
+  unknown: "hsl(214 16% 74%)",      // light slate — subtle but present
 };
 
 const HEALTH_DASH: Record<EdgeHealth, string | undefined> = {
@@ -100,7 +103,7 @@ export const ConnectionEdge = memo(function ConnectionEdge({
         style={{
           stroke: strokeColor,
           strokeWidth: isFlowing ? 2 : 1.5,
-          opacity: health === "unknown" ? 0.4 : 0.9,
+          opacity: health === "unknown" ? 0.75 : 0.9,
           strokeDasharray: dashArray,
         }}
         className={isFlowing ? "edge-flowing" : undefined}
@@ -121,9 +124,9 @@ export const ConnectionEdge = memo(function ConnectionEdge({
             className="rounded border border-border bg-background px-1.5 py-0.5 text-xs font-medium leading-tight"
             style={{
               color: health === "error"
-                ? "hsl(0 84% 70%)"
+                ? "hsl(var(--destructive))"
                 : health === "flowing"
-                  ? "hsl(217 91% 75%)"
+                  ? "hsl(var(--primary))"
                   : "hsl(var(--foreground))",
               cursor: runtime?.errorHint ? "help" : "default",
               display: "inline-flex",
@@ -132,7 +135,7 @@ export const ConnectionEdge = memo(function ConnectionEdge({
             }}
           >
             {health === "error" && (
-              <span style={{ color: "hsl(0 84% 70%)", fontSize: "9px" }}>⚠</span>
+              <span style={{ color: "hsl(var(--destructive))", fontSize: "9px" }}>⚠</span>
             )}
             {displayLabel}
           </span>
