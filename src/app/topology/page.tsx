@@ -433,18 +433,18 @@ export default function TopologyPage() {
             fitView
             fitViewOptions={{ padding: 0.3 }}
             attributionPosition="bottom-right"
-            colorMode="dark"
+            colorMode="light"
           >
-            <Background color="#334155" gap={24} />
+            <Background bgColor="#f7f8fa" color="#cbd5e1" gap={24} />
             <Controls />
             <MiniMap
               nodeColor={(node) => {
                 const d = node.data as TopologyNodeData;
                 const h = d?.health ?? "unknown";
-                if (h === "ok") return "#22c55e";
-                if (h === "warn") return "#eab308";
-                if (h === "fail") return "#ef4444";
-                return "#6b7280";
+                if (h === "ok") return "#059669";
+                if (h === "warn") return "#f59e0b";
+                if (h === "fail") return "#dc2626";
+                return "#94a3b8";
               }}
               className="!bg-card !border-border"
             />
