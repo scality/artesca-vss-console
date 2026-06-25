@@ -38,6 +38,10 @@ vi.mock("@/lib/k8s", () => ({
   }),
 }));
 
+vi.mock("@/lib/reconcile/context", () => ({
+  makeReconcileContext: vi.fn(),
+}));
+
 // HeadBucketCommand must be a constructable mock — use a class so `new` works.
 vi.mock("@aws-sdk/client-s3", () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -56,6 +60,7 @@ import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
 import { getKafka } from "@/lib/kafka";
 import { makeS3Client, s3Endpoint } from "@/lib/s3";
 import { coreV1 } from "@/lib/k8s";
+import { makeReconcileContext } from "@/lib/reconcile/context";
 import { collectConnectivity } from "@/lib/diagnostics/connectivity";
 import type { BackendStatus } from "@/lib/diagnostics/connectivity";
 
@@ -82,6 +87,17 @@ beforeEach(() => {
     listNamespace: vi.fn().mockResolvedValue({ items: [] }),
   } as never);
 
+  // config-store probe: instance set + a resolving context/read → "ok" fast,
+  // deterministic, no real Firestore or 4s timeout.
+  process.env.VSS_INSTANCE_NAME = "test-instance";
+  delete process.env.CONSOLE_DISABLE_RECONCILE_LOOP;
+  vi.mocked(makeReconcileContext)
+    .mockReset()
+    .mockResolvedValue({
+      store: { readStatus: vi.fn().mockResolvedValue({}) },
+      instance: "test-instance",
+    } as never);
+
   // Alert-bridge probe uses global fetch — default to a reachable response so
   // the unrelated per-backend tests aren't perturbed. Cases below re-stub it.
   vi.stubGlobal(
@@ -97,12 +113,12 @@ beforeEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("collectConnectivity()", () => {
-  it("returns all six backends in stable order: k8s, prometheus, mediamtx, kafka, s3, alert-bridge", async () => {
+  it("returns all seven backends in stable order: k8s, prometheus, mediamtx, kafka, s3, alert-bridge, config-store", async () => {
     const result = await collectConnectivity();
 
-    expect(result).toHaveLength(6);
+    expect(result).toHaveLength(7);
     const ids = result.map((b) => b.id);
-    expect(ids).toEqual(["k8s", "prometheus", "mediamtx", "kafka", "s3", "alert-bridge"]);
+    expect(ids).toEqual(["k8s", "prometheus", "mediamtx", "kafka", "s3", "alert-bridge", "config-store"]);
   });
 
   it("each backend entry has the required shape (id, label, ok, detail, latencyMs)", async () => {
