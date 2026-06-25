@@ -106,9 +106,18 @@ if [[ -n "${PUB_IP:-}" ]]; then
   remote_init || { echo "FATAL: remote_init failed — check state file and SSH config" >&2; exit 1; }
 fi
 
-# Open the SSH tunnel + kubeconfig once the state-file trap is in place.
+# Get kubectl talking to the cluster. Baremetal/DMZ hosts disable SSH TCP
+# forwarding (and don't let us edit sshd_config), so the laptop tunnel can't be
+# opened there — run kubectl ON THE NODE via rsh instead. Other providers use
+# the laptop SSH tunnel. Force node-remote mode anywhere with REMOTE_KUBECTL=1.
 if [[ -n "${PUB_IP:-}" ]]; then
-  if ! setup_laptop_kubectl >/dev/null; then
+  if [[ "${PROVIDER:-}" == "baremetal" || "${REMOTE_KUBECTL:-0}" == "1" ]]; then
+    echo "==> kubectl: node-remote mode (provider=${PROVIDER:-?}, TCP forwarding not required)"
+    if ! enable_remote_kubectl; then
+      echo "FATAL: remote kubectl setup failed. See stderr above." >&2
+      exit 1
+    fi
+  elif ! setup_laptop_kubectl >/dev/null; then
     echo "FATAL: laptop kubectl setup failed. See stderr above." >&2
     exit 1
   fi
@@ -288,7 +297,9 @@ if [[ -n "${REMOTE_SSH_TARGET:-}" ]]; then
 fi
 
 echo "==> applying Secrets"
-kubectl apply -f "$SECRETS_FILE"
+# Pipe via stdin (not -f <localpath>) so this works in node-remote mode too,
+# where the file lives on the laptop, not the node.
+kubectl apply -f - < "$SECRETS_FILE"
 
 # Firestore credentials secret (shared by the console pod and the reconcile-agent).
 # Sourced from Secret Manager config-store-rw-key (project isv-alliances). Created
@@ -300,8 +311,11 @@ if ! kubectl -n console get secret config-store-rw >/dev/null 2>&1; then
   CS_KEY_TMP="$(mktemp)"
   if gcloud secrets versions access latest --secret=config-store-rw-key \
        --project=isv-alliances > "$CS_KEY_TMP" 2>/dev/null && [[ -s "$CS_KEY_TMP" ]]; then
-    if kubectl -n console create secret generic config-store-rw \
-         --from-file=key.json="$CS_KEY_TMP"; then
+    # Render locally (reads the laptop-side key file), apply via stdin so it
+    # works in node-remote mode where the key file isn't on the node.
+    if command kubectl -n console create secret generic config-store-rw \
+         --from-file=key.json="$CS_KEY_TMP" --dry-run=client -o yaml \
+         | kubectl apply -f -; then
       rm -f "$CS_KEY_TMP"
       echo "    created config-store-rw"
     else
