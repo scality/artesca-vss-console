@@ -33,6 +33,7 @@ describe("probeConfigStore", () => {
     const s = await probeConfigStore();
     expect(s.severity).toBe("error");
     expect(s.detail).toMatch(/Cannot find module '@google-cloud\/firestore'/);
+    expect(s.ok).toBe(false);
   });
 
   it("error when the test read throws (permission/unreachable)", async () => {
