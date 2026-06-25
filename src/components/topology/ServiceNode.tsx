@@ -19,16 +19,16 @@ export interface ServiceNodeData {
 // Stacking both widths on the same element leaves the winner to stylesheet ordering,
 // which is non-deterministic and was swallowing the selection indicator.
 const HEALTH_RING: Record<Health, string> = {
-  ok: "ring-green-500 bg-green-500/10",
-  warn: "ring-yellow-500 bg-yellow-500/10",
-  fail: "ring-red-500 bg-red-500/10",
+  ok: "ring-emerald-500 bg-emerald-50",
+  warn: "ring-amber-500 bg-amber-50",
+  fail: "ring-red-500 bg-red-50",
   unknown: "ring-border bg-muted/30",
 };
 
 const HEALTH_DOT: Record<Health, string> = {
-  ok: "bg-green-500",
-  warn: "bg-yellow-500",
-  fail: "bg-red-500",
+  ok: "bg-emerald-600",
+  warn: "bg-amber-500",
+  fail: "bg-red-600",
   unknown: "bg-muted-foreground",
 };
 
@@ -73,7 +73,7 @@ export const ServiceNode = memo(function ServiceNode({
         <div className="mt-1 flex gap-2 text-[10px] text-muted-foreground">
           {podCount !== undefined && <span>{podCount} pod{podCount !== 1 ? "s" : ""}</span>}
           {restarts !== undefined && restarts > 0 && (
-            <span className="text-yellow-400">r:{restarts}</span>
+            <span className="text-amber-700">r:{restarts}</span>
           )}
         </div>
       )}

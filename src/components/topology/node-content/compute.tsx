@@ -96,12 +96,12 @@ function PodStatusBlock({ pod, external }: { pod?: PodState; external?: string }
       <dt className="text-muted-foreground">Phase</dt>
       <dd>
         {pod.phase}{" "}
-        <span className={pod.ready ? "text-green-400" : "text-yellow-400"}>
+        <span className={pod.ready ? "text-emerald-700" : "text-amber-700"}>
           {pod.ready ? "· ready" : "· not ready"}
         </span>
       </dd>
       <dt className="text-muted-foreground">Restarts</dt>
-      <dd className={pod.restarts > 0 ? "text-yellow-400" : ""}>{pod.restarts}</dd>
+      <dd className={pod.restarts > 0 ? "text-amber-700" : ""}>{pod.restarts}</dd>
       <dt className="text-muted-foreground">Age</dt>
       <dd>{formatAge(pod.ageSecs)}</dd>
       <dt className="text-muted-foreground">Namespace</dt>
@@ -127,7 +127,7 @@ function GpuBlock({ gpu, note }: { gpu?: GpuStateShort; note?: string }) {
     ? Math.round((gpu.memUsedGiB / gpu.memTotalGiB) * 100)
     : 0;
   const vramColor =
-    vramPct > 90 ? "[&>div]:bg-red-500" : vramPct > 70 ? "[&>div]:bg-yellow-500" : "[&>div]:bg-primary";
+    vramPct > 90 ? "[&>div]:bg-red-600" : vramPct > 70 ? "[&>div]:bg-amber-500" : "[&>div]:bg-primary";
 
   return (
     <div className="mt-3 space-y-2">

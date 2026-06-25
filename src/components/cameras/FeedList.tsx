@@ -73,16 +73,16 @@ export function FeedList({ cameraId, feeds, eip }: FeedListProps) {
           </span>
           <div className="flex gap-1 flex-wrap">
             {feed.vstRegistered ? (
-              <Badge variant="outline" className="text-xs border-green-600 text-green-400">
+              <Badge variant="outline" className="text-xs bg-emerald-50 border-emerald-200 text-emerald-700">
                 VST
               </Badge>
             ) : (
-              <Badge variant="outline" className="text-xs border-yellow-600 text-yellow-400">
+              <Badge variant="outline" className="text-xs bg-amber-50 border-amber-200 text-amber-700">
                 unregistered
               </Badge>
             )}
             {feed.replayReady ? (
-              <Badge variant="outline" className="text-xs border-green-600 text-green-400">
+              <Badge variant="outline" className="text-xs bg-emerald-50 border-emerald-200 text-emerald-700">
                 replay ready
               </Badge>
             ) : (

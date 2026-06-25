@@ -109,7 +109,7 @@ export function LoadProfileDialog({
               const active = s === step && step !== "done";
               return (
                 <div key={s} className="flex items-center gap-2">
-                  <span className={done ? "text-green-500" : active ? "text-primary" : "text-muted-foreground"}>
+                  <span className={done ? "text-emerald-700" : active ? "text-primary" : "text-muted-foreground"}>
                     {done ? "✓" : active ? "…" : "○"}
                   </span>
                   <span className={active ? "font-medium" : done ? "" : "text-muted-foreground"}>

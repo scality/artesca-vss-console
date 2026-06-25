@@ -173,10 +173,10 @@ function PutRateSparkline({ samples }: { samples: SparkSample[] }) {
 function CacheProgressBar({ pct }: { pct: number }) {
   const colorClass =
     pct > 90
-      ? "[&>div]:bg-red-500"
+      ? "[&>div]:bg-red-600"
       : pct > 75
-        ? "[&>div]:bg-yellow-500"
-        : "[&>div]:bg-green-500";
+        ? "[&>div]:bg-amber-500"
+        : "[&>div]:bg-emerald-600";
 
   return (
     <div className="space-y-1">
@@ -218,7 +218,7 @@ function FrameDropsBadge({
 
   if (rate === 0 || (rate === null && count === 0)) {
     return (
-      <span className="text-xs text-green-400" title={lifetimeTitle}>
+      <span className="text-xs text-emerald-700" title={lifetimeTitle}>
         no drops
       </span>
     );
@@ -230,7 +230,7 @@ function FrameDropsBadge({
 
   return (
     <span
-      className={`flex items-center gap-1 text-xs ${isCrit ? "text-red-400" : "text-yellow-400"}`}
+      className={`flex items-center gap-1 text-xs ${isCrit ? "text-brand-red" : "text-amber-700"}`}
       title={lifetimeTitle}
     >
       {isCrit ? (
@@ -251,16 +251,16 @@ function AlertsStrip({ alerts }: { alerts: VstStorageData["alerts"] }) {
 
   const iconFor = (sev: "info" | "warn" | "crit") => {
     if (sev === "crit")
-      return <AlertOctagon className="h-4 w-4 shrink-0 text-red-400" />;
+      return <AlertOctagon className="h-4 w-4 shrink-0 text-brand-red" />;
     if (sev === "warn")
-      return <AlertTriangle className="h-4 w-4 shrink-0 text-yellow-400" />;
+      return <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700" />;
     return <Info className="h-4 w-4 shrink-0 text-muted-foreground" />;
   };
 
   const bgFor = (sev: "info" | "warn" | "crit") => {
-    if (sev === "crit") return "bg-red-950/40 border-red-800/50 text-red-300";
+    if (sev === "crit") return "bg-red-50 border-red-200 text-brand-red";
     if (sev === "warn")
-      return "bg-yellow-950/40 border-yellow-800/50 text-yellow-200";
+      return "bg-amber-50 border-amber-200 text-amber-700";
     return "bg-muted/30 border-border text-muted-foreground";
   };
 

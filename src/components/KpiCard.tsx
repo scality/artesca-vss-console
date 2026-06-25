@@ -11,8 +11,8 @@ interface KpiCardProps {
 }
 
 const TREND_STYLES = {
-  up: "text-green-400",
-  down: "text-red-400",
+  up: "text-emerald-600",
+  down: "text-red-600",
   flat: "text-muted-foreground",
 };
 
@@ -26,7 +26,7 @@ export function KpiCard({ label, value, trend, sub, footer, className }: KpiCard
   return (
     <div
       className={cn(
-        "rounded-lg border border-border bg-card p-4 space-y-1",
+        "rounded-2xl border border-brand-light-gray bg-card p-4 space-y-1 shadow-soft-1",
         className
       )}
     >

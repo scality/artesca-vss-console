@@ -91,7 +91,7 @@ export default function TuningPage() {
                 <p className="font-mono">
                   {gpuPressure.pct}% VRAM · {gpuPressure.utilGpu}% util
                   {gpuPressure.pct > 85 && (
-                    <span className="ml-2 text-yellow-400 text-xs">
+                    <span className="ml-2 text-amber-700 text-xs">
                       <AlertTriangle className="inline h-3 w-3 mr-0.5" />
                       high pressure
                     </span>

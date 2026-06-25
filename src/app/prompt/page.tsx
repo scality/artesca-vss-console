@@ -152,7 +152,7 @@ export default function PromptPage() {
             {data?.gcs?.available === true && (
               <p className="text-xs text-muted-foreground mt-0.5">
                 GCS:{" "}
-                <span className="text-emerald-400">
+                <span className="text-emerald-700">
                   persisted
                   {data.gcs.lastUpdatedBy ? ` · last by ${data.gcs.lastUpdatedBy}` : ""}
                   {data.gcs.lastUpdated
@@ -191,7 +191,7 @@ export default function PromptPage() {
 
         {/* GCS persistence status banner — docker mode only */}
         {data?.gcs?.available === true && (
-          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300">
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
             <span>
               <span className="font-semibold">PERSISTED</span> — prompt is saved in GCS
               {data.gcs.lastUpdatedBy ? ` by ${data.gcs.lastUpdatedBy}` : ""}
@@ -204,7 +204,7 @@ export default function PromptPage() {
         )}
 
         {data?.runtime === "docker" && data?.gcs?.available === false && (
-          <div className="rounded-md border border-slate-500/30 bg-slate-500/10 p-3 text-sm text-slate-400">
+          <div className="rounded-md border border-brand-light-gray bg-muted p-3 text-sm text-muted-foreground">
             <span>
               <span className="font-semibold">RUNTIME-ONLY</span> — prompt is not persisted to GCS.
               Set <code>GCS_CONFIG_BUCKET</code> and <code>GOOGLE_APPLICATION_CREDENTIALS</code> to
@@ -214,7 +214,7 @@ export default function PromptPage() {
         )}
 
         {data?.runtime === "docker" && (
-          <div className="rounded-md border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-300">
+          <div className="rounded-md border border-brand-teal/30 bg-brand-teal-soft p-3 text-sm text-brand-teal">
             Compose-mode runtime — prompt is the <code>VLM_SYSTEM_PROMPT</code> env on the
             <code> vss-rtvi-vlm</code> container. Saving recreates the container with the new value
             (~30 s of downtime; old container is auto-restored on failure).
@@ -222,10 +222,10 @@ export default function PromptPage() {
         )}
 
         {data?.defaultPrompt && data.prompt === "" && draft !== null && draft !== data.defaultPrompt && (
-          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300 flex items-start gap-3">
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 flex items-start gap-3">
             <div className="flex-1">
               <div className="font-medium">No prompt configured.</div>
-              <div className="mt-1 text-emerald-300/80">
+              <div className="mt-1 text-emerald-700/70">
                 Apply the bundled Pyramid retail-scenario default? Same prompt is wired into
                 future deploys via <code>scripts/stacks/nvidia-vss/bootstrap-compose.sh</code>.
               </div>
@@ -255,7 +255,7 @@ export default function PromptPage() {
         )}
 
         {isDirty && (
-          <div className="text-xs text-yellow-400 bg-yellow-400/10 rounded px-3 py-1.5 border border-yellow-400/20">
+          <div className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-1.5 border border-amber-200">
             Unsaved changes
           </div>
         )}
@@ -306,9 +306,9 @@ export default function PromptPage() {
                 )}
               </DialogDescription>
             </DialogHeader>
-            <div className="flex items-start gap-2 rounded-md border border-yellow-600/40 bg-yellow-600/10 p-3">
-              <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
-              <p className="text-sm text-yellow-300">
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
+              <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5 shrink-0" />
+              <p className="text-sm text-amber-700">
                 Expect ~30 s downtime while vss-rtvi-vlm restarts. Live inference
                 will be paused during this time.
                 {data?.runtime === "docker" && (

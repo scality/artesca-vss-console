@@ -14,25 +14,25 @@ interface Signal {
 }
 
 const DOT: Record<H, string> = {
-  ok: "bg-green-500",
-  warn: "bg-yellow-500",
+  ok: "bg-emerald-500",
+  warn: "bg-amber-500",
   fail: "bg-red-500",
 };
 
 const OVERALL: Record<H, { box: string; text: string; word: string }> = {
   ok: {
-    box: "border-green-500/30 bg-green-500/10",
-    text: "text-green-300",
+    box: "border-emerald-200 bg-emerald-50",
+    text: "text-emerald-700",
     word: "All systems operational",
   },
   warn: {
-    box: "border-yellow-500/30 bg-yellow-500/10",
-    text: "text-yellow-300",
+    box: "border-amber-200 bg-amber-50",
+    text: "text-amber-700",
     word: "Degraded",
   },
   fail: {
-    box: "border-red-500/30 bg-red-500/10",
-    text: "text-red-300",
+    box: "border-red-200 bg-red-50",
+    text: "text-brand-red",
     word: "Critical",
   },
 };

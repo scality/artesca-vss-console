@@ -30,10 +30,10 @@ function ProgressBar({
         className={cn(
           "h-full rounded-full transition-all",
           isCrit
-            ? "bg-red-500"
+            ? "bg-red-600"
             : isWarn
-              ? "bg-yellow-500"
-              : "bg-green-500"
+              ? "bg-amber-500"
+              : "bg-emerald-600"
         )}
         style={{ width: `${pct}%` }}
       />
@@ -66,9 +66,9 @@ export function GpuCard({ gpu }: GpuCardProps) {
           className={cn(
             "text-xs font-medium tabular-nums",
             isCritTemp
-              ? "text-red-400"
+              ? "text-brand-red"
               : isWarnTemp
-                ? "text-yellow-400"
+                ? "text-amber-700"
                 : "text-muted-foreground"
           )}
         >

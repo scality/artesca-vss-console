@@ -93,7 +93,7 @@ export function ModelCard({ model, isPrimary, isPreview }: ModelCardProps) {
             : `~${model.warmupSeconds}s warmup`}
         </span>
         {model.l4Validated && (
-          <Badge variant="outline" className="text-xs border-green-600 text-green-400">
+          <Badge variant="outline" className="text-xs bg-emerald-50 border-emerald-200 text-emerald-700">
             L4 validated
           </Badge>
         )}
@@ -105,7 +105,7 @@ export function ModelCard({ model, isPrimary, isPreview }: ModelCardProps) {
           <ul className="space-y-0.5">
             {model.strengths.map((s, i) => (
               <li key={i} className="flex gap-1">
-                <CheckCircle2 className="h-3 w-3 text-green-500 mt-0.5 shrink-0" />
+                <CheckCircle2 className="h-3 w-3 text-emerald-700 mt-0.5 shrink-0" />
                 <span>{s}</span>
               </li>
             ))}
@@ -116,7 +116,7 @@ export function ModelCard({ model, isPrimary, isPreview }: ModelCardProps) {
           <ul className="space-y-0.5">
             {model.limitations.map((l, i) => (
               <li key={i} className="flex gap-1">
-                <AlertCircle className="h-3 w-3 text-yellow-500 mt-0.5 shrink-0" />
+                <AlertCircle className="h-3 w-3 text-amber-700 mt-0.5 shrink-0" />
                 <span>{l}</span>
               </li>
             ))}

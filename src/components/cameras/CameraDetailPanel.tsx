@@ -260,7 +260,7 @@ export function CameraDetailPanel({ camera }: PanelProps) {
           {!overrideEnabled && (
             <Badge
               variant="outline"
-              className="text-[10px] px-1.5 py-0 border-slate-600 text-slate-400"
+              className="text-[10px] px-1.5 py-0 border-brand-light-gray text-muted-foreground"
             >
               sensor_filter glob
             </Badge>
@@ -283,7 +283,7 @@ export function CameraDetailPanel({ camera }: PanelProps) {
               />
             )}
             {overrideEnabled && selectedScenarioIds.length === 0 && (
-              <p className="text-xs text-amber-400">
+              <p className="text-xs text-amber-700">
                 No scenarios selected — all alerts suppressed for this camera.
               </p>
             )}
@@ -311,7 +311,7 @@ export function CameraDetailPanel({ camera }: PanelProps) {
           {!recordingOverride && (
             <Badge
               variant="outline"
-              className="text-[10px] px-1.5 py-0 border-slate-600 text-slate-400"
+              className="text-[10px] px-1.5 py-0 border-brand-light-gray text-muted-foreground"
             >
               stack default
             </Badge>

@@ -23,16 +23,16 @@ export interface StorageNodeData {
 // ── Health ring / dot ──────────────────────────────────────────────────────
 
 const HEALTH_RING: Record<PipelineHealth, string> = {
-  ok: "ring-green-500 bg-green-500/10",
-  warn: "ring-yellow-500 bg-yellow-500/10",
-  fail: "ring-red-500 bg-red-500/10",
+  ok: "ring-emerald-500 bg-emerald-50",
+  warn: "ring-amber-500 bg-amber-50",
+  fail: "ring-red-500 bg-red-50",
   unknown: "ring-border bg-muted/30",
 };
 
 const HEALTH_DOT: Record<PipelineHealth, string> = {
-  ok: "bg-green-500",
-  warn: "bg-yellow-500",
-  fail: "bg-red-500",
+  ok: "bg-emerald-600",
+  warn: "bg-amber-500",
+  fail: "bg-red-600",
   unknown: "bg-muted-foreground",
 };
 
@@ -110,7 +110,7 @@ function SubtypeIcon({ subtype }: { subtype: StorageNodeData["subtype"] }) {
     case "postgres":
       return <Database className={cls} />;
     case "redis":
-      return <Zap className={`${cls} text-yellow-400`} />;
+      return <Zap className={`${cls} text-amber-600`} />;
     default: {
       const _exhaustive: never = subtype;
       void _exhaustive;
@@ -122,7 +122,7 @@ function SubtypeIcon({ subtype }: { subtype: StorageNodeData["subtype"] }) {
 // ── Cache fill bar (inline, compact) ──────────────────────────────────────
 
 function InlineFillBar({ pct }: { pct: number }) {
-  const color = pct > 90 ? "bg-red-500" : pct > 75 ? "bg-yellow-500" : "bg-green-500";
+  const color = pct > 90 ? "bg-red-600" : pct > 75 ? "bg-amber-500" : "bg-emerald-600";
   return (
     <div className="mt-1 h-1 w-full rounded-full bg-secondary overflow-hidden">
       <div

@@ -2,9 +2,9 @@ import { type Health } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const HEALTH_STYLES: Record<Health, string> = {
-  ok: "bg-green-500/20 text-green-400 border-green-500/30",
-  warn: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-  fail: "bg-red-500/20 text-red-400 border-red-500/30",
+  ok: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  warn: "bg-amber-50 text-amber-700 border-amber-200",
+  fail: "bg-red-50 text-red-700 border-red-200",
   unknown: "bg-muted text-muted-foreground border-border",
 };
 

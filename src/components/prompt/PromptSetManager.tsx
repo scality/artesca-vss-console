@@ -210,7 +210,7 @@ export function PromptSetManager({ sets, activePromptId }: PromptSetManagerProps
                         {isActive && (
                           <Badge
                             variant="default"
-                            className="text-xs bg-emerald-500/20 text-emerald-400 border-emerald-500/30 border"
+                            className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200 border"
                           >
                             Active
                           </Badge>

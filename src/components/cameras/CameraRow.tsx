@@ -33,7 +33,7 @@ function GcsBadge({
     return (
       <Badge
         variant="outline"
-        className="text-[10px] px-1.5 py-0 border-emerald-600 text-emerald-400"
+        className="text-[10px] px-1.5 py-0 bg-emerald-50 border-emerald-200 text-emerald-700"
         title="Camera is persisted in GCS and registered in VST"
       >
         PERSISTED
@@ -45,7 +45,7 @@ function GcsBadge({
     return (
       <Badge
         variant="outline"
-        className="text-[10px] px-1.5 py-0 border-amber-500 text-amber-400"
+        className="text-[10px] px-1.5 py-0 bg-amber-50 border-amber-200 text-amber-700"
         title="Camera is running in VST but not saved to GCS — use Save all to GCS to persist"
       >
         RUNTIME-ONLY
@@ -58,7 +58,7 @@ function GcsBadge({
   return (
     <Badge
       variant="outline"
-      className="text-[10px] px-1.5 py-0 border-slate-500 text-slate-400"
+      className="text-[10px] px-1.5 py-0 border-brand-light-gray text-muted-foreground"
       title="Camera is saved in GCS but not yet registered in VST (will restore on next console restart)"
     >
       PENDING-RESTORE
@@ -67,10 +67,10 @@ function GcsBadge({
 }
 
 const roleBadgeClass: Record<Camera["role"], string> = {
-  checkout: "border-blue-600 text-blue-400",
-  aisle: "border-purple-600 text-purple-400",
-  dock: "border-orange-600 text-orange-400",
-  backroom: "border-gray-600 text-gray-400",
+  checkout: "border-brand-indigo/40 text-brand-indigo",
+  aisle: "border-brand-magenta/40 text-brand-magenta",
+  dock: "border-brand-orange/40 text-brand-orange",
+  backroom: "border-brand-light-gray text-muted-foreground",
   other: "border-muted-foreground text-muted-foreground",
 };
 
