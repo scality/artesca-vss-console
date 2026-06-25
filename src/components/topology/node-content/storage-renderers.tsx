@@ -465,11 +465,44 @@ function ArtescaS3Actions(_props: TabRendererProps) {
 
 function VstLocalCacheStatus({ runtimeState, snapshot }: TabRendererProps) {
   const cache: CacheState | undefined = runtimeState?.cache;
+  const offloadBucket = snapshot?.nodes["artesca-s3"]?.s3?.bucket;
 
   if (!cache) {
+    // Fill level comes from a `df` exec inside the VST sensor pod; a null cache
+    // means that exec failed — the console is off-cluster, or the sensor pod
+    // isn't running yet. The aggregator records the specific failure in
+    // snapshot.warnings, so surface it instead of a dead-end message.
+    const reason = snapshot?.warnings.find((w) =>
+      w.startsWith("Cache stats unavailable")
+    );
     return (
-      <div className="py-6 text-center text-sm text-muted-foreground">
-        Cache state not available.
+      <div className="space-y-3">
+        <TierNote>
+          <span className="font-medium text-foreground">Hot tier.</span> Recorded
+          segments are buffered on local node disk, then offloaded to ARTESCA S3
+          {offloadBucket ? <> (<span className="font-mono">{offloadBucket}</span>)</> : null}.
+        </TierNote>
+        <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-yellow-400" />
+            <span className="text-sm font-medium">Live cache stats unavailable</span>
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            Fill level reads <code className="bg-muted/30 px-1 rounded">df</code>{" "}
+            inside the VST sensor pod — it needs an in-cluster connection and a
+            running sensor. This usually means the console is off-cluster or the
+            sensor pod isn&apos;t up yet.
+          </p>
+          {reason && (
+            <p className="text-[10px] font-mono break-all text-muted-foreground/70">
+              {reason}
+            </p>
+          )}
+          <p className="text-[11px] text-muted-foreground">
+            Static config (disk size, evict threshold, offload bucket) is on the{" "}
+            <span className="font-medium text-foreground">Config</span> tab.
+          </p>
+        </div>
       </div>
     );
   }
@@ -489,7 +522,6 @@ function VstLocalCacheStatus({ runtimeState, snapshot }: TabRendererProps) {
   // the Prometheus scrape failed (e.g. running the console off-cluster), not
   // that there were zero drops. Showing a bare "—" reads like zero.
   const dropsUnavailable = dropRate === null && dropCount === null;
-  const offloadBucket = snapshot?.nodes["artesca-s3"]?.s3?.bucket;
 
   return (
     <div className="space-y-4">
