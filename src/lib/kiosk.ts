@@ -10,6 +10,7 @@ export const KIOSK_HIDDEN_ROUTES = [
   "/secrets",
   "/logs",
   "/diagnostics",
+  "/sizing-studio",
   "/settings",
   "/about",
 ];
