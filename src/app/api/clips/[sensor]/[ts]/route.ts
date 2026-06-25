@@ -134,6 +134,19 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const streamId = await resolveStreamId(sensor);
     if (streamId) {
       mp4Buffer = await fetchMp4FromUrl(buildVstClipUrl(streamId, ts));
+
+      // Camera-clock skew: VST records on the node clock (use_sensor_ntp_time
+      // off), but an incident's NTP ts comes from the camera's own clock. When
+      // those diverge (e.g. an unsynced camera, or the synthetic camera-sim
+      // whose looped-file timestamps drift off wall-clock), the exact-ts window
+      // falls outside VST's recorded timeline and 404s. Incidents stream in
+      // near-real-time, so the footage was recorded ~now on the node clock —
+      // fall back to the most recent recorded window so the camera's clip
+      // still plays. No-op for clock-synced cameras (the exact fetch succeeds).
+      if (!mp4Buffer) {
+        const recentTs = new Date(Date.now() - 30_000).toISOString();
+        mp4Buffer = await fetchMp4FromUrl(buildVstClipUrl(streamId, recentTs));
+      }
     }
   }
 

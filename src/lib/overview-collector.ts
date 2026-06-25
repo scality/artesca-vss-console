@@ -265,7 +265,7 @@ async function collectK8sOverview(
     const nimNs = CLUSTER.rtvi.nimNamespace;
     const nimPods_ = await listAllPodsInNs(coreV1(), nimNs);
     const nimPods = nimPods_.filter((p) =>
-      p.metadata?.name?.includes("nim") || p.metadata?.name?.includes("nemotron") || p.metadata?.name?.includes("cosmos")
+      p.metadata?.name?.includes("nim") || p.metadata?.name?.includes("nemotron") || p.metadata?.name?.includes("cosmos") || p.metadata?.name?.includes("vlm")
     );
     const anyReady = nimPods.some((p) =>
       p.status?.conditions?.find(
