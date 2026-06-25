@@ -54,8 +54,14 @@ module.exports = {
       "dev",
   },
   // ssh2 and better-sqlite3 ship native bindings that Turbopack cannot bundle.
-  // Mark them as server-side externals so Node resolves them at runtime.
-  serverExternalPackages: ["ssh2", "better-sqlite3", "cpu-features", "sshcrypto"],
+  // @google-cloud/firestore is a gRPC/protobuf package whose dynamic requires
+  // and .proto assets do not survive bundling — left bundled, the standalone
+  // output omits it and the runtime `await import("@google-cloud/firestore")`
+  // in lib/config-store/firestore.ts throws MODULE_NOT_FOUND, breaking the k8s
+  // Firestore config-store (cameras / scenarios / prompt read+write).
+  // Mark them all as server-side externals so Node resolves them at runtime and
+  // `output: standalone` traces them into .next/standalone/node_modules.
+  serverExternalPackages: ["ssh2", "better-sqlite3", "cpu-features", "sshcrypto", "@google-cloud/firestore"],
   // Reverse-proxy the upstream NVIDIA VSS chat UI (metropolis-nvidia-vss-ui) behind
   // /chat/__upstream so it shares the console origin (no CORS, no second
   // SSH tunnel, and the iframe can post messages to the parent).
