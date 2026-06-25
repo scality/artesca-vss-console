@@ -18,7 +18,16 @@ import { withRequestContext } from "@/lib/with-request-context";
 
 export const dynamic = "force-dynamic";
 
-const VSS_AGENT_URL = process.env.VSS_AGENT_URL ?? "http://localhost:8000";
+// Default to the in-cluster agent service derived from VSS_NAMESPACE (same
+// convention as cluster-refs.ts) so the k8s path works without an explicit
+// env. Only the docker path falls back to localhost:8000. The previous
+// unconditional localhost default made the console call ITSELF on k8s →
+// "vss-agent unreachable: fetch failed". Override with VSS_AGENT_URL.
+const VSS_AGENT_URL =
+  process.env.VSS_AGENT_URL ??
+  (process.env.CONSOLE_RUNTIME === "docker"
+    ? "http://localhost:8000"
+    : `http://vss-agent.${process.env.VSS_NAMESPACE ?? "vss-base"}.svc.cluster.local:8000`);
 
 const ChatRequestSchema = z.object({
   messages: z.array(z.object({
