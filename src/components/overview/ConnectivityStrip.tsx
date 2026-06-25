@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { BackendStatus } from "@/lib/diagnostics/connectivity";
+import { statusWord } from "@/lib/diagnostics/backend-status";
 
 // Per-backend reachability, polled independently of the overview snapshot so it
 // reflects the console→cluster path directly. The K8s-API dot goes green as
@@ -12,16 +13,6 @@ import type { BackendStatus } from "@/lib/diagnostics/connectivity";
 interface ConnectivityResponse {
   takenAt: string;
   backends: BackendStatus[];
-}
-
-// Short, color-independent status word so the state is legible as text (e.g.
-// when pasted) and not conveyed by the dot colour alone.
-function statusWord(b: BackendStatus): string {
-  if (b.ok) return "ok";
-  const d = b.detail.toLowerCase();
-  if (d.includes("not configured") || d.includes("unset")) return "not configured";
-  if (d.includes("timed out") || d.includes("timeout")) return "timeout";
-  return "unreachable";
 }
 
 function Dot({ b }: { b: BackendStatus }) {

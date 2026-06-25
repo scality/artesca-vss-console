@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { statusWord } from "@/lib/diagnostics/backend-status";
 
 // contract: keep in sync with lib/diagnostics/connectivity.ts
 interface BackendStatus {
-  id: "k8s" | "prometheus" | "mediamtx" | "kafka" | "s3";
+  id: string;
   label: string;
   ok: boolean;
   detail: string;
@@ -122,7 +123,9 @@ export function ConnectivityPanel() {
       {/* Results table */}
       {fetchState.phase === "ok" && (
         <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
-          {fetchState.data.backends.map((b) => (
+          {fetchState.data.backends.map((b) => {
+            const sev = statusWord(b);
+            return (
             <div
               key={b.id}
               className="flex items-center gap-3 px-4 py-2.5 text-sm bg-muted/5 hover:bg-muted/20 transition-colors"
@@ -130,7 +133,7 @@ export function ConnectivityPanel() {
               {/* Status dot */}
               <span
                 className={`h-2 w-2 shrink-0 rounded-full ${b.ok ? "bg-emerald-600" : "bg-red-600"}`}
-                aria-label={b.ok ? "reachable" : "unreachable"}
+                aria-label={sev}
               />
 
               {/* Label */}
@@ -144,7 +147,8 @@ export function ConnectivityPanel() {
                 {b.latencyMs} ms
               </span>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
