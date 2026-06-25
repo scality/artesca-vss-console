@@ -18,6 +18,7 @@ import {
   Settings,
   Info,
   Bot,
+  Calculator,
 } from "lucide-react";
 import { useKiosk } from "./KioskProvider";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,7 @@ const ALL_ROUTES = [
   { href: "/secrets", label: "Secrets", icon: KeyRound },
   { href: "/logs", label: "Logs", icon: ScrollText },
   { href: "/diagnostics", label: "Diagnostics", icon: Stethoscope },
+  { href: "/sizing-studio", label: "Sizing Studio", icon: Calculator },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/about", label: "About", icon: Info },
 ];

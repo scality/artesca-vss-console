@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invisible Retail AI · Sizing Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=Space+Mono&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#070F1F; --bg2:#0A1426; --panel:#0E1B33; --panel2:#0C1830; --tile:#10203C; --tileln:#1E3157; --line:#1A2A48;
+  --navy:#012169; --orange:#EA944C; --orange-s:#F2B47A; --orange-d:#C9742E;
+  --ink:#E8EEF8; --mist:#9FAEC6; --mist-d:#6C7C99; --white:#fff;
+  --good:#5BD6A6; --blue:#6FA8DC;
+  --display:'Space Grotesk',sans-serif; --body:'Inter',sans-serif; --mono:'Space Mono',monospace;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:var(--body); background:
+    radial-gradient(1100px 700px at 88% -8%, rgba(234,148,76,.10), transparent 60%),
+    radial-gradient(900px 700px at -8% 100%, rgba(6,49,122,.30), transparent 55%),
+    var(--bg);
+  color:var(--ink); min-height:100vh; padding:26px clamp(14px,3vw,40px) 60px; -webkit-font-smoothing:antialiased;
+}
+.shell{max-width:1320px; margin:0 auto;}
+/* header */
+.top{display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:6px;}
+.dot{width:13px;height:13px;border-radius:50%;background:var(--orange);box-shadow:0 0 0 4px rgba(234,148,76,.16);}
+.eyebrow{font-family:var(--mono); font-size:11px; letter-spacing:.32em; color:var(--orange); text-transform:uppercase;}
+h1{font-family:var(--display); font-weight:700; font-size:clamp(24px,3.2vw,38px); letter-spacing:-.02em; margin:4px 0 4px;}
+.sub{color:var(--mist); font-size:14.5px; max-width:70ch; line-height:1.5;}
+.scenario{margin:18px 0 22px; padding:14px 18px; border-radius:14px; background:linear-gradient(120deg,rgba(6,49,122,.5),rgba(14,27,51,.5)); border:1px solid var(--line);
+  font-size:14.5px; line-height:1.6; color:#D7E0F0;}
+.scenario b{color:var(--orange-s); font-weight:600;}
+/* layout */
+.grid{display:grid; grid-template-columns:minmax(0,400px) minmax(0,1fr); gap:22px; align-items:start;}
+@media(max-width:980px){ .grid{grid-template-columns:1fr;} }
+.panel{background:linear-gradient(180deg,var(--panel),var(--panel2)); border:1px solid var(--line); border-radius:20px; padding:22px; box-shadow:0 30px 70px -50px rgba(0,0,0,.8);}
+.panel + .panel{margin-top:18px;}
+.lbl{font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--mist-d); margin-bottom:12px;}
+.lbl b{color:var(--orange);}
+/* store size */
+.bigval{font-family:var(--display); font-weight:700; font-size:40px; letter-spacing:-.02em; line-height:1;}
+.bigval span{font-size:16px; color:var(--mist); font-family:var(--body); font-weight:500; margin-left:6px;}
+input[type=range]{ -webkit-appearance:none; width:100%; height:6px; border-radius:6px; margin:16px 0 4px;
+  background:linear-gradient(90deg,var(--orange) 0%, var(--orange) var(--p,30%), #1B2C4D var(--p,30%), #1B2C4D 100%); outline:none; cursor:pointer;}
+input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:20px;height:20px;border-radius:50%; background:#fff;
+  border:3px solid var(--orange); box-shadow:0 4px 12px rgba(0,0,0,.5); cursor:grab; transition:transform .12s;}
+input[type=range]::-webkit-slider-thumb:active{transform:scale(1.18); cursor:grabbing;}
+input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid var(--orange);cursor:grab;}
+.rangerow{display:flex; justify-content:space-between; font-size:11px; color:var(--mist-d); font-family:var(--mono);}
+/* presets */
+.presets{display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:16px;}
+.preset{padding:10px 12px; border-radius:11px; background:#0D1B34; border:1px solid var(--tileln); color:var(--mist);
+  font-size:12.5px; font-weight:600; cursor:pointer; transition:.18s; text-align:left;}
+.preset small{display:block; font-weight:400; color:var(--mist-d); font-size:10.5px; margin-top:2px; font-family:var(--mono);}
+.preset:hover{border-color:var(--orange-d); color:#fff; transform:translateY(-1px);}
+.preset.on{background:linear-gradient(120deg,rgba(234,148,76,.18),rgba(234,148,76,.06)); border-color:var(--orange); color:#fff;}
+/* use cases */
+.uc{display:flex; align-items:center; gap:12px; padding:11px 12px; border-radius:12px; background:#0C1A33; border:1px solid var(--line);
+  margin-bottom:9px; cursor:pointer; transition:.16s; user-select:none;}
+.uc:hover{border-color:var(--tileln);}
+.uc.on{background:linear-gradient(120deg,rgba(6,49,122,.55),rgba(12,26,51,.4)); border-color:var(--orange);}
+.uc .sw{width:38px;height:22px;border-radius:20px;background:#1A2C4C; position:relative; flex:0 0 auto; transition:.2s;}
+.uc .sw::after{content:""; position:absolute; top:3px; left:3px; width:16px;height:16px;border-radius:50%; background:#54688C; transition:.2s;}
+.uc.on .sw{background:var(--orange);}
+.uc.on .sw::after{left:19px; background:#fff;}
+.uc .nm{flex:1; min-width:0;}
+.uc .nm b{display:block; font-size:13.5px; font-weight:600; color:#E8EEF8;}
+.uc .nm small{font-size:10.5px; color:var(--mist-d); font-family:var(--mono);}
+.uc .dens{display:flex; align-items:center; gap:5px; flex:0 0 auto;}
+.uc .dens input{width:48px; background:#0A1730; border:1px solid var(--tileln); color:#fff; border-radius:7px; padding:5px 6px; font-size:12px; text-align:center; font-family:var(--mono);}
+.uc .dens span{font-size:9.5px; color:var(--mist-d); font-family:var(--mono); line-height:1.05; width:34px;}
+.uc.off .dens{opacity:.35;}
+/* advanced */
+details{margin-top:6px;}
+summary{cursor:pointer; list-style:none; font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--orange); padding:6px 0;}
+summary::-webkit-details-marker{display:none;}
+summary::before{content:"＋ "; color:var(--mist-d);}
+details[open] summary::before{content:"－ ";}
+.adv{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;}
+.fld{background:#0B1830; border:1px solid var(--line); border-radius:10px; padding:9px 11px;}
+.fld label{display:block; font-size:10px; color:var(--mist-d); font-family:var(--mono); text-transform:uppercase; letter-spacing:.08em; margin-bottom:5px;}
+.fld input{width:100%; background:transparent; border:none; color:#fff; font-size:15px; font-weight:600; outline:none; font-family:var(--body);}
+/* metrics */
+.metrics{display:grid; grid-template-columns:repeat(3,1fr); gap:13px;}
+@media(max-width:560px){ .metrics{grid-template-columns:repeat(2,1fr);} }
+.metric{position:relative; background:linear-gradient(165deg,#10203C,#0C1830); border:1px solid var(--line); border-radius:16px; padding:16px 16px 14px; overflow:hidden; transition:.2s;}
+.metric:hover{transform:translateY(-2px); border-color:var(--tileln);}
+.metric .ic{position:absolute; top:13px; right:13px; opacity:.5;}
+.metric .k{font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--mist-d);}
+.metric .v{font-family:var(--display); font-weight:700; font-size:34px; letter-spacing:-.02em; margin-top:6px; line-height:1;}
+.metric .u{font-size:12px; color:var(--mist); margin-top:3px;}
+.metric.hl{background:linear-gradient(165deg,rgba(234,148,76,.22),rgba(234,148,76,.05)); border-color:var(--orange);}
+.metric.hl .v{color:var(--orange-s);}
+.metric .v.flash{animation:flash .5s ease;}
+@keyframes flash{0%{transform:scale(1)}35%{transform:scale(1.09)}100%{transform:scale(1)}}
+/* floor */
+.floorwrap{margin-top:18px; background:linear-gradient(180deg,#0A1830,#081226); border:1px solid var(--line); border-radius:18px; padding:16px; position:relative;}
+.floorhd{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;}
+.floorhd .t{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--mist);}
+.floorhd .meta{font-family:var(--mono); font-size:11px; color:var(--orange-s);}
+#floor{width:100%; height:auto; display:block; border-radius:10px;}
+.legend{display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; font-size:11px; color:var(--mist); font-family:var(--mono);}
+.legend i{display:inline-block; width:10px;height:10px;border-radius:50%; margin-right:6px; vertical-align:middle;}
+/* breakdown + gauge */
+.tworow{display:grid; grid-template-columns:1.4fr 1fr; gap:18px; margin-top:18px;}
+@media(max-width:760px){ .tworow{grid-template-columns:1fr;} }
+.bd{display:flex; flex-direction:column; gap:11px;}
+.bar{}
+.bar .bt{display:flex; justify-content:space-between; font-size:12px; margin-bottom:5px;}
+.bar .bt b{font-weight:600; color:#E2E9F5;}
+.bar .bt .badge{font-family:var(--mono); font-size:9px; letter-spacing:.1em; color:#2A1402; background:var(--orange); padding:2px 7px; border-radius:20px; margin-left:8px;}
+.bar .bt .n{font-family:var(--mono); color:var(--mist);}
+.track{height:9px; border-radius:6px; background:#13233F; overflow:hidden;}
+.fill{height:100%; border-radius:6px; width:0; transition:width .55s cubic-bezier(.22,1,.36,1);}
+.gauge{display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;}
+.gauge svg{width:170px; height:170px;}
+.gauge .gv{font-family:var(--display); font-weight:700; font-size:30px; margin-top:-104px; margin-bottom:64px;}
+.gauge .gl{font-size:11px; color:var(--mist); font-family:var(--mono);}
+.note{font-size:11.5px; color:var(--mist-d); margin-top:14px; line-height:1.5;}
+.actions{display:flex; gap:10px; margin-top:18px; flex-wrap:wrap;}
+.btn{font-family:var(--body); font-weight:600; font-size:13px; padding:11px 16px; border-radius:11px; cursor:pointer; border:1px solid var(--tileln); background:#0E1D38; color:#D7E0F0; transition:.16s;}
+.btn:hover{border-color:var(--orange-d); color:#fff;}
+.btn.primary{background:var(--orange); border-color:var(--orange); color:#2A1402;}
+.btn.primary:hover{background:var(--orange-s);}
+.foot{margin-top:26px; font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; color:var(--mist-d); text-align:center;}
+.toast{position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--orange); color:#2A1402; font-weight:600; font-size:13px; padding:11px 20px; border-radius:12px; opacity:0; pointer-events:none; transition:.3s; box-shadow:0 14px 40px -12px rgba(0,0,0,.6);}
+.toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="top">
+    <span class="dot"></span>
+    <span class="eyebrow">Pyramid · Invisible Retail AI</span>
+  </div>
+  <h1>Sizing Studio</h1>
+  <p class="sub">Size cameras, light-rails, AKHET® servers, GPUs, AI systems and ARTESCA storage for any store — by surface area and by use case. Cameras are <b style="color:var(--orange-s)">shared</b> across every use case; the grid is sized to the most demanding one, and each use case you add is one more AI system (ISV) — not more hardware.</p>
+
+  <div class="scenario" id="scenario">…</div>
+
+  <div class="grid">
+    <!-- ============ CONTROLS ============ -->
+    <div>
+      <div class="panel">
+        <div class="lbl"><b>Store</b> &nbsp;surface area</div>
+        <div class="bigval"><span id="m2val">1,500</span><span>m²</span></div>
+        <input type="range" id="m2Range" min="50" max="20000" step="50" value="1500">
+        <div class="rangerow"><span>50 m²</span><span>20,000 m²</span></div>
+        <div class="presets" id="presets">
+          <button class="preset" data-type="conv" data-m2="250" data-cov="1.15">Convenience<small>≈ 250 m² · dense</small></button>
+          <button class="preset on" data-type="super" data-m2="1500" data-cov="1.0">Supermarket<small>≈ 1,500 m²</small></button>
+          <button class="preset" data-type="hyper" data-m2="6000" data-cov="0.9">Hypermarket<small>≈ 6,000 m²</small></button>
+          <button class="preset" data-type="ware" data-m2="10000" data-cov="0.55">Warehouse<small>≈ 10,000 m² · high ceiling</small></button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="lbl"><b>Use cases</b> &nbsp;· cameras / 100 m²</div>
+        <div id="ucs"></div>
+        <details>
+          <summary>Advanced assumptions</summary>
+          <div class="adv">
+            <div class="fld"><label>Cameras / server</label><input type="number" id="aCps" value="16" min="1" step="1"></div>
+            <div class="fld"><label>GPUs / server</label><input type="number" id="aGps" value="2" min="1" step="1"></div>
+            <div class="fld"><label>AI load factor</label><input type="number" id="aLoad" value="0.25" min="0" max="1" step="0.05"></div>
+            <div class="fld"><label>Cameras / light-rail</label><input type="number" id="aCpr" value="4" min="1" step="1"></div>
+            <div class="fld"><label>Bitrate / cam (Mbps)</label><input type="number" id="aBr" value="4" min="1" step="1"></div>
+            <div class="fld"><label>Retention (days)</label><input type="number" id="aRet" value="30" min="1" step="1"></div>
+          </div>
+          <p class="note">“AI load factor” raises per-camera compute for every additional AI system, so adding ISVs gradually adds servers. All figures are planning estimates for scoping — confirm against a site survey.</p>
+        </details>
+        <div class="actions">
+          <button class="btn primary" id="copyBtn">Copy summary</button>
+          <button class="btn" id="resetBtn">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ VISUALS ============ -->
+    <div>
+      <div class="panel">
+        <div class="metrics">
+          <div class="metric hl"><div class="k">Cameras (shared)</div><div class="v" id="mCameras">0</div><div class="u" id="mCamSub">in-light, on-prem</div></div>
+          <div class="metric"><div class="k">Light-rails</div><div class="v" id="mRails">0</div><div class="u">trunking, ≤10 m</div></div>
+          <div class="metric"><div class="k">AI systems</div><div class="v" id="mAi">0</div><div class="u">ISV models</div></div>
+          <div class="metric"><div class="k">AKHET® servers</div><div class="v" id="mServers">0</div><div class="u">edge compute</div></div>
+          <div class="metric"><div class="k">GPUs</div><div class="v" id="mGpus">0</div><div class="u">NVIDIA</div></div>
+          <div class="metric"><div class="k">ARTESCA storage</div><div class="v" id="mStorage">0</div><div class="u" id="mStoreSub">TB · on-prem</div></div>
+        </div>
+
+        <div class="floorwrap">
+          <div class="floorhd"><span class="t">Store coverage map</span><span class="meta" id="floorMeta">—</span></div>
+          <svg id="floor" viewBox="0 0 800 360" preserveAspectRatio="xMidYMid meet"></svg>
+          <div class="legend">
+            <span><i style="background:var(--orange)"></i>Camera node</span>
+            <span><i style="background:rgba(234,148,76,.18); border:1px solid var(--orange)"></i>Coverage</span>
+            <span><i style="background:#26406F"></i>Light-rail run</span>
+          </div>
+        </div>
+
+        <div class="tworow">
+          <div>
+            <div class="lbl">Camera demand <b>by use case</b></div>
+            <div class="bd" id="breakdown"></div>
+            <p class="note">The tallest bar is the <b style="color:var(--orange-s)">driver</b> — it sets the shared camera grid. Lighter bars reuse the same cameras at no extra hardware.</p>
+          </div>
+          <div>
+            <div class="lbl">Server <b>utilisation</b></div>
+            <div class="gauge">
+              <svg viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="50" fill="none" stroke="#13233F" stroke-width="12"/>
+                <circle id="gaugeArc" cx="60" cy="60" r="50" fill="none" stroke="#EA944C" stroke-width="12" stroke-linecap="round"
+                  stroke-dasharray="314" stroke-dashoffset="314" transform="rotate(-90 60 60)" style="transition:stroke-dashoffset .6s cubic-bezier(.22,1,.36,1)"/>
+              </svg>
+              <div class="gv" id="gaugeVal">0%</div>
+              <div class="gl" id="gaugeLbl">0 / 0 streams</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">PYRAMID COMPUTER · INNOVATION, DESIGN & R&D · INVISIBLE RETAIL AI SIZING STUDIO · PLANNING ESTIMATES</div>
+</div>
+<div class="toast" id="toast">Summary copied to clipboard</div>
+
+<script>
+/* ---------------- model ---------------- */
+const UC = [
+  {id:'sco',  name:'Self-checkout & shrink', tag:'Loss prevention', d:0.9, c:'#EA944C'},
+  {id:'shelf',name:'Shelf & planogram',      tag:'Store operations', d:2.6, c:'#F2B47A'},
+  {id:'lp',   name:'Loss prevention & ORC',  tag:'Asset protection', d:1.1, c:'#E8743F'},
+  {id:'flow', name:'Customer flow & heatmaps',tag:'Merchandising',   d:1.3, c:'#6FA8DC'},
+  {id:'safe', name:'Queue & in-store safety', tag:'Operations',      d:0.7, c:'#9DB4D6'},
+  {id:'logi', name:'Warehouse & logistics',   tag:'Logistics',       d:0.6, c:'#62C9AE'},
+];
+const DEFAULT_ON = {sco:true, shelf:true, lp:true, flow:false, safe:false, logi:false};
+
+const state = {
+  m2:1500, cov:1.0, type:'super',
+  on:{...DEFAULT_ON},
+  dens:Object.fromEntries(UC.map(u=>[u.id,u.d])),
+  cps:16, gps:2, load:0.25, cpr:4, br:4, ret:30,
+};
+
+/* ---------------- build use-case rows ---------------- */
+const ucsEl = document.getElementById('ucs');
+UC.forEach(u=>{
+  const row=document.createElement('div');
+  row.className='uc'+(state.on[u.id]?' on':' off');
+  row.dataset.id=u.id;
+  row.innerHTML=`<div class="sw"></div>
+    <div class="nm"><b>${u.name}</b><small>${u.tag}</small></div>
+    <div class="dens"><input type="number" value="${u.d}" min="0" step="0.1" data-id="${u.id}"><span>/100 m²</span></div>`;
+  ucsEl.appendChild(row);
+  row.addEventListener('click',e=>{
+    if(e.target.tagName==='INPUT') return;
+    state.on[u.id]=!state.on[u.id];
+    row.classList.toggle('on',state.on[u.id]);
+    row.classList.toggle('off',!state.on[u.id]);
+    compute();
+  });
+  row.querySelector('input').addEventListener('input',ev=>{
+    state.dens[u.id]=Math.max(0,parseFloat(ev.target.value)||0);
+    compute();
+  });
+});
+
+/* ---------------- controls ---------------- */
+const m2Range=document.getElementById('m2Range'), m2val=document.getElementById('m2val');
+function setRangeFill(){ const p=(state.m2-50)/(20000-50)*100; m2Range.style.setProperty('--p',p+'%'); }
+m2Range.addEventListener('input',()=>{ state.m2=+m2Range.value; m2val.textContent=state.m2.toLocaleString(); setRangeFill(); compute(); });
+
+document.querySelectorAll('.preset').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.preset').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');
+  state.type=b.dataset.type; state.m2=+b.dataset.m2; state.cov=+b.dataset.cov;
+  m2Range.value=state.m2; m2val.textContent=state.m2.toLocaleString(); setRangeFill(); compute();
+}));
+
+const adv={aCps:'cps',aGps:'gps',aLoad:'load',aCpr:'cpr',aBr:'br',aRet:'ret'};
+Object.entries(adv).forEach(([id,key])=>{
+  document.getElementById(id).addEventListener('input',e=>{ state[key]=Math.max(key==='load'?0:1,parseFloat(e.target.value)||0); compute(); });
+});
+
+document.getElementById('resetBtn').addEventListener('click',()=>{
+  state.m2=1500; state.cov=1.0; state.type='super'; state.on={...DEFAULT_ON};
+  UC.forEach(u=>state.dens[u.id]=u.d);
+  state.cps=16;state.gps=2;state.load=.25;state.cpr=4;state.br=4;state.ret=30;
+  m2Range.value=1500; m2val.textContent='1,500'; setRangeFill();
+  document.querySelectorAll('.preset').forEach(x=>x.classList.toggle('on',x.dataset.type==='super'));
+  document.querySelectorAll('.uc').forEach(r=>{const id=r.dataset.id; r.classList.toggle('on',state.on[id]); r.classList.toggle('off',!state.on[id]); r.querySelector('input').value=state.dens[id];});
+  ['aCps','aGps','aLoad','aCpr','aBr','aRet'].forEach((id,i)=>document.getElementById(id).value=[16,2,.25,4,4,30][i]);
+  compute();
+});
+
+/* ---------------- compute ---------------- */
+let last={};
+function calc(){
+  const enabled=UC.filter(u=>state.on[u.id]);
+  const demands=enabled.map(u=>({u, val: state.m2*state.dens[u.id]*state.cov/100}));
+  const driver=demands.reduce((a,b)=>b.val>a.val?b:a,{val:0});
+  const cameras=Math.ceil(driver.val||0);
+  const ai=enabled.length;
+  const rails=Math.ceil(cameras/state.cpr)||0;
+  const effCap=state.cps/(1+state.load*Math.max(0,ai-1));
+  const servers=cameras>0?Math.max(1,Math.ceil(cameras/effCap)):0;
+  const gpus=servers*state.gps;
+  const storage=cameras*state.br*state.ret*0.0108; // TB
+  const capacity=Math.round(servers*effCap);
+  const util=capacity>0?Math.min(100,Math.round(cameras/capacity*100)):0;
+  return {enabled,demands,driver,cameras,ai,rails,servers,gpus,storage,capacity,util,effCap};
+}
+
+/* ---------------- number animation ---------------- */
+function animateNum(el,to,dec=0){
+  const from=el._cur||0; if(from===to){el.textContent=fmt(to,dec);return;}
+  el._cur=to; const t0=performance.now(), dur=520;
+  const v=el.closest('.metric')?.querySelector('.v')||el; v.classList.remove('flash'); void v.offsetWidth; v.classList.add('flash');
+  function step(t){ const k=Math.min(1,(t-t0)/dur); const e=1-Math.pow(1-k,3);
+    el.textContent=fmt(from+(to-from)*e,dec); if(k<1)requestAnimationFrame(step); else el.textContent=fmt(to,dec); }
+  requestAnimationFrame(step);
+}
+function fmt(n,dec){ return dec? (Math.round(n*10)/10).toLocaleString(undefined,{minimumFractionDigits:1,maximumFractionDigits:1}) : Math.round(n).toLocaleString(); }
+
+/* ---------------- floor plan ---------------- */
+function drawFloor(r){
+  const svg=document.getElementById('floor');
+  const W=800,H=360, pad=26;
+  // store rectangle scaled by sqrt(m2) for a sense of size
+  const scale=Math.min(1, Math.sqrt(state.m2/20000));
+  const bw=(W-2*pad)*(0.4+0.6*scale), bh=(H-2*pad)*(0.4+0.6*scale);
+  const bx=(W-bw)/2, by=(H-bh)/2;
+  let svgEl=`<defs>
+    <radialGradient id="cov" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgba(234,148,76,.30)"/><stop offset="70%" stop-color="rgba(234,148,76,.07)"/><stop offset="100%" stop-color="rgba(234,148,76,0)"/></radialGradient>
+    <filter id="gl"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>`;
+  // floor
+  svgEl+=`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="12" fill="#0B1A33" stroke="#21385E" stroke-width="1.5"/>`;
+  // subtle inner grid
+  for(let gx=1;gx<6;gx++){const x=bx+bw*gx/6; svgEl+=`<line x1="${x}" y1="${by}" x2="${x}" y2="${by+bh}" stroke="#13243F" stroke-width="1"/>`;}
+  for(let gy=1;gy<4;gy++){const y=by+bh*gy/4; svgEl+=`<line x1="${bx}" y1="${y}" x2="${bx+bw}" y2="${y}" stroke="#13243F" stroke-width="1"/>`;}
+  // camera node layout
+  const n=r.cameras;
+  const drawN=Math.min(n,160);
+  if(drawN>0){
+    const aspect=bw/bh;
+    let cols=Math.max(1,Math.round(Math.sqrt(drawN*aspect)));
+    let rows=Math.ceil(drawN/cols);
+    while(cols*rows-cols>=drawN && rows>1){ rows--; } // tighten
+    cols=Math.ceil(drawN/rows);
+    const ix=bw/(cols+1), iy=bh/(rows+1);
+    let k=0;
+    // rails (rows)
+    for(let rr=0; rr<rows; rr++){
+      const y=by+iy*(rr+1);
+      const inRow=Math.min(cols, drawN-rr*cols); if(inRow<=0)break;
+      const x1=bx+ix*1, x2=bx+ix*inRow;
+      svgEl+=`<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="#26406F" stroke-width="2.4" stroke-linecap="round" opacity="0.85"/>`;
+    }
+    for(let rr=0; rr<rows; rr++){
+      for(let cc=0; cc<cols; cc++){
+        if(k>=drawN)break;
+        const x=bx+ix*(cc+1), y=by+iy*(rr+1);
+        const rad=Math.max(12, Math.min(ix,iy)*0.95);
+        svgEl+=`<circle class="cov" cx="${x}" cy="${y}" r="${rad}" fill="url(#cov)" opacity="0"></circle>`;
+        svgEl+=`<circle class="cam" cx="${x}" cy="${y}" r="3.4" fill="#EA944C" filter="url(#gl)" opacity="0"></circle>`;
+        k++;
+      }
+    }
+  }
+  svg.innerHTML=svgEl;
+  // staggered reveal
+  const covs=svg.querySelectorAll('.cov'), cams=svg.querySelectorAll('.cam');
+  cams.forEach((c,i)=>{ const dl=Math.min(700, i*9);
+    setTimeout(()=>{ c.style.transition='opacity .4s, r .4s'; c.setAttribute('opacity','1'); }, dl);
+  });
+  covs.forEach((c,i)=>{ const dl=Math.min(700, i*9);
+    setTimeout(()=>{ c.style.transition='opacity .5s'; c.setAttribute('opacity','1'); }, dl);
+  });
+  document.getElementById('floorMeta').textContent = n>drawN ? `${n.toLocaleString()} cameras · showing ${drawN}` : `${n.toLocaleString()} camera${n===1?'':'s'} · ${Math.round(state.m2).toLocaleString()} m²`;
+}
+
+/* ---------------- breakdown bars ---------------- */
+function drawBreakdown(r){
+  const el=document.getElementById('breakdown');
+  if(r.demands.length===0){ el.innerHTML='<p class="note" style="margin:0">Select at least one use case.</p>'; return; }
+  const max=Math.max(...r.demands.map(d=>d.val),1);
+  el.innerHTML=r.demands.sort((a,b)=>b.val-a.val).map(d=>{
+    const isDriver=d.u.id===r.driver.u?.id;
+    const w=Math.round(d.val/max*100);
+    return `<div class="bar">
+      <div class="bt"><span><b>${d.u.name}</b>${isDriver?'<span class="badge">DRIVER</span>':''}</span><span class="n">${Math.ceil(d.val)} cam</span></div>
+      <div class="track"><div class="fill" style="background:${d.u.c}" data-w="${w}"></div></div>
+    </div>`;
+  }).join('');
+  requestAnimationFrame(()=>el.querySelectorAll('.fill').forEach(f=>f.style.width=f.dataset.w+'%'));
+}
+
+/* ---------------- gauge ---------------- */
+function drawGauge(r){
+  const arc=document.getElementById('gaugeArc');
+  const C=2*Math.PI*50;
+  arc.style.strokeDashoffset = C*(1-r.util/100);
+  arc.setAttribute('stroke', r.util>92?'#E8743F':'#EA944C');
+  document.getElementById('gaugeVal').textContent=r.util+'%';
+  document.getElementById('gaugeLbl').textContent=`${r.cameras.toLocaleString()} / ${r.capacity.toLocaleString()} streams`;
+}
+
+/* ---------------- scenario sentence ---------------- */
+function scenario(r){
+  const typeName={conv:'convenience store',super:'supermarket',hyper:'hypermarket',ware:'warehouse'}[state.type]||'store';
+  if(r.cameras===0) return `A <b>${state.m2.toLocaleString()} m²</b> ${typeName} with no use case selected needs no hardware yet — switch on a use case to size the system.`;
+  return `A <b>${state.m2.toLocaleString()} m²</b> ${typeName} running <b>${r.ai} use case${r.ai===1?'':'s'}</b> needs about <b>${r.cameras.toLocaleString()} shared cameras</b> on <b>${r.rails.toLocaleString()} light-rail${r.rails===1?'':'s'}</b>, <b>${r.servers.toLocaleString()} AKHET® server${r.servers===1?'':'s'}</b> (<b>${r.gpus.toLocaleString()} GPU${r.gpus===1?'':'s'}</b>) and roughly <b>${fmt(r.storage,1)} TB</b> of on-prem ARTESCA storage at ${state.ret}-day retention.`;
+}
+
+/* ---------------- main ---------------- */
+function compute(){
+  const r=calc(); last=r;
+  animateNum(document.getElementById('mCameras'),r.cameras);
+  animateNum(document.getElementById('mRails'),r.rails);
+  animateNum(document.getElementById('mAi'),r.ai);
+  animateNum(document.getElementById('mServers'),r.servers);
+  animateNum(document.getElementById('mGpus'),r.gpus);
+  animateNum(document.getElementById('mStorage'),r.storage,1);
+  document.getElementById('mCamSub').textContent = r.driver.u? ('driven by '+r.driver.u.name.split(' ')[0].toLowerCase()) : 'in-light, on-prem';
+  document.getElementById('scenario').innerHTML=scenario(r);
+  drawFloor(r); drawBreakdown(r); drawGauge(r);
+}
+
+/* copy */
+document.getElementById('copyBtn').addEventListener('click',()=>{
+  const r=last;
+  const lines=[
+    'INVISIBLE RETAIL AI — SIZING ESTIMATE',
+    `Store: ${state.m2.toLocaleString()} m² (${state.type})`,
+    `Use cases (${r.ai}): ${r.enabled.map(u=>u.name).join(', ')||'—'}`,
+    `Cameras (shared): ${r.cameras.toLocaleString()}  ·  Light-rails: ${r.rails.toLocaleString()}`,
+    `AKHET servers: ${r.servers.toLocaleString()}  ·  GPUs: ${r.gpus.toLocaleString()}  ·  AI systems: ${r.ai}`,
+    `ARTESCA storage: ${fmt(r.storage,1)} TB @ ${state.ret}-day retention (${state.br} Mbps/cam)`,
+    `Driver use case: ${r.driver.u?r.driver.u.name:'—'}`,
+  ].join('\n');
+  navigator.clipboard?.writeText(lines).then(showToast,()=>showToast());
+});
+function showToast(){ const t=document.getElementById('toast'); t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1700); }
+
+setRangeFill();
+compute();
+</script>
+</body>
+</html>
