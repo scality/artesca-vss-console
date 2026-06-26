@@ -1,6 +1,6 @@
 // console/tests/unit/reconcile-agent.test.ts
-import { describe, it, expect, vi } from "vitest";
-import { runReconcileAgentOnce } from "@/lib/reconcile-agent";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { runReconcileAgentOnce, startReconcileLoop } from "@/lib/reconcile-agent";
 import type { ConfigStore, ReconcileStatus, CameraEntry } from "@/lib/config-store/types";
 import type { ClusterAdapter } from "@/lib/reconcile/cluster-adapter";
 
@@ -29,6 +29,39 @@ function fakeStore(cameras: CameraEntry[]): { store: ConfigStore; written: Recon
     },
   };
 }
+
+vi.mock("@/lib/config-store/firestore", () => ({
+  makeFirestoreConfigStore: vi.fn(async () => ({
+    readCameras: async () => [], writeCameras: async () => {}, upsertCamera: async () => {},
+    deleteCamera: async () => {}, readStatus: async () => null, writeStatus: async () => {},
+    readPrompt: async () => null, writePrompt: async () => {}, readScenarios: async () => [],
+    writeScenarios: async () => {}, readPromptSets: async () => [], upsertPromptSet: async () => {},
+    deletePromptSet: async () => {}, readActivePromptId: async () => null, setActivePromptId: async () => {},
+  })),
+}));
+vi.mock("@/lib/reconcile/cluster-adapter", () => ({
+  VstClusterAdapter: class { listSensors = async () => []; addSensor = async () => ({ ok: true }); },
+}));
+vi.mock("@/lib/cluster-refs", () => ({ CLUSTER: {} }));
+vi.mock("@/lib/reconcile/refs", () => ({ buildReconcileRefs: () => ({}) }));
+vi.mock("@/lib/helpers/default-prompt", () => ({ readDefaultPrompt: () => "p" }));
+vi.mock("@/lib/reconcile/prompt-seed", () => ({ seedDefaultPromptSet: async () => {} }));
+
+describe("startReconcileLoop periodic gating", () => {
+  beforeEach(() => { vi.restoreAllMocks(); process.env.VSS_INSTANCE_NAME = "inst-1"; });
+
+  it("periodic:false runs one pass and schedules NO interval", async () => {
+    const spy = vi.spyOn(global, "setInterval");
+    await startReconcileLoop({ periodic: false });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("periodic:true (default) schedules the interval", async () => {
+    const spy = vi.spyOn(global, "setInterval").mockReturnValue(0 as never);
+    await startReconcileLoop({ periodic: true, intervalMs: 60000 });
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("runReconcileAgentOnce", () => {
   it("reconciles via the injected store + adapter and returns the status", async () => {

@@ -46,15 +46,12 @@ export async function register() {
   const reconcileLoopDisabled = process.env.CONSOLE_DISABLE_RECONCILE_LOOP === "1";
 
   if (instance && !dockerMode) {
-    // k8s full-console. The dedicated reconcile-agent owns Firestore→cluster
-    // convergence; the interactive console reads/writes Firestore for the UI but
-    // skips the background loop (CONSOLE_DISABLE_RECONCILE_LOOP=1) so it doesn't
-    // race the agent. Single-pod deployments without a separate agent leave the
-    // flag unset to keep the console-runs-loop behaviour.
-    if (!reconcileLoopDisabled) {
-      const { startReconcileLoop } = await import("@/lib/reconcile-agent");
-      await startReconcileLoop();
-    }
+    // k8s full-console. One idempotent convergence pass ALWAYS runs on startup so
+    // the node is configured after any restart. CONSOLE_DISABLE_RECONCILE_LOOP=1
+    // only suppresses the periodic loop (set it when a dedicated reconcile-agent
+    // owns steady-state convergence); the startup pass runs either way.
+    const { startReconcileLoop } = await import("@/lib/reconcile-agent");
+    await startReconcileLoop({ periodic: !reconcileLoopDisabled });
   } else if (instance) {
     // docker: GCS-backed camera restore after compose restarts.
     const { startCameraRestoreWatcher } = await import(
