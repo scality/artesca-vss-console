@@ -34,11 +34,42 @@ CTRL="/tmp/pyramid-console-tunnel-apiserver.ctl"
 # launchd gives a minimal PATH; make sure ssh/kubectl/nc resolve.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
+# Isolated demo DMZ host reached by fixed IP over a key we own. Don't pin the
+# host key — a from-scratch reinstall regenerates it, which would otherwise wedge
+# every connection with "REMOTE HOST IDENTIFICATION HAS CHANGED".
+SSH_COMMON=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null
+            -o ConnectTimeout=15 -o LogLevel=ERROR)
+
 log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
 [[ -f "$SSH_KEY" ]] || { log "FATAL: ssh key $SSH_KEY missing"; exit 1; }
-[[ -f "$KCFG"   ]] || { log "FATAL: kubeconfig $KCFG missing"; exit 1; }
 command -v kubectl >/dev/null || { log "FATAL: kubectl not on PATH"; exit 1; }
+mkdir -p "$(dirname "$KCFG")"
+
+# Refetch the node's kubeconfig each start. A from-scratch cluster reinstall mints
+# a new CA + client cert, so the cached kubeconfig 401s until refreshed. This rides
+# the SSH *exec* channel (kubectl on the node is sudo-allowlisted), so it works even
+# before TCP forwarding is sorted. Best-effort: a transient SSH failure leaves the
+# existing kubeconfig untouched rather than wiping a working one.
+refresh_kubeconfig() {
+  local tmp="${KCFG}.tmp.$$"
+  if ssh -i "$SSH_KEY" -p "$SSH_PORT" "${SSH_COMMON[@]}" "$SSH_USER@$SSH_HOST" \
+        "sudo -n kubectl --kubeconfig=/etc/kubernetes/admin.conf config view --raw -o yaml 2>/dev/null" \
+        2>/dev/null \
+      | grep -avE 'WARNING|authorized|monitor|consent|criminal|law enforce|officials|personnel|------|administratively' \
+      > "$tmp" && grep -q 'server: https://' "$tmp"; then
+    sed -i '' -E \
+      -e "s#server: https://[0-9.]+:6443#server: https://127.0.0.1:${APISERVER_LPORT}#" \
+      -e 's#certificate-authority-data:.*#insecure-skip-tls-verify: true#' \
+      "$tmp"
+    chmod 600 "$tmp" && mv -f "$tmp" "$KCFG" && log "kubeconfig refreshed from node"
+  else
+    rm -f "$tmp"
+    log "kubeconfig refetch failed (node/cluster not ready?) — keeping existing $KCFG"
+  fi
+}
+refresh_kubeconfig
+[[ -f "$KCFG" ]] || { log "FATAL: no kubeconfig at $KCFG and refetch failed — node unreachable?"; exit 1; }
 
 cleanup() {
   ssh -O exit -o ControlPath="$CTRL" -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 2>/dev/null || true
@@ -53,9 +84,9 @@ for p in "$CONSOLE_LPORT" "$APISERVER_LPORT"; do
 done
 
 log "opening apiserver tunnel :$APISERVER_LPORT → $PRIV_IP:6443 via $SSH_USER@$SSH_HOST:$SSH_PORT"
-ssh -i "$SSH_KEY" -p "$SSH_PORT" \
+ssh -i "$SSH_KEY" -p "$SSH_PORT" "${SSH_COMMON[@]}" \
     -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
-    -o ConnectTimeout=15 -o ControlMaster=yes -o ControlPath="$CTRL" -o LogLevel=ERROR \
+    -o ControlMaster=yes -o ControlPath="$CTRL" \
     -fN -L "$APISERVER_LPORT:$PRIV_IP:6443" "$SSH_USER@$SSH_HOST" \
   || { log "FATAL: apiserver ssh tunnel failed to start"; exit 1; }
 
