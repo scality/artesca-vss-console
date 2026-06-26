@@ -14,7 +14,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
-import { listRealtimeRules, deleteRealtimeRule } from "@/lib/helpers/alert-bridge";
+import { deleteRealtimeRule } from "@/lib/helpers/alert-bridge";
 import { auditLog } from "@/lib/helpers/audit";
 import { withRequestContext } from "@/lib/with-request-context";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
@@ -118,14 +118,59 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     return NextResponse.json({ error: `patch rules ConfigMap failed: ${message}`, k8sCode: status }, { status });
   }
 
-  // ── Step 2: delete live rules → reconciler re-seeds from the updated CM ────
-  const { rules, warning } = await listRealtimeRules();
-  let deleted = 0;
-  const delWarnings: string[] = [];
-  for (const r of rules) {
-    const res = await deleteRealtimeRule(r.id);
-    if (res.ok) deleted += 1;
-    else if (res.warning) delWarnings.push(res.warning);
+  // ── Step 2: re-register each live rule with the new sampling ───────────────
+  // The alert-bridge has no PATCH on a rule, so applying a sampling change means
+  // delete + re-POST. We re-register from the LIVE rules (which carry the stream
+  // URL + full config) one at a time — never bulk-draining — so a rule is only
+  // briefly absent and the set is never emptied. The reconciler is not relied on
+  // (its seed path can't restore rules: the ConfigMap carries no per-rule URL).
+  const warnings: string[] = [];
+  let live: Array<Record<string, unknown>> = [];
+  try {
+    const resp = await fetch(CLUSTER.alertBridge.realtimeUrl, {
+      next: { revalidate: 0 },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (resp.ok) {
+      const json = (await resp.json()) as { rules?: Array<Record<string, unknown>> };
+      live = json.rules ?? [];
+    } else {
+      warnings.push(`alert-bridge GET returned HTTP ${resp.status}`);
+    }
+  } catch (err) {
+    warnings.push(`alert-bridge unreachable: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Preserve everything on the rule; override only the sampling knobs.
+  const PRESERVE = [
+    "live_stream_url", "sensor_id", "sensor_name", "alert_type", "prompt",
+    "system_prompt", "model", "chunk_overlap_duration", "enable_reasoning",
+    "vlm_input_width", "vlm_input_height",
+  ] as const;
+
+  let reRegistered = 0;
+  for (const r of live) {
+    const id = typeof r.id === "string" ? r.id : undefined;
+    if (!r.live_stream_url || !r.alert_type) continue; // not re-registerable
+    const body: Record<string, unknown> = {};
+    for (const k of PRESERVE) if (r[k] !== undefined && r[k] !== null) body[k] = r[k];
+    body.chunk_duration = chunkDuration;
+    body.num_frames_per_second_or_fixed_frames_chunk = framesPerChunk;
+    body.use_fps_for_chunking = useFps;
+
+    if (id) await deleteRealtimeRule(id);
+    try {
+      const post = await fetch(CLUSTER.alertBridge.realtimeUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (post.ok || post.status === 409) reRegistered += 1;
+      else warnings.push(`re-register ${String(r.sensor_name)} → HTTP ${post.status}`);
+    } catch (err) {
+      warnings.push(`re-register ${String(r.sensor_name)} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   await auditLog("tuning-sampling", `configmap/${cm}`, {
@@ -134,14 +179,14 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
       use_fps_for_chunking: String(useFps),
       chunk_duration: String(chunkDuration),
     },
-    rulesDeleted: String(deleted),
+    rulesReRegistered: String(reRegistered),
   });
 
   return NextResponse.json({
     ok: true,
     applied: { framesPerChunk, useFps, chunkDuration },
-    rulesDeleted: deleted,
-    note: "Sampling written to the rules ConfigMap; the vlm-stream-reconciler re-seeds the rules from it within ~15s. No VLM restart.",
-    ...(warning || delWarnings.length ? { warnings: [warning, ...delWarnings].filter(Boolean) } : {}),
+    rulesReRegistered: reRegistered,
+    note: "Sampling persisted to the rules ConfigMap and applied by re-registering each live rule. No VLM restart.",
+    ...(warnings.length ? { warnings } : {}),
   });
 });
