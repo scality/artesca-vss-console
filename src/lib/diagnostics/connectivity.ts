@@ -9,9 +9,12 @@ import { HeadBucketCommand } from "@aws-sdk/client-s3";
 import { CLUSTER } from "@/lib/cluster-refs";
 
 export interface BackendStatus {
-  id: "k8s" | "prometheus" | "mediamtx" | "kafka" | "s3" | "alert-bridge";
+  id: "k8s" | "prometheus" | "mediamtx" | "kafka" | "s3" | "alert-bridge" | "config-store";
   label: string;
   ok: boolean;
+  /** Optional finer grade. Absent → derived as ok?"ok":"error". "warn" = healthy
+   *  but degraded (rendered amber), e.g. reconcile loop disabled. */
+  severity?: "ok" | "warn" | "error";
   detail: string;
   latencyMs: number;
 }
@@ -159,21 +162,53 @@ async function probeAlertBridge(): Promise<BackendStatus> {
   }
 }
 
+export async function probeConfigStore(): Promise<BackendStatus> {
+  const id: BackendStatus["id"] = "config-store";
+  const label = "Config store (Firestore)";
+  const t0 = Date.now();
+  const fail = (detail: string): BackendStatus => ({ id, label, ok: false, severity: "error", detail, latencyMs: Date.now() - t0 });
+
+  if (!process.env.VSS_INSTANCE_NAME) return fail("VSS_INSTANCE_NAME unset");
+
+  const { makeReconcileContext } = await import("@/lib/reconcile/context");
+  let ctx: Awaited<ReturnType<typeof makeReconcileContext>>;
+  try {
+    ctx = await makeReconcileContext();
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : String(err));
+  }
+  try {
+    await ctx.store.readStatus(ctx.instance);
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : String(err));
+  }
+
+  if (process.env.CONSOLE_DISABLE_RECONCILE_LOOP === "1") {
+    return {
+      id, label, ok: true, severity: "warn",
+      detail: "reachable · reconcile loop off (cameras display but won't auto re-register to VST on restart)",
+      latencyMs: Date.now() - t0,
+    };
+  }
+  return { id, label, ok: true, severity: "ok", detail: "reachable", latencyMs: Date.now() - t0 };
+}
+
 /**
  * Probe every backend the console depends on.
  * Each probe is wrapped in a timeout; the whole set runs concurrently.
- * Returns results in stable order: k8s, prometheus, mediamtx, kafka, s3, alert-bridge.
+ * Returns results in stable order: k8s, prometheus, mediamtx, kafka, s3, alert-bridge, config-store.
  * Never throws.
  */
 export async function collectConnectivity(): Promise<BackendStatus[]> {
-  const [k8s, prometheus, mediamtx, kafka, s3, alertBridge] = await Promise.all([
+  const [k8s, prometheus, mediamtx, kafka, s3, alertBridge, configStore] = await Promise.all([
     Promise.race([probeK8s(), timeoutStatus("k8s", "K8s API", PROBE_TIMEOUT_MS)]),
     Promise.race([probePrometheus(), timeoutStatus("prometheus", "Prometheus", PROBE_TIMEOUT_MS)]),
     Promise.race([probeMediamtx(), timeoutStatus("mediamtx", "camera-sim (mediamtx)", PROBE_TIMEOUT_MS)]),
     Promise.race([probeKafka(), timeoutStatus("kafka", "Kafka", PROBE_TIMEOUT_MS)]),
     Promise.race([probeS3(), timeoutStatus("s3", "S3", PROBE_TIMEOUT_MS)]),
     Promise.race([probeAlertBridge(), timeoutStatus("alert-bridge", "Alert bridge (incidents)", PROBE_TIMEOUT_MS)]),
+    Promise.race([probeConfigStore(), timeoutStatus("config-store", "Config store (Firestore)", PROBE_TIMEOUT_MS)]),
   ]);
 
-  return [k8s, prometheus, mediamtx, kafka, s3, alertBridge];
+  return [k8s, prometheus, mediamtx, kafka, s3, alertBridge, configStore];
 }

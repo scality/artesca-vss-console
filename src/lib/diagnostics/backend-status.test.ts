@@ -1,16 +1,26 @@
 import { describe, it, expect } from "vitest";
-import { statusWord } from "@/lib/diagnostics/backend-status";
+import { severityOf, statusWord } from "./backend-status";
 
-describe("statusWord()", () => {
+const b = (over: Partial<{ ok: boolean; severity: "ok" | "warn" | "error"; detail: string }>) =>
+  ({ id: "config-store", label: "x", ok: true, detail: "", latencyMs: 0, ...over }) as const;
+
+describe("severityOf", () => {
+  it("uses explicit severity when present", () => {
+    expect(severityOf(b({ severity: "warn", ok: true }))).toBe("warn");
+    expect(severityOf(b({ severity: "error", ok: false }))).toBe("error");
+  });
+  it("derives from ok when severity absent", () => {
+    expect(severityOf(b({ ok: true }))).toBe("ok");
+    expect(severityOf(b({ ok: false }))).toBe("error");
+  });
+});
+
+describe("statusWord", () => {
   it("ok / warn / unreachable / unset", () => {
-    const b = (spec: { ok?: boolean; detail?: string }) => ({
-      ok: false,
-      detail: "test",
-      ...spec,
-    });
     expect(statusWord(b({ ok: true }))).toBe("ok");
-    expect(statusWord(b({ detail: "not configured" }))).toBe("not configured");
+    expect(statusWord(b({ severity: "warn", ok: true }))).toBe("degraded");
+    expect(statusWord(b({ ok: false, detail: "VSS_INSTANCE_NAME unset" }))).toBe("not configured");
     expect(statusWord(b({ ok: false, detail: "connection timed out" }))).toBe("timeout");
-    expect(statusWord(b({ detail: "unreachable" }))).toBe("unreachable");
+    expect(statusWord(b({ ok: false, detail: "boom" }))).toBe("unreachable");
   });
 });

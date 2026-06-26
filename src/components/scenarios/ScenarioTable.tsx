@@ -18,6 +18,7 @@ import { Loader2, Plus, Save, AlertTriangle, CloudUpload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScenarioRow } from "./ScenarioRow";
 import { ScenarioDiffDialog } from "./ScenarioDiffDialog";
+import { classifyListState } from "@/lib/diagnostics/list-state";
 
 const GcsStatusSchema = z.object({
   available: z.boolean(),
@@ -29,6 +30,7 @@ const GcsStatusSchema = z.object({
 const ScenarioListSchema = z.object({
   scenarios: z.array(ScenarioSchema),
   gcs: GcsStatusSchema.optional(),
+  warnings: z.array(z.string()).optional(),
 });
 
 function generateId() {
@@ -165,6 +167,7 @@ export function ScenarioTable() {
   };
 
   const scenarios = localScenarios ?? data?.scenarios ?? [];
+  const listState = classifyListState(data?.warnings, scenarios.length);
 
   return (
     <div className="space-y-4">
@@ -269,7 +272,20 @@ export function ScenarioTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {scenarios.length === 0 && !isLoading && (
+            {listState === "error" && (
+              <TableRow>
+                <TableCell colSpan={8} className="py-6">
+                  <div className="rounded border border-brand-red/40 bg-red-50 px-3 py-2 text-sm text-brand-red">
+                    <strong>Persistence unavailable</strong> — scenarios could not be loaded (this is not an empty list).
+                    <div className="mt-1 font-mono text-xs opacity-80">
+                      {(data?.warnings ?? []).find((w) => /config store unavailable/i.test(w)) ?? "config store unavailable"}
+                    </div>
+                    <div className="mt-1 text-xs">See Diagnostics → Config store (Firestore).</div>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
+            {listState === "empty" && !isLoading && (
               <TableRow>
                 <TableCell
                   colSpan={8}
@@ -279,7 +295,7 @@ export function ScenarioTable() {
                 </TableCell>
               </TableRow>
             )}
-            {scenarios.map((scenario) => (
+            {listState === "list" && scenarios.map((scenario) => (
               <ScenarioRow
                 key={scenario.id}
                 scenario={scenario}
