@@ -34,13 +34,30 @@ CTRL="/tmp/pyramid-console-tunnel-apiserver.ctl"
 # launchd gives a minimal PATH; make sure ssh/kubectl/nc resolve.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
-# Isolated demo DMZ host reached by fixed IP over a key we own. Don't pin the
-# host key — a from-scratch reinstall regenerates it, which would otherwise wedge
-# every connection with "REMOTE HOST IDENTIFICATION HAS CHANGED".
-SSH_COMMON=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null
+# Pin the Pyramid host key to a managed known_hosts file rather than /dev/null.
+# accept-new pins on first connect and then VERIFIES every subsequent one, so a
+# man-in-the-middle that substitutes the host key (this tunnel carries the
+# in-cluster admin console over a public DMZ SSH port) is detected, not blindly
+# accepted. The DMZ node has a fixed IP, so pinning is practical here.
+#
+# Reinstall self-heal: a from-scratch reinstall regenerates the host key, which
+# accept-new (correctly) refuses with "REMOTE HOST IDENTIFICATION HAS CHANGED"
+# until the old pin is cleared. After verifying the new fingerprint out of band,
+# re-pin deliberately by running once with PYRAMID_TUNNEL_REPIN_HOSTKEY=1
+# (clears the old entry so the next connect re-pins). Default is strict.
+KNOWN_HOSTS="$HOME/.ssh/known_hosts.pyramid"
+SSH_COMMON=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$KNOWN_HOSTS"
             -o ConnectTimeout=15 -o LogLevel=ERROR)
 
 log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*"; }
+
+# Operator-confirmed reinstall: drop the stale pin so accept-new re-pins to the
+# reinstalled host. Gated behind an explicit env so a host-key change is never
+# trusted silently — set it only after verifying the new fingerprint out of band.
+if [[ "${PYRAMID_TUNNEL_REPIN_HOSTKEY:-0}" == "1" && -f "$KNOWN_HOSTS" ]]; then
+  ssh-keygen -R "[$SSH_HOST]:$SSH_PORT" -f "$KNOWN_HOSTS" >/dev/null 2>&1 || true
+  log "PYRAMID_TUNNEL_REPIN_HOSTKEY=1 — cleared pinned host key for [$SSH_HOST]:$SSH_PORT; will re-pin on next connect"
+fi
 
 [[ -f "$SSH_KEY" ]] || { log "FATAL: ssh key $SSH_KEY missing"; exit 1; }
 command -v kubectl >/dev/null || { log "FATAL: kubectl not on PATH"; exit 1; }
@@ -88,7 +105,7 @@ ssh -i "$SSH_KEY" -p "$SSH_PORT" "${SSH_COMMON[@]}" \
     -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
     -o ControlMaster=yes -o ControlPath="$CTRL" \
     -fN -L "$APISERVER_LPORT:$PRIV_IP:6443" "$SSH_USER@$SSH_HOST" \
-  || { log "FATAL: apiserver ssh tunnel failed to start"; exit 1; }
+  || { log "FATAL: apiserver ssh tunnel failed to start (if the node was reinstalled, the host key changed — verify the new fingerprint, then re-run once with PYRAMID_TUNNEL_REPIN_HOSTKEY=1)"; exit 1; }
 
 # Wait for the forward to accept connections.
 ok=0
