@@ -51,12 +51,28 @@ describe("probeConfigStore", () => {
     expect(s.detail).toMatch(/reachable/);
   });
 
-  it("warn (not error) when healthy but reconcile loop is disabled", async () => {
-    process.env.CONSOLE_DISABLE_RECONCILE_LOOP = "1";
-    mockMakeCtx.mockResolvedValue(ctxWith(() => Promise.resolve({})));
+  it("ok + 'converged' detail when readStatus returns a clean status", async () => {
+    mockMakeCtx.mockResolvedValue(ctxWith(() => Promise.resolve({ lastRunAt: "2026-06-26T10:00:00Z", errors: [] })));
+    const s = await probeConfigStore();
+    expect(s.severity).toBe("ok");
+    expect(s.ok).toBe(true);
+    expect(s.detail).toMatch(/converged/i);
+    expect(s.detail).toMatch(/2026-06-26T10:00:00Z/);
+  });
+
+  it("warn when the last convergence reported errors", async () => {
+    mockMakeCtx.mockResolvedValue(ctxWith(() => Promise.resolve({ lastRunAt: "2026-06-26T10:00:00Z", errors: ["addSensor failed: cam-1"] })));
     const s = await probeConfigStore();
     expect(s.severity).toBe("warn");
-    expect(s.ok).toBe(true); // warn is not an outage
-    expect(s.detail).toMatch(/reconcile loop off/i);
+    expect(s.ok).toBe(true); // degraded, not an outage
+    expect(s.detail).toMatch(/errored/i);
+    expect(s.detail).toMatch(/addSensor failed/);
+  });
+
+  it("ok + 'reachable' when no status has been written yet (null)", async () => {
+    mockMakeCtx.mockResolvedValue(ctxWith(() => Promise.resolve(null)));
+    const s = await probeConfigStore();
+    expect(s.severity).toBe("ok");
+    expect(s.detail).toMatch(/reachable/i);
   });
 });

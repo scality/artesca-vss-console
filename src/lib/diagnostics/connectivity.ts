@@ -177,20 +177,26 @@ export async function probeConfigStore(): Promise<BackendStatus> {
   } catch (err) {
     return fail(err instanceof Error ? err.message : String(err));
   }
+  let status: { lastRunAt?: string; errors?: string[] } | null;
   try {
-    await ctx.store.readStatus(ctx.instance);
+    status = (await ctx.store.readStatus(ctx.instance)) as { lastRunAt?: string; errors?: string[] } | null;
   } catch (err) {
     return fail(err instanceof Error ? err.message : String(err));
   }
 
-  if (process.env.CONSOLE_DISABLE_RECONCILE_LOOP === "1") {
+  const when = status?.lastRunAt ? ` ${status.lastRunAt}` : "";
+  if (status?.errors && status.errors.length > 0) {
     return {
       id, label, ok: true, severity: "warn",
-      detail: "reachable · reconcile loop off (cameras display but won't auto re-register to VST on restart)",
+      detail: `last convergence errored at${when || " (unknown time)"}: ${status.errors[0]}`,
       latencyMs: Date.now() - t0,
     };
   }
-  return { id, label, ok: true, severity: "ok", detail: "reachable", latencyMs: Date.now() - t0 };
+  return {
+    id, label, ok: true, severity: "ok",
+    detail: status?.lastRunAt ? `reachable · converged${when}` : "reachable",
+    latencyMs: Date.now() - t0,
+  };
 }
 
 /**
