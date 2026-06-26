@@ -87,10 +87,11 @@ data:
   # Firestore credentials — mounted from the config-store-rw secret (see
   # 20-console.yaml). Fixed path, same as the reconcile-agent.
   GOOGLE_APPLICATION_CREDENTIALS: "/etc/config-store/key.json"
-  # The dedicated reconcile-agent owns Firestore→cluster convergence. The
-  # interactive console must NOT also run the background reconcile loop, or it
-  # would race the agent. "1" = console is UI-only for config.
-  CONSOLE_DISABLE_RECONCILE_LOOP: "1"
+  # Set to "1" ONLY when a dedicated reconcile-agent (RECONCILE_AGENT=1) is
+  # deployed to own Firestore→cluster convergence. Unset/"0" = the console runs
+  # the periodic convergence loop itself (correct for single-pod deploys). The
+  # one-shot startup convergence runs regardless of this flag.
+  CONSOLE_DISABLE_RECONCILE_LOOP: "0"
 
   # ── SQLite database ───────────────────────────────────────────────────────────
   # Backed by PVC console-data (5 Gi, ReadWriteOnce).
