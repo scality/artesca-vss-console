@@ -16,6 +16,7 @@ vi.mock("@/app/api/cameras/route", () => ({
 
 vi.mock("@/lib/helpers/vst", () => ({
   vstDeleteSensor: vi.fn().mockResolvedValue({ ok: true }),
+  setRecording: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock("@/lib/helpers/camsim-control", () => ({
@@ -75,8 +76,9 @@ import {
   camsimDeleteFile,
   CamsimControlError,
 } from "@/lib/helpers/camsim-control";
-import { vstDeleteSensor } from "@/lib/helpers/vst";
+import { vstDeleteSensor, setRecording } from "@/lib/helpers/vst";
 import { getCameraOverride, upsertCameraOverride, deleteCameraOverride } from "@/lib/db";
+import { gcsCamerasGet } from "@/lib/helpers/gcs-config";
 import { auditLog } from "@/lib/helpers/audit";
 import { writeToGcs } from "@/app/api/cameras/route";
 import { makeReconcileContext } from "@/lib/reconcile/context";
@@ -126,6 +128,8 @@ beforeEach(() => {
   });
   vi.mocked(camsimDeleteFile).mockReset().mockResolvedValue(undefined);
   vi.mocked(vstDeleteSensor).mockReset().mockResolvedValue({ ok: true });
+  vi.mocked(setRecording).mockReset().mockResolvedValue({ ok: true });
+  vi.mocked(gcsCamerasGet).mockReset().mockResolvedValue(null);
   vi.mocked(getCameraOverride).mockReset().mockReturnValue(null);
   vi.mocked(deleteCameraOverride).mockReset();
   vi.mocked(writeToGcs).mockReset().mockResolvedValue(undefined);
@@ -367,6 +371,65 @@ describe("PUT /api/cameras/[id] overrides (docker)", () => {
       expect.any(Object),
     );
   });
+
+  it("recording.enabled=false → calls setRecording(id, false) to stop VST recording", async () => {
+    const req = makeRequest("PUT", {
+      recording: { enabled: false, policy: "off", retentionDays: 7 },
+    });
+    const res = await PUT(req, makeParams("cam01"));
+
+    expect(res.status).toBe(200);
+    expect(setRecording).toHaveBeenCalledWith("cam01", false, undefined);
+  });
+
+  it("recording.enabled=true → resolves rtspUrl from GCS + calls setRecording(id, true, url)", async () => {
+    process.env.VSS_INSTANCE_NAME = "test-instance";
+    vi.mocked(gcsCamerasGet).mockResolvedValue({
+      schema: "isv-labs.cameras.v2",
+      instance: "test-instance",
+      updatedAt: "2024-01-01T00:00:00Z",
+      updatedBy: "operator@test.com",
+      cameras: [{ id: "cam01", rtspUrl: "rtsp://x/cam01" }],
+    } as never);
+
+    const req = makeRequest("PUT", {
+      recording: { enabled: true, policy: "always", retentionDays: 7 },
+    });
+    const res = await PUT(req, makeParams("cam01"));
+
+    expect(res.status).toBe(200);
+    expect(setRecording).toHaveBeenCalledWith("cam01", true, "rtsp://x/cam01");
+  });
+
+  it("VST stop warns → policy still saved, warning surfaced, does NOT 500", async () => {
+    vi.mocked(setRecording).mockResolvedValue({
+      ok: false,
+      warning: "proxy/stream/remove HTTP 500 for cam01",
+    });
+
+    const req = makeRequest("PUT", {
+      recording: { enabled: false, policy: "off", retentionDays: 7 },
+    });
+    const res = await PUT(req, makeParams("cam01"));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    // Policy persisted regardless of VST outcome.
+    expect(upsertCameraOverride).toHaveBeenCalled();
+    // Warning surfaced (mirrors the gcsWarning best-effort pattern).
+    expect(body.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining("proxy/stream/remove")]),
+    );
+  });
+
+  it("recording absent → setRecording not called", async () => {
+    const req = makeRequest("PUT", { scenarioIds: ["fall"] });
+    const res = await PUT(req, makeParams("cam01"));
+
+    expect(res.status).toBe(200);
+    expect(setRecording).not.toHaveBeenCalled();
+  });
 });
 
 // ── PUT (k8s) ─────────────────────────────────────────────────────────────────
@@ -391,6 +454,19 @@ describe("PUT /api/cameras/[id] overrides (k8s)", () => {
       }),
       expect.any(String),
     );
+  });
+
+  it("recording.enabled=false → calls setRecording with the camera doc rtspUrl", async () => {
+    delete process.env.CONSOLE_RUNTIME;
+    const upsertCamera = vi.fn().mockResolvedValue(undefined);
+    const readCameras = vi.fn().mockResolvedValue([{ id: "cam01", rtspUrl: "rtsp://x/cam01", description: "Entrance" }]);
+    vi.mocked(makeReconcileContext).mockResolvedValue({
+      instance: "inst-1", adapter: {} as never, refs: {} as never, store: { upsertCamera, readCameras } as never,
+    } as never);
+    const req = makeRequest("PUT", { recording: { enabled: false, policy: "off", retentionDays: 7 } });
+    const res = await PUT(req, makeParams("cam01"));
+    expect(res.status).toBe(200);
+    expect(setRecording).toHaveBeenCalledWith("cam01", false, "rtsp://x/cam01");
   });
 });
 

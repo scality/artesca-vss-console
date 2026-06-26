@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronDown, ChevronRight, Trash2, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Trash2, RefreshCw, Video, VideoOff } from "lucide-react";
 import { FeedList } from "./FeedList";
 import { CameraDetailPanel } from "./CameraDetailPanel";
 import type { PromptSet } from "@/components/prompt/PromptSetManager";
@@ -116,6 +116,53 @@ export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
     },
   });
 
+  // Current recording state — default ON when the camera carries no explicit
+  // recording override (matches the stack default).
+  const recordingEnabled = camera.recording?.enabled ?? true;
+  const recordingPolicy = camera.recording?.policy ?? "always";
+  const recordingRetentionDays = camera.recording?.retentionDays ?? 7;
+
+  const toggleRecording = useMutation({
+    mutationFn: async () => {
+      const next = !recordingEnabled;
+      const res = await fetch(`/api/cameras/${camera.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recording: {
+            enabled: next,
+            policy: recordingPolicy,
+            retentionDays: recordingRetentionDays,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error((body as { error?: string }).error ?? "Save failed");
+      }
+      return res.json() as Promise<{ ok: boolean; warnings?: string[] }>;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["cameras"] });
+      const turnedOn = !recordingEnabled;
+      const warning = result.warnings?.[0];
+      toast({
+        title: turnedOn
+          ? `Recording enabled for ${camera.id}`
+          : `Recording disabled for ${camera.id}`,
+        description: warning ? `Note: ${warning}` : undefined,
+        ...(warning ? { variant: "destructive" as const } : {}),
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Failed to change recording",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const restartReplay = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/cameras/${camera.id}/restart`, {
@@ -201,6 +248,25 @@ export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
             >
               <RefreshCw className="h-3 w-3 mr-1" />
               Restart
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => toggleRecording.mutate()}
+              disabled={toggleRecording.isPending}
+              title={
+                recordingEnabled
+                  ? "Stop recording this camera on the VST (keeps it registered + live)"
+                  : "Start recording this camera on the VST"
+              }
+            >
+              {recordingEnabled ? (
+                <VideoOff className="h-3 w-3 mr-1" />
+              ) : (
+                <Video className="h-3 w-3 mr-1" />
+              )}
+              {recordingEnabled ? "Disable recording" : "Enable recording"}
             </Button>
             <Button
               variant="ghost"
