@@ -70,10 +70,31 @@ export async function vstListSensors(): Promise<{
       return { sensors };
     }
 
-    // k8s sensor-ms /list shape — array or {sensors: [...]}.
-    const sensors = Array.isArray(json)
-      ? (json as VstSensor[])
-      : (json as { sensors?: VstSensor[] }).sensors ?? [];
+    // k8s sensor-ms /list shape — array (or {sensors:[...]}) of VST sensor
+    // objects keyed by `name` (= the camera id) with a UUID `sensorId`. Map
+    // them to VstSensor so `sensor_id` carries the matching key (the name). A
+    // raw cast leaves sensor_id undefined (the response is camelCase sensorId),
+    // which makes every camera read as "not registered" (PENDING-RESTORE).
+    const rawList = Array.isArray(json)
+      ? json
+      : ((json as { sensors?: unknown[] }).sensors ?? []);
+    const sensors: VstSensor[] = (rawList as Array<Record<string, unknown>>)
+      .filter((o) => o && typeof o === "object")
+      .map((o) => ({
+        sensor_id:
+          typeof o.name === "string"
+            ? o.name
+            : String(o.sensorId ?? o.sensor_id ?? ""),
+        name: typeof o.name === "string" ? o.name : undefined,
+        rtsp_url: typeof o.rtsp_url === "string" ? o.rtsp_url : undefined,
+        status:
+          typeof o.state === "string"
+            ? o.state
+            : typeof o.status === "string"
+              ? o.status
+              : undefined,
+        streamId: o.sensorId ?? o.streamId,
+      }));
     return { sensors };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -167,7 +188,8 @@ export async function vstStopStream(input: {
 
   try {
     const resp = await fetch(url, {
-      method: "POST",
+      // VST 3.2 proxy/stream/remove is a DELETE (POST → 405 Method Not Allowed).
+      method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: input.sensorId, name: input.sensorId }),
       next: { revalidate: 0 },
