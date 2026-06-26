@@ -287,6 +287,9 @@ async function collectK8sOverview(
     "DCGM_FI_DEV_FB_TOTAL",
     "DCGM_FI_DEV_GPU_TEMP",
     "DCGM_FI_DEV_POWER_USAGE",
+    // Some DCGM exporter builds emit FB_FREE but not FB_TOTAL — derive total
+    // from used + free in that case (see memoryTotalMiB below).
+    "DCGM_FI_DEV_FB_FREE",
   ] as const;
 
   const gpuResults = await Promise.all(gpuQueries.map((q) => promQuery(q)));
@@ -295,14 +298,14 @@ async function collectK8sOverview(
     if (r.warning) warnings.push(r.warning);
   }
 
-  const [utilRes, fbUsedRes, fbTotalRes, tempRes, powerRes] = gpuResults;
+  const [utilRes, fbUsedRes, fbTotalRes, tempRes, powerRes, fbFreeRes] = gpuResults;
 
   const gpuIndexMap = new Map<
     string,
     { index: string; gpu: string; name?: string }
   >();
 
-  for (const r of [utilRes, fbUsedRes, fbTotalRes, tempRes, powerRes]) {
+  for (const r of [utilRes, fbUsedRes, fbTotalRes, tempRes, powerRes, fbFreeRes]) {
     for (const item of r.results) {
       const gpuIdx = item.metric["gpu"] ?? item.metric["GPU"] ?? "0";
       if (!gpuIndexMap.has(gpuIdx)) {
@@ -321,12 +324,15 @@ async function collectK8sOverview(
 
     const fbUsed = getVal(fbUsedRes);
     const fbTotal = getVal(fbTotalRes);
+    const fbFree = getVal(fbFreeRes);
+    // Prefer FB_TOTAL; fall back to used+free when the exporter omits TOTAL.
+    const memTotal = fbTotal || (fbUsed + fbFree) || 1;
 
     gpus.push({
       index: parseInt(meta.index, 10),
       name: meta.name ?? `GPU ${gpuIdx}`,
       memoryUsedMiB: fbUsed,
-      memoryTotalMiB: fbTotal || 1,
+      memoryTotalMiB: memTotal,
       utilGpu: getVal(utilRes),
       utilMem: fbTotal > 0 ? (fbUsed / fbTotal) * 100 : 0,
       tempC: getVal(tempRes),
