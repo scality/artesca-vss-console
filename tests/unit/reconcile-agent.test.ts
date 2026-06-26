@@ -1,6 +1,7 @@
 // console/tests/unit/reconcile-agent.test.ts
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { runReconcileAgentOnce, startReconcileLoop } from "@/lib/reconcile-agent";
+import { makeFirestoreConfigStore } from "@/lib/config-store/firestore";
 import type { ConfigStore, ReconcileStatus, CameraEntry } from "@/lib/config-store/types";
 import type { ClusterAdapter } from "@/lib/reconcile/cluster-adapter";
 
@@ -48,18 +49,27 @@ vi.mock("@/lib/helpers/default-prompt", () => ({ readDefaultPrompt: () => "p" })
 vi.mock("@/lib/reconcile/prompt-seed", () => ({ seedDefaultPromptSet: async () => {} }));
 
 describe("startReconcileLoop periodic gating", () => {
-  beforeEach(() => { vi.restoreAllMocks(); process.env.VSS_INSTANCE_NAME = "inst-1"; });
+  beforeEach(() => {
+    // clearAllMocks resets call counts on vi.fn() mocks (e.g. makeFirestoreConfigStore)
+    // and clears spy call history — both are needed for count isolation across tests.
+    vi.clearAllMocks();
+    process.env.VSS_INSTANCE_NAME = "inst-1";
+  });
 
   it("periodic:false runs one pass and schedules NO interval", async () => {
     const spy = vi.spyOn(global, "setInterval");
     await startReconcileLoop({ periodic: false });
     expect(spy).not.toHaveBeenCalled();
+    // Verify the startup convergence pass fired: makeFirestoreConfigStore is called
+    // exactly once per startReconcileLoop invocation (before tick() is enqueued).
+    expect(vi.mocked(makeFirestoreConfigStore)).toHaveBeenCalledTimes(1);
   });
 
   it("periodic:true (default) schedules the interval", async () => {
     const spy = vi.spyOn(global, "setInterval").mockReturnValue(0 as never);
     await startReconcileLoop({ periodic: true, intervalMs: 60000 });
     expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(expect.any(Function), 60000);
   });
 });
 

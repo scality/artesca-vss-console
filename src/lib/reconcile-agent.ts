@@ -44,10 +44,12 @@ export async function runReconcileAgentOnce(deps: RunReconcileAgentDeps): Promis
 }
 
 /**
- * Start the headless reconcile loop. Builds the Firestore store once, then ticks
- * every `intervalMs`. Each tick is guarded against overlap and never throws out
- * of the loop. Returns once the loop is scheduled (the interval keeps the
- * process alive). No-op (logs) when no instance is resolvable.
+ * Start the reconcile agent. Builds the Firestore store once, then fires one
+ * idempotent fire-and-forget startup convergence pass so the cluster is
+ * configured on every boot. When `periodic !== false` (default), also schedules
+ * a recurring interval — each tick is guarded against overlap and never throws.
+ * Returns once the startup pass is enqueued and the interval (if any) is set.
+ * No-op (logs) when no instance is resolvable.
  */
 export async function startReconcileLoop(opts?: { intervalMs?: number; instance?: string; periodic?: boolean }): Promise<void> {
   const log = createLogger("reconcile-agent");
