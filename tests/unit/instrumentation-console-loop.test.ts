@@ -19,14 +19,22 @@ beforeEach(() => {
   process.env.VSS_INSTANCE_NAME = "inst-1";
   delete process.env.RECONCILE_AGENT;
   delete process.env.CONSOLE_RUNTIME;
+  delete process.env.CONSOLE_DISABLE_RECONCILE_LOOP;
 });
 
 describe("instrumentation full-console mode", () => {
-  it("k8s mode → runs reconcile loop, not the GCS restore watcher", async () => {
+  it("k8s mode (flag unset) → starts reconcile loop with periodic:true", async () => {
     const { register } = await import("@/instrumentation");
     await register();
-    expect(startReconcileLoop).toHaveBeenCalled();
+    expect(startReconcileLoop).toHaveBeenCalledWith({ periodic: true });
     expect(startCameraRestoreWatcher).not.toHaveBeenCalled();
+  });
+
+  it("k8s mode (CONSOLE_DISABLE_RECONCILE_LOOP=1) → STILL starts loop, with periodic:false", async () => {
+    process.env.CONSOLE_DISABLE_RECONCILE_LOOP = "1";
+    const { register } = await import("@/instrumentation");
+    await register();
+    expect(startReconcileLoop).toHaveBeenCalledWith({ periodic: false });
   });
 
   it("docker mode → runs GCS restore watcher + caption bridge, not the loop", async () => {

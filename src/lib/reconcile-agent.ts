@@ -49,7 +49,7 @@ export async function runReconcileAgentOnce(deps: RunReconcileAgentDeps): Promis
  * of the loop. Returns once the loop is scheduled (the interval keeps the
  * process alive). No-op (logs) when no instance is resolvable.
  */
-export async function startReconcileLoop(opts?: { intervalMs?: number; instance?: string }): Promise<void> {
+export async function startReconcileLoop(opts?: { intervalMs?: number; instance?: string; periodic?: boolean }): Promise<void> {
   const log = createLogger("reconcile-agent");
   const instance = opts?.instance ?? process.env.VSS_INSTANCE_NAME;
   if (!instance) {
@@ -104,7 +104,17 @@ export async function startReconcileLoop(opts?: { intervalMs?: number; instance?
     }
   };
 
+  // Always fire one idempotent startup convergence pass so the node is configured
+  // on every boot. Keep it fire-and-forget (void) so a slow cluster never blocks
+  // Next's boot/readiness. The periodic loop is opt-out via opts.periodic
+  // (default true); a deployment with a dedicated reconcile-agent sets
+  // periodic:false to avoid continuously racing it — the one startup pass still runs.
   void tick();
-  setInterval(tick, intervalMs);
-  log.info(`reconcile agent started — instance=${instance} interval=${intervalMs / 1000}s`);
+  const periodic = opts?.periodic ?? true;
+  if (periodic) {
+    setInterval(tick, intervalMs);
+    log.info(`reconcile agent started — instance=${instance} interval=${intervalMs / 1000}s (periodic)`);
+  } else {
+    log.info(`reconcile agent — one-shot startup convergence fired for ${instance} (periodic loop off)`);
+  }
 }
