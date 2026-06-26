@@ -3,16 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { statusWord } from "@/lib/diagnostics/backend-status";
+import { severityOf, statusWord } from "@/lib/diagnostics/backend-status";
 
 // contract: keep in sync with lib/diagnostics/connectivity.ts
 interface BackendStatus {
-  id: string;
+  id: string; // mirrors connectivity.ts BackendStatus['id']; kept loose — id isn't used in render
   label: string;
   ok: boolean;
+  severity?: "ok" | "warn" | "error";
   detail: string;
   latencyMs: number;
 }
+
+const DOT = { ok: "bg-emerald-600", warn: "bg-amber-500", error: "bg-red-600" } as const;
+const TXT = { ok: "text-emerald-700", warn: "text-amber-600", error: "text-brand-red" } as const;
 
 interface ConnectivityResponse {
   takenAt: string;
@@ -124,7 +128,7 @@ export function ConnectivityPanel() {
       {fetchState.phase === "ok" && (
         <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
           {fetchState.data.backends.map((b) => {
-            const sev = statusWord(b);
+            const sev = severityOf(b);
             return (
             <div
               key={b.id}
@@ -132,12 +136,17 @@ export function ConnectivityPanel() {
             >
               {/* Status dot */}
               <span
-                className={`h-2 w-2 shrink-0 rounded-full ${b.ok ? "bg-emerald-600" : "bg-red-600"}`}
-                aria-label={sev}
+                className={`h-2 w-2 shrink-0 rounded-full ${DOT[sev]}`}
+                aria-label={statusWord(b)}
               />
 
               {/* Label */}
               <span className="w-32 font-medium shrink-0">{b.label}</span>
+
+              {/* Status word */}
+              <span className={`text-xs font-medium shrink-0 ${TXT[sev]}`}>
+                {statusWord(b)}
+              </span>
 
               {/* Detail — grows to fill available space */}
               <span className="flex-1 text-muted-foreground truncate">{b.detail}</span>

@@ -52,6 +52,9 @@ interface TopologyNodeData {
   // Handle visibility: true = show, false = hide. undefined = show (safe default).
   hasIncoming?: boolean;
   hasOutgoing?: boolean;
+  /** Flow direction for this node's pipeline row: "lr" = left-to-right (even rows),
+   *  "rl" = right-to-left (odd rows in the serpentine layout). Controls handle sides. */
+  flowDir?: "lr" | "rl";
   // Index signature required by React Flow NodeData constraint
   [key: string]: unknown;
 }
@@ -117,7 +120,38 @@ interface TopologyPayload {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Merge helper
+// Stage-index map — stable, authored-position-based
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// stageIndexById maps each node id to a dense 0-based flow-order stage index
+// derived from the API payload's authored x positions (NOT the possibly
+// user-dragged current position). This is computed once from the payload so
+// the serpentine layout and feedback-edge detection are both drag-proof.
+
+const STAGE_W = 200; // authored-x span that collapses into one pipeline stage
+
+function buildStageIndexById(payload: TopologyPayload | null): Record<string, number> {
+  const apiNodes = payload?.nodes ?? [];
+  if (apiNodes.length === 0) return {};
+
+  // Use authored position.x from the API payload (fallback idx*180 for missing pos).
+  const minX = Math.min(...apiNodes.map((n, idx) => n.position?.x ?? idx * 180));
+  const stageOf = (n: TopologyApiNode, idx: number) =>
+    Math.round(((n.position?.x ?? idx * 180) - minX) / STAGE_W);
+
+  // Collect distinct stage buckets, sort ascending (= flow order), assign dense index.
+  const buckets = [...new Set(apiNodes.map((n, idx) => stageOf(n, idx)))].sort((a, b) => a - b);
+  const bucketToIndex = new Map(buckets.map((b, i) => [b, i]));
+
+  const result: Record<string, number> = {};
+  apiNodes.forEach((n, idx) => {
+    result[n.id] = bucketToIndex.get(stageOf(n, idx)) ?? 0;
+  });
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Merge helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 function mergeTopologyData(
@@ -137,6 +171,11 @@ function mergeTopologyData(
     const health: PipelineHealth = runtimeState?.health ?? n.health ?? "unknown";
     const rfType = reactFlowTypeFor(n.type);
     const apiPos = n.position ?? { x: idx * 180, y: 200 };
+
+    // Single-direction layout: every node flows left-to-right (input-left,
+    // output-right). The pipeline is laid out in one row by applyFlowLayout.
+    const flowDir: "lr" | "rl" = "lr";
+
     return {
       id: n.id,
       position: savedPositions[n.id] ?? apiPos,
@@ -153,6 +192,7 @@ function mergeTopologyData(
         runtime: runtimeState,
         hasIncoming: hasIncomingSet.has(n.id),
         hasOutgoing: hasOutgoingSet.has(n.id),
+        flowDir,
       },
     };
   });
@@ -161,75 +201,112 @@ function mergeTopologyData(
 function mergeTopologyEdges(
   payload: TopologyPayload | null,
   snapshot: PipelineSnapshot | null,
+  stageIndexById: Record<string, number>,
 ): Edge[] {
   const apiEdges = payload?.edges ?? [];
-  return apiEdges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    type: "connection",
-    data: {
-      protocol: e.protocol,
-      staticLabel: e.label,
-      dormant: e.dormant,
-      runtime: snapshot?.edges[e.id],
-    },
-  }));
+  return apiEdges.map((e) => {
+    // An edge is feedback iff its target is at a strictly earlier pipeline stage
+    // than its source. Same-stage edges (e.g. sensor→streamprocessing) are NOT
+    // feedback — they are co-located services on the same column.
+    const srcStage = stageIndexById[e.source] ?? 0;
+    const tgtStage = stageIndexById[e.target] ?? 0;
+    const feedback = tgtStage < srcStage;
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      type: "connection",
+      data: {
+        protocol: e.protocol,
+        staticLabel: e.label,
+        dormant: e.dormant,
+        runtime: snapshot?.edges[e.id],
+        feedback,
+      },
+    };
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Flow layout — columns in left→right pipeline order
+// Single-row pipeline layout + compact camera grid
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// The /api/topology payload authors each node's x in pipeline-flow order
-// (RTSP source → VST ingest → VLM/NIM → agent/analytics → storage). We honour
-// that order directly: nodes are bucketed into columns by their authored x
-// (sorted ascending = flow order), evenly spaced left→right, and stacked
-// vertically within each stage. This guarantees the boxes always read in flow
-// order — edge-based auto-ranking (dagre) reordered columns because the real
-// graph has inference/read-back edges (nim↔vlm, agent→sensor) that form cycles.
+// The pipeline reads as one clean left→right row: stages are columns (in flow
+// order), co-located services stack vertically within a stage, and every node
+// keeps input-left / output-right. Auto-fit keeps the whole row in view, so the
+// width never forces horizontal scrolling.
+//
+// Camera feed nodes (one per registered camera — the showroom registers many)
+// are pulled OUT of the pipeline columns and rendered as a compact grid in a
+// lane to the left, all feeding mediamtx. This keeps the source columns from
+// ballooning vertically. The grid's column count scales with the camera count
+// so the block stays roughly square instead of a tall strip.
+//
 // A user's manual drag (savedPositions) always wins; "Reset layout" clears
 // those and the graph snaps back to this computed layout.
 
-const STAGE_W = 200; // authored-x span that collapses into one pipeline stage
-const COL_GAP = 248; // horizontal spacing between pipeline stages
-const ROW_GAP = 168; // vertical spacing within a stage (node cards run ~90px tall)
+const COL_GAP  = 248; // horizontal spacing between pipeline stages
+const ROW_GAP  = 168; // vertical spacing within a stage (node cards run ~90px tall)
 const ORIGIN_X = 40;
-const CENTER_Y = 280;
+const CENTER_Y = 320; // vertical centre of the pipeline row
+const FEED_DX  = 132; // camera-grid horizontal pitch
+const FEED_DY  = 72;  // camera-grid vertical pitch
+
+const isFeedNode = (n: Node<TopologyNodeData>): boolean =>
+  n.data?.nodeType === "feed" || String(n.id).startsWith("feed:");
 
 function applyFlowLayout(
   nodes: Node<TopologyNodeData>[],
   savedPositions: Record<string, { x: number; y: number }>,
+  stageIndexById: Record<string, number>,
 ): Node<TopologyNodeData>[] {
   if (nodes.length === 0) return nodes;
+
   // Lay out only the nodes the user hasn't manually placed.
   const auto = nodes.filter((n) => !savedPositions[n.id]);
   if (auto.length === 0) return nodes;
 
-  // Collapse the authored x's into pipeline STAGES (round to STAGE_W buckets):
-  // co-located services (a service + its db/cache/queue) share one column,
-  // which keeps the diagram compact instead of one thin column per node, while
-  // preserving the left→right flow order (sink stays rightmost).
-  const minX = Math.min(...auto.map((n) => n.position.x));
-  const stageOf = (n: Node<TopologyNodeData>) => Math.round((n.position.x - minX) / STAGE_W);
-  const stages = [...new Set(auto.map(stageOf))].sort((a, b) => a - b);
-  const colIndex = new Map(stages.map((s, i) => [s, i]));
+  const feeds = auto.filter(isFeedNode);
+  const pipeline = auto.filter((n) => !isFeedNode(n));
+  const placed: Record<string, { x: number; y: number }> = {};
 
-  // Bucket nodes per stage, then stack each column vertically (by authored y).
-  const byColumn = new Map<number, Node<TopologyNodeData>[]>();
-  for (const n of auto) {
-    const ci = colIndex.get(stageOf(n)) ?? 0;
-    const list = byColumn.get(ci) ?? [];
-    list.push(n);
-    byColumn.set(ci, list);
+  // Camera grid: a compact block in the left lane, vertically centred. Column
+  // count scales with the camera count so it stays roughly square.
+  const feedCols = feeds.length > 0 ? Math.max(2, Math.round(Math.sqrt(feeds.length))) : 0;
+  const feedLaneW = feedCols > 0 ? feedCols * FEED_DX + 80 : 0;
+  if (feeds.length > 0) {
+    feeds.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    const feedRows = Math.ceil(feeds.length / feedCols);
+    feeds.forEach((node, i) => {
+      const c = i % feedCols;
+      const r = Math.floor(i / feedCols);
+      placed[node.id] = {
+        x: ORIGIN_X + c * FEED_DX,
+        y: CENTER_Y - ((feedRows - 1) / 2) * FEED_DY + r * FEED_DY,
+      };
+    });
   }
 
-  const placed: Record<string, { x: number; y: number }> = {};
-  for (const [ci, list] of byColumn) {
-    list.sort((a, b) => a.position.y - b.position.y);
+  // Pipeline: single row, left→right by flow stage; co-located services stack
+  // vertically within a stage. The pipeline starts to the right of the camera
+  // lane so the two never overlap.
+  const byStage = new Map<number, Node<TopologyNodeData>[]>();
+  for (const n of pipeline) {
+    const si = stageIndexById[n.id] ?? 0;
+    const list = byStage.get(si) ?? [];
+    list.push(n);
+    byStage.set(si, list);
+  }
+  // Dense column order over the pipeline's own stages (drop feed-only gaps).
+  const stageOrder = [...byStage.keys()].sort((a, b) => a - b);
+  const colOfStage = new Map(stageOrder.map((s, i) => [s, i]));
+  for (const [stageIdx, list] of byStage) {
+    const col = colOfStage.get(stageIdx) ?? 0;
+    const colX = ORIGIN_X + feedLaneW + col * COL_GAP;
+    list.sort((a, b) => (a.position.y ?? 0) - (b.position.y ?? 0));
     list.forEach((node, i) => {
       placed[node.id] = {
-        x: ORIGIN_X + ci * COL_GAP,
+        x: colX,
         y: CENTER_Y + (i - (list.length - 1) / 2) * ROW_GAP,
       };
     });
@@ -396,9 +473,20 @@ export default function TopologyPage() {
   const prevNodeIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const apiEdges = topologyPayload?.edges ?? [];
-    const merged = mergeTopologyData(topologyPayload ?? null, snapshot, savedPositionsRef.current, apiEdges);
-    const mergedEdges = mergeTopologyEdges(topologyPayload ?? null, snapshot);
-    const laidOut = applyFlowLayout(merged, savedPositionsRef.current);
+
+    // Compute the stable stage index from the API payload's authored positions.
+    // This is drag-proof: we always read from the payload, not from current node
+    // positions (which may have been moved by the user).
+    const stageIndexById = buildStageIndexById(topologyPayload ?? null);
+
+    const merged = mergeTopologyData(
+      topologyPayload ?? null,
+      snapshot,
+      savedPositionsRef.current,
+      apiEdges,
+    );
+    const mergedEdges = mergeTopologyEdges(topologyPayload ?? null, snapshot, stageIndexById);
+    const laidOut = applyFlowLayout(merged, savedPositionsRef.current, stageIndexById);
     const mergedIds = new Set(laidOut.map((n) => n.id));
     const prevIds = prevNodeIdsRef.current;
     const nodeSetChanged =

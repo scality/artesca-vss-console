@@ -13,6 +13,9 @@ export interface ServiceNodeData {
   restarts?: number;
   hasIncoming?: boolean;
   hasOutgoing?: boolean;
+  /** Flow direction for this node's pipeline row: "lr" = left-to-right (even rows),
+   *  "rl" = right-to-left (odd rows in the serpentine layout). Controls handle sides. */
+  flowDir?: "lr" | "rl";
   [key: string]: unknown;
 }
 
@@ -39,7 +42,13 @@ export const ServiceNode = memo(function ServiceNode({
   selected,
 }: NodeProps) {
   const nodeData = data as ServiceNodeData;
-  const { label, health, namespace, podCount, restarts, hasIncoming, hasOutgoing } = nodeData;
+  const { label, health, namespace, podCount, restarts, hasIncoming, hasOutgoing, flowDir } = nodeData;
+
+  // Handle sides follow the row's flow direction:
+  //   "lr" (even rows, default) — target on Left, source on Right
+  //   "rl" (odd rows, serpentine return) — target on Right, source on Left
+  const targetPos = flowDir === "rl" ? Position.Right : Position.Left;
+  const sourcePos = flowDir === "rl" ? Position.Left  : Position.Right;
 
   return (
     <div
@@ -54,7 +63,7 @@ export const ServiceNode = memo(function ServiceNode({
         .filter(Boolean)
         .join(" ")}
     >
-      {hasIncoming !== false && <Handle type="target" position={Position.Left} className="!bg-border" />}
+      {hasIncoming !== false && <Handle type="target" position={targetPos} className="!bg-border" />}
 
       <div className="flex items-center gap-2">
         <span
@@ -80,7 +89,7 @@ export const ServiceNode = memo(function ServiceNode({
         </div>
       )}
 
-      {hasOutgoing !== false && <Handle type="source" position={Position.Right} className="!bg-border" />}
+      {hasOutgoing !== false && <Handle type="source" position={sourcePos} className="!bg-border" />}
     </div>
   );
 });

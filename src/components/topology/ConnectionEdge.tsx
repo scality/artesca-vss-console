@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import { BaseEdge, getSmoothStepPath, EdgeLabelRenderer } from "@xyflow/react";
-import type { EdgeProps } from "@xyflow/react";
+import type { EdgeProps, Position } from "@xyflow/react";
 import type { EdgeRuntimeState } from "@/lib/types/pipeline";
 
 export type EdgeProtocol = "RTSP" | "gRPC" | "Kafka" | "HTTP" | string;
@@ -11,6 +11,10 @@ export interface ConnectionEdgeData {
   protocol: EdgeProtocol;
   label?: string;
   runtime?: EdgeRuntimeState;
+  /** True when this edge flows upstream in the pipeline (target stage index <
+   *  source stage index). Set semantically by mergeTopologyEdges from
+   *  stageIndexById — not by comparing pixel X positions. */
+  feedback?: boolean;
   [key: string]: unknown;
 }
 
@@ -67,6 +71,8 @@ export const ConnectionEdge = memo(function ConnectionEdge({
   sourceY,
   targetX,
   targetY,
+  sourcePosition,
+  targetPosition,
   data,
 }: EdgeProps) {
   const edgeData = data as ConnectionEdgeData | undefined;
@@ -78,11 +84,11 @@ export const ConnectionEdge = memo(function ConnectionEdge({
   const strokeColor = runtime ? HEALTH_STROKE[health] : protocolColor(protocol);
   const isFlowing = health === "flowing";
 
-  // A feedback edge flows right-to-left in the pipeline (source node sits to the
-  // right of the target). Apply a dashed stroke + reduced opacity to read as a
-  // control/return path rather than a mis-wired forward input.
-  // The 8 px threshold avoids false-positives on roughly co-located nodes.
-  const isFeedback = sourceX > targetX + 8;
+  // A feedback edge flows upstream in the pipeline (target stage index < source
+  // stage index). The flag is set semantically in mergeTopologyEdges using
+  // stageIndexById — not by comparing pixel positions, so it remains correct
+  // in the serpentine layout where left/right no longer implies forward/backward.
+  const isFeedback = Boolean(edgeData?.feedback);
   const dashArray = isFeedback && !isFlowing ? "5 4" : HEALTH_DASH[health];
   const edgeOpacity = isFeedback && !isFlowing
     ? 0.55
@@ -93,11 +99,17 @@ export const ConnectionEdge = memo(function ConnectionEdge({
     ? runtime.label
     : staticLabel;
 
+  // Pass handle-side positions into getSmoothStepPath so elbows route correctly
+  // regardless of which side the handles are on — the serpentine layout flips
+  // handles on odd rows (rl direction), so sourcePosition/targetPosition may be
+  // Right/Left instead of the default Left/Right.
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
+    sourcePosition: sourcePosition as Position | undefined,
     targetX,
     targetY,
+    targetPosition: targetPosition as Position | undefined,
     borderRadius: 8,
   });
 
