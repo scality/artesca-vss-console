@@ -159,8 +159,6 @@ function mergeTopologyData(
   snapshot: PipelineSnapshot | null,
   savedPositions: Record<string, { x: number; y: number }>,
   edges: TopologyApiEdge[],
-  stageIndexById: Record<string, number>,
-  stagesPerRow: number,
 ): Node<TopologyNodeData>[] {
   const apiNodes = payload?.nodes ?? [];
 
@@ -174,10 +172,9 @@ function mergeTopologyData(
     const rfType = reactFlowTypeFor(n.type);
     const apiPos = n.position ?? { x: idx * 180, y: 200 };
 
-    // flowDir: even rows flow left-to-right, odd rows flow right-to-left (serpentine).
-    const stageIdx = stageIndexById[n.id] ?? 0;
-    const rowNum = Math.floor(stageIdx / stagesPerRow);
-    const flowDir: "lr" | "rl" = rowNum % 2 === 0 ? "lr" : "rl";
+    // Single-direction layout: every node flows left-to-right (input-left,
+    // output-right). The pipeline is laid out in one row by applyFlowLayout.
+    const flowDir: "lr" | "rl" = "lr";
 
     return {
       id: n.id,
@@ -231,106 +228,93 @@ function mergeTopologyEdges(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Adaptive serpentine layout
+// Single-row pipeline layout + compact camera grid
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// The pipeline stages are arranged in a multi-row "snake" pattern so that the
-// bounding box is close to 4:3. For a 7-stage pipeline this picks 2 rows
-// (4 stages top-left→right, 3 stages bottom-right→left). For longer pipelines
-// the formula auto-promotes to 3 rows.
+// The pipeline reads as one clean left→right row: stages are columns (in flow
+// order), co-located services stack vertically within a stage, and every node
+// keeps input-left / output-right. Auto-fit keeps the whole row in view, so the
+// width never forces horizontal scrolling.
 //
-// Row direction (flowDir):
-//   even rows (0, 2, …) — left to right  ("lr")
-//   odd rows  (1, 3, …) — right to left  ("rl", reversed position within row)
-//
-// The serpentine connects rows: the last stage of row N is adjacent (vertically)
-// to the first stage of row N+1, so edges naturally wrap around the corner.
+// Camera feed nodes (one per registered camera — the showroom registers many)
+// are pulled OUT of the pipeline columns and rendered as a compact grid in a
+// lane to the left, all feeding mediamtx. This keeps the source columns from
+// ballooning vertically. The grid's column count scales with the camera count
+// so the block stays roughly square instead of a tall strip.
 //
 // A user's manual drag (savedPositions) always wins; "Reset layout" clears
 // those and the graph snaps back to this computed layout.
 
-const COL_GAP  = 260; // horizontal spacing between pipeline stages
+const COL_GAP  = 248; // horizontal spacing between pipeline stages
 const ROW_GAP  = 168; // vertical spacing within a stage (node cards run ~90px tall)
-const BAND_GAP = 430; // vertical spacing between serpentine rows
 const ORIGIN_X = 40;
-const ORIGIN_Y = 120;
+const CENTER_Y = 320; // vertical centre of the pipeline row
+const FEED_DX  = 132; // camera-grid horizontal pitch
+const FEED_DY  = 72;  // camera-grid vertical pitch
 
-/** Choose the number of rows that minimises |width/height − 4/3|. */
-function chooseSerpentineRows(numStages: number): number {
-  if (numStages <= 1) return 1;
-  let bestRows = 1;
-  let bestDiff = Infinity;
-  for (const rows of [1, 2, 3]) {
-    const spr = Math.ceil(numStages / rows); // stages per row
-    const width = (spr - 1) * COL_GAP;
-    const height = (rows - 1) * BAND_GAP;   // rough (ignores node stack height)
-    if (height === 0 && rows === 1) {
-      // Single row: width/height → ∞; only pick if no better option exists.
-      const diff = Math.abs(width / 200 - 4 / 3); // 200 px reference height
-      if (diff < bestDiff) { bestDiff = diff; bestRows = rows; }
-    } else if (height > 0) {
-      const diff = Math.abs(width / height - 4 / 3);
-      if (diff < bestDiff) { bestDiff = diff; bestRows = rows; }
-    }
-  }
-  return bestRows;
-}
+const isFeedNode = (n: Node<TopologyNodeData>): boolean =>
+  n.data?.nodeType === "feed" || String(n.id).startsWith("feed:");
 
 function applyFlowLayout(
   nodes: Node<TopologyNodeData>[],
   savedPositions: Record<string, { x: number; y: number }>,
   stageIndexById: Record<string, number>,
-): { nodes: Node<TopologyNodeData>[]; stagesPerRow: number } {
-  if (nodes.length === 0) return { nodes, stagesPerRow: 1 };
-
-  // Determine the total number of distinct flow stages.
-  const allStageIndices = nodes.map((n) => stageIndexById[n.id] ?? 0);
-  const numStages = Math.max(...allStageIndices) + 1;
-
-  const ROWS = chooseSerpentineRows(numStages);
-  const stagesPerRow = Math.ceil(numStages / ROWS);
+): Node<TopologyNodeData>[] {
+  if (nodes.length === 0) return nodes;
 
   // Lay out only the nodes the user hasn't manually placed.
   const auto = nodes.filter((n) => !savedPositions[n.id]);
-  if (auto.length === 0) return { nodes, stagesPerRow };
+  if (auto.length === 0) return nodes;
 
-  // Bucket nodes by their flow-order stage index.
+  const feeds = auto.filter(isFeedNode);
+  const pipeline = auto.filter((n) => !isFeedNode(n));
+  const placed: Record<string, { x: number; y: number }> = {};
+
+  // Camera grid: a compact block in the left lane, vertically centred. Column
+  // count scales with the camera count so it stays roughly square.
+  const feedCols = feeds.length > 0 ? Math.max(2, Math.round(Math.sqrt(feeds.length))) : 0;
+  const feedLaneW = feedCols > 0 ? feedCols * FEED_DX + 80 : 0;
+  if (feeds.length > 0) {
+    feeds.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    const feedRows = Math.ceil(feeds.length / feedCols);
+    feeds.forEach((node, i) => {
+      const c = i % feedCols;
+      const r = Math.floor(i / feedCols);
+      placed[node.id] = {
+        x: ORIGIN_X + c * FEED_DX,
+        y: CENTER_Y - ((feedRows - 1) / 2) * FEED_DY + r * FEED_DY,
+      };
+    });
+  }
+
+  // Pipeline: single row, left→right by flow stage; co-located services stack
+  // vertically within a stage. The pipeline starts to the right of the camera
+  // lane so the two never overlap.
   const byStage = new Map<number, Node<TopologyNodeData>[]>();
-  for (const n of auto) {
+  for (const n of pipeline) {
     const si = stageIndexById[n.id] ?? 0;
     const list = byStage.get(si) ?? [];
     list.push(n);
     byStage.set(si, list);
   }
-
-  const placed: Record<string, { x: number; y: number }> = {};
+  // Dense column order over the pipeline's own stages (drop feed-only gaps).
+  const stageOrder = [...byStage.keys()].sort((a, b) => a - b);
+  const colOfStage = new Map(stageOrder.map((s, i) => [s, i]));
   for (const [stageIdx, list] of byStage) {
-    const row = Math.floor(stageIdx / stagesPerRow);
-    let pos = stageIdx % stagesPerRow;
-
-    // Serpentine: odd rows run right → left (reverse position within the row).
-    if (row % 2 !== 0) pos = stagesPerRow - 1 - pos;
-
-    const colX = ORIGIN_X + pos * COL_GAP;
-    const bandCenterY = ORIGIN_Y + row * BAND_GAP;
-
-    // Stack nodes in this stage vertically around the band centre, ordered by
-    // authored y (preserves relative vertical positioning from the API payload).
+    const col = colOfStage.get(stageIdx) ?? 0;
+    const colX = ORIGIN_X + feedLaneW + col * COL_GAP;
     list.sort((a, b) => (a.position.y ?? 0) - (b.position.y ?? 0));
     list.forEach((node, i) => {
       placed[node.id] = {
         x: colX,
-        y: bandCenterY + (i - (list.length - 1) / 2) * ROW_GAP,
+        y: CENTER_Y + (i - (list.length - 1) / 2) * ROW_GAP,
       };
     });
   }
 
-  return {
-    nodes: nodes.map((n) =>
-      savedPositions[n.id] ? n : { ...n, position: placed[n.id] ?? n.position },
-    ),
-    stagesPerRow,
-  };
+  return nodes.map((n) =>
+    savedPositions[n.id] ? n : { ...n, position: placed[n.id] ?? n.position },
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -495,21 +479,14 @@ export default function TopologyPage() {
     // positions (which may have been moved by the user).
     const stageIndexById = buildStageIndexById(topologyPayload ?? null);
 
-    // Determine stagesPerRow first so flowDir can be stamped on every node.
-    const allStageIndices = Object.values(stageIndexById);
-    const numStages = allStageIndices.length > 0 ? Math.max(...allStageIndices) + 1 : 1;
-    const stagesPerRow = Math.ceil(numStages / chooseSerpentineRows(numStages));
-
     const merged = mergeTopologyData(
       topologyPayload ?? null,
       snapshot,
       savedPositionsRef.current,
       apiEdges,
-      stageIndexById,
-      stagesPerRow,
     );
     const mergedEdges = mergeTopologyEdges(topologyPayload ?? null, snapshot, stageIndexById);
-    const { nodes: laidOut } = applyFlowLayout(merged, savedPositionsRef.current, stageIndexById);
+    const laidOut = applyFlowLayout(merged, savedPositionsRef.current, stageIndexById);
     const mergedIds = new Set(laidOut.map((n) => n.id));
     const prevIds = prevNodeIdsRef.current;
     const nodeSetChanged =
