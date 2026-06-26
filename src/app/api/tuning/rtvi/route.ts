@@ -336,13 +336,22 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
   const nimKind = CLUSTER.legacy ? ("StatefulSet" as const) : ("Deployment" as const);
   const nimNs = CLUSTER.rtvi.nimTuningNamespace;
 
+  // The NIM workload may be absent — e.g. the LLM runs remote (hosted NVIDIA
+  // API) and its NIMService/Deployment was deleted. Treat NotFound as a no-op
+  // instead of failing the whole save; the rtvi-vlm restart below still applies.
+  let nimRestartSkipped = false;
   try {
     await rolloutRestart(nimKind, nimNs, CLUSTER.rtvi.nimStatefulSet);
   } catch (err) {
-    return NextResponse.json(
-      { error: `NIM rollout restart failed: ${String(err)}` },
-      { status: 502 }
-    );
+    const { status } = extractK8sError(err);
+    if (status === 404) {
+      nimRestartSkipped = true;
+    } else {
+      return NextResponse.json(
+        { error: `NIM rollout restart failed: ${String(err)}` },
+        { status: 502 }
+      );
+    }
   }
 
   if (hasVlmPatches || tuning.modelProfile !== undefined) {
@@ -375,10 +384,13 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     ok: true,
     applied: allPatches,
     restarted: [
-      nimAuditTarget,
+      ...(nimRestartSkipped ? [] : [nimAuditTarget]),
       ...(hasVlmPatches || tuning.modelProfile !== undefined
         ? [`deployment/${CLUSTER.rtvi.vlmDeployment}`]
         : []),
     ],
+    ...(nimRestartSkipped
+      ? { note: `NIM workload ${CLUSTER.rtvi.nimStatefulSet} not found (likely running remote) — skipped its restart; ConfigMap values still patched.` }
+      : {}),
   });
 });
