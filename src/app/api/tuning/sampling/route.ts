@@ -148,29 +148,40 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     "vlm_input_width", "vlm_input_height",
   ] as const;
 
-  let reRegistered = 0;
-  for (const r of live) {
-    const id = typeof r.id === "string" ? r.id : undefined;
-    if (!r.live_stream_url || !r.alert_type) continue; // not re-registerable
-    const body: Record<string, unknown> = {};
-    for (const k of PRESERVE) if (r[k] !== undefined && r[k] !== null) body[k] = r[k];
-    body.chunk_duration = chunkDuration;
-    body.num_frames_per_second_or_fixed_frames_chunk = framesPerChunk;
-    body.use_fps_for_chunking = useFps;
+  // Re-register all rules concurrently — each rule's delete→POST is sequential
+  // (the POST must follow its own DELETE), but the rules run in parallel so the
+  // whole save is ~one round-trip instead of N, which kept the Save button from
+  // client-timing-out on a slow alert-bridge. Rules are independent (per sensor).
+  const outcomes = await Promise.all(
+    live.map(async (r): Promise<{ ok: boolean; warning?: string }> => {
+      if (!r.live_stream_url || !r.alert_type) return { ok: false };
+      const id = typeof r.id === "string" ? r.id : undefined;
+      const body: Record<string, unknown> = {};
+      for (const k of PRESERVE) if (r[k] !== undefined && r[k] !== null) body[k] = r[k];
+      body.chunk_duration = chunkDuration;
+      body.num_frames_per_second_or_fixed_frames_chunk = framesPerChunk;
+      body.use_fps_for_chunking = useFps;
 
-    if (id) await deleteRealtimeRule(id);
-    try {
-      const post = await fetch(CLUSTER.alertBridge.realtimeUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (post.ok || post.status === 409) reRegistered += 1;
-      else warnings.push(`re-register ${String(r.sensor_name)} → HTTP ${post.status}`);
-    } catch (err) {
-      warnings.push(`re-register ${String(r.sensor_name)} failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+      if (id) await deleteRealtimeRule(id);
+      try {
+        const post = await fetch(CLUSTER.alertBridge.realtimeUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (post.ok || post.status === 409) return { ok: true };
+        return { ok: false, warning: `re-register ${String(r.sensor_name)} → HTTP ${post.status}` };
+      } catch (err) {
+        return { ok: false, warning: `re-register ${String(r.sensor_name)} failed: ${err instanceof Error ? err.message : String(err)}` };
+      }
+    })
+  );
+
+  let reRegistered = 0;
+  for (const o of outcomes) {
+    if (o.ok) reRegistered += 1;
+    else if (o.warning) warnings.push(o.warning);
   }
 
   await auditLog("tuning-sampling", `configmap/${cm}`, {
