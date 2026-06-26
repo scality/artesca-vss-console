@@ -547,6 +547,10 @@ export const CLUSTER = {
   alertBridge: {
     url: ALERT_BRIDGE_URL,
     realtimeUrl: ALERT_BRIDGE_REALTIME_URL,
+    /** ConfigMap holding the desired realtime-rule set (rules.json) that the
+     *  vlm-stream-reconciler converges from. Sampling tuning is written here. */
+    rulesConfigMap: process.env.REALTIME_RULES_CM ?? "realtime-alert-rules",
+    rulesNamespace: VSS_NS,
   },
   rtvi: {
     ...RTVI,

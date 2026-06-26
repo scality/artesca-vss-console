@@ -7,6 +7,7 @@ import { z } from "zod";
 import { useKiosk } from "@/components/KioskProvider";
 import { Shell } from "@/components/Shell";
 import { RtviTuningForm } from "@/components/tuning/RtviTuningForm";
+import { SamplingForm } from "@/components/tuning/SamplingForm";
 import { AlertsTuningForm } from "@/components/tuning/AlertsTuningForm";
 import { VstRecordingForm } from "@/components/tuning/VstRecordingForm";
 import { StreamDensityCard } from "@/components/tuning/StreamDensityCard";
@@ -104,6 +105,10 @@ export default function TuningPage() {
         )}
 
         <StreamDensityCard />
+
+        <div className="rounded-lg border border-border p-5">
+          <SamplingForm />
+        </div>
 
         <div className="rounded-lg border border-border p-5">
           <RtviTuningForm />
