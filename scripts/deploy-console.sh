@@ -413,6 +413,14 @@ if [[ -f "$OBJECTSTORE_ENV_FILE" ]]; then
   S3_ENDPOINT_VALUE="${OBJECTSTORE_ENDPOINT:-}"
   S3_BUCKET_VALUE="${OBJECTSTORE_BUCKET:-}"
   echo "==> objectstore=$OBJECTSTORE_ENV_FILE (mode=${OBJECTSTORE_MODE:-?})"
+  # In-cluster ARTESCA: OBJECTSTORE_ENDPOINT is the external S3 vhost
+  # (s3.<base-domain>), which only resolves on hostNetwork pods via the node's
+  # hosts file. The console is NOT hostNetwork, so it must reach S3 through the
+  # cluster-DNS connector service instead — otherwise the S3 panel NXDOMAINs.
+  if [[ "${OBJECTSTORE_MODE:-}" == "artesca" ]]; then
+    S3_ENDPOINT_VALUE="http://artesca-data-connector-s3api.zenko.svc.cluster.local:80"
+    echo "==> OBJECTSTORE=artesca → console S3 endpoint = in-cluster connector ($S3_ENDPOINT_VALUE)"
+  fi
 fi
 BASE_DOMAIN="${ARTESCA_BASE_DOMAIN:-artesca.isv-lab.local}"
 # Grafana (:8443 ARTESCA UI) link surfaced on the console Overview. Operators
@@ -507,6 +515,18 @@ subjects:
 EOF
 done
 
+# Kafka advertised-listener: the Confluent broker advertises the SHORT name
+# "kafka-kafka", which a non-hostNetwork pod in ns console can't resolve (it
+# would need to be in the kafka namespace). Map it to the kafka Service
+# ClusterIP via a hostAlias so the console's Kafka health probe resolves the
+# advertised name. Re-resolved every deploy — the ClusterIP is per-cluster, so
+# this can't be hardcoded in the static manifest.
+KAFKA_CLUSTERIP=""
+if [[ "$CONSOLE_LEGACY_NAMESPACES" == "0" ]]; then
+  KAFKA_CLUSTERIP="$(kubectl -n "$VSS_NAMESPACE_VALUE" get svc kafka-kafka -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)"
+  [[ -n "$KAFKA_CLUSTERIP" ]] && echo "==> kafka-kafka ClusterIP=$KAFKA_CLUSTERIP → hostAlias on console deploy"
+fi
+
 kubectl kustomize "$CONSOLE_DIR" \
   | python3 -c '
 import sys, yaml
@@ -519,6 +539,7 @@ vss_namespace_value = sys.argv[6]
 console_legacy_namespaces = sys.argv[7]
 grafana_url_value = sys.argv[8]
 vss_instance_value = sys.argv[9]
+kafka_clusterip = sys.argv[10] if len(sys.argv) > 10 else ""
 docs = list(yaml.safe_load_all(sys.stdin))
 for d in docs:
     if not d:
@@ -526,9 +547,16 @@ for d in docs:
     kind = d.get("kind")
     name = d.get("metadata", {}).get("name")
     if kind == "Deployment" and name == "console":
-        c = d["spec"]["template"]["spec"]["containers"][0]
+        pspec = d["spec"]["template"]["spec"]
+        c = pspec["containers"][0]
         c["image"] = new_image
         c["imagePullPolicy"] = "Never"
+        # Map the kafka advertised short-name to its ClusterIP (helm path only).
+        if kafka_clusterip:
+            aliases = [a for a in pspec.get("hostAliases", [])
+                       if "kafka-kafka" not in a.get("hostnames", [])]
+            aliases.append({"ip": kafka_clusterip, "hostnames": ["kafka-kafka"]})
+            pspec["hostAliases"] = aliases
     elif kind == "PersistentVolume" and name == "console-data":
         terms = d["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"]
         for t in terms:
@@ -563,6 +591,7 @@ for d in docs:
 yaml.safe_dump_all([d for d in docs if d], sys.stdout, default_flow_style=False)
 ' "$IMAGE_REPO" "$NODE_HOSTNAME" "$CAMSIM_PUB_IP" "$S3_ENDPOINT_VALUE" "$S3_BUCKET_VALUE" \
   "$VSS_NAMESPACE_VALUE" "$CONSOLE_LEGACY_NAMESPACES" "$GRAFANA_URL_VALUE" "$VSS_INSTANCE" \
+  "$KAFKA_CLUSTERIP" \
   | kubectl apply -f -
 
 # Resolve the image tag used by the just-applied manifest for the state file.
