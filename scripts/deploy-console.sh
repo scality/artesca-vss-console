@@ -183,16 +183,28 @@ if [ ! -f "$SECRETS_FILE" ]; then
     STATE_SG_ID="${SG_ID:-$STATE_SG_ID}"
     STATE_AWS_REGION="${AWS_REGION:-$STATE_AWS_REGION}"
   fi
-  : "${STATE_SG_ID:?SG_ID missing from $VSS_STATE_FILE — launch-stack.sh must run first}"
+  if [ -z "${STATE_SG_ID:-}" ]; then
+    if [ "${PROVIDER:-}" = "baremetal" ]; then
+      # No AWS Security Group on bare-metal; the console's camera-sim SG-write
+      # feature is a no-op here. Use a placeholder so the deploy proceeds.
+      STATE_SG_ID="none"
+    else
+      echo "SG_ID missing from $VSS_STATE_FILE — launch-stack.sh must run first" >&2
+      exit 1
+    fi
+  fi
 
   NEXTAUTH_SECRET_VAL="$(openssl rand -base64 32)"
   CONSOLE_PASSWORD_VAL="${CONSOLE_PASSWORD:-admin}"
 
-  # Camera-sim SSH key — reuse the EC2 key-pair file (same pem authorizes
-  # artesca-os on both hosts per repo convention).
-  SSH_KEY_FILE="${CAMERA_SIM_KEY_FILE:-$HOME/.ssh/${KEY_NAME:-isv-labs-ec2}.pem}"
+  # Camera-sim SSH key — the camera simulator is the AWS camsim (isv-labs-ec2
+  # key-pair), independent of the deploy node's own key (on bare-metal the node
+  # key is e.g. pyramid-showroom, which does NOT authorize the camsim). Prefer
+  # CAMERA_SIM_KEY_FILE, then the camsim key, then the node KEY_NAME.pem.
+  SSH_KEY_FILE="${CAMERA_SIM_KEY_FILE:-$HOME/.ssh/isv-labs-ec2.pem}"
+  [ -f "$SSH_KEY_FILE" ] || SSH_KEY_FILE="$HOME/.ssh/${KEY_NAME:-isv-labs-ec2}.pem"
   [ -f "$SSH_KEY_FILE" ] || {
-    echo "ERROR: $SSH_KEY_FILE missing — cannot embed camera-sim SSH key" >&2
+    echo "ERROR: camera-sim SSH key not found (tried CAMERA_SIM_KEY_FILE, isv-labs-ec2.pem, ${KEY_NAME}.pem)" >&2
     exit 1
   }
   # Indent each line by 4 spaces to sit under the | block scalar.

@@ -5,7 +5,7 @@ import { createLogger } from "@/lib/logger";
 import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/cameras/[id]");
-import { vstDeleteSensor } from "@/lib/helpers/vst";
+import { vstDeleteSensor, setRecording } from "@/lib/helpers/vst";
 import { auditLog } from "@/lib/helpers/audit";
 import {
   camsimListCameras,
@@ -135,8 +135,18 @@ export async function PUT(
         if (recording === null) delete next.recording; else next.recording = recording;
       }
       await ctx.store.upsertCamera(ctx.instance, next, updatedBy);
+
+      // Apply the recording on/off change to the VST so recording actually
+      // stops/starts (not just the persisted policy). Best-effort: a VST
+      // warning is surfaced but does not fail the config-store write.
+      const warnings: string[] = [];
+      if (recording !== undefined && recording !== null) {
+        const vst = await setRecording(id, recording.enabled, existing.rtspUrl);
+        if (!vst.ok && vst.warning) warnings.push(vst.warning);
+      }
+
       await auditLog("camera-override-update", `camera/${id}`, { scenarioIds, promptId, recording });
-      return NextResponse.json({ ok: true, cameraId: id });
+      return NextResponse.json({ ok: true, cameraId: id, ...(warnings.length ? { warnings } : {}) });
     } catch (err) {
       const msg = err instanceof ReconcileContextError ? err.message : String(err);
       return NextResponse.json({ error: `config store write failed: ${msg}` }, { status: 502 });
@@ -169,15 +179,38 @@ export async function PUT(
     promptId,
   });
 
+  // Apply the recording on/off change to the VST so recording actually
+  // stops/starts (not just the persisted policy). Best-effort — a VST warning
+  // is surfaced but does not fail the request (the policy is already saved).
+  const warnings: string[] = [];
+  if (recording !== undefined && recording !== null) {
+    // The enable path needs the sensor's RTSP URL; resolve it from the GCS
+    // camera list (sensorId == camera id by convention).
+    const instanceName = process.env.VSS_INSTANCE_NAME ?? "";
+    let rtspUrl: string | undefined;
+    if (recording.enabled && instanceName) {
+      try {
+        const list = await gcsCamerasGet(instanceName);
+        rtspUrl = list?.cameras.find((c) => c.id === id)?.rtspUrl;
+      } catch {
+        // Best-effort — setRecording reports the missing-URL warning below.
+      }
+    }
+    const vst = await setRecording(id, recording.enabled, rtspUrl);
+    if (!vst.ok && vst.warning) warnings.push(vst.warning);
+  }
+
   // Persist overrides to GCS as v2 (best-effort — SQLite write already done).
   const gcsWarning = VSS_INSTANCE_NAME
     ? await pushOverridesToGcs(updatedBy)
     : undefined;
+  if (gcsWarning) warnings.push(gcsWarning);
 
   return NextResponse.json({
     ok: true,
     cameraId: id,
     ...(gcsWarning ? { gcsWarning } : {}),
+    ...(warnings.length ? { warnings } : {}),
   });
 }
 
