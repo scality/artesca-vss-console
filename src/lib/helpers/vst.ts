@@ -153,6 +153,65 @@ export async function vstStartStream(input: {
   }
 }
 
+/** Stop recording a stream via the streamprocessing-ms proxy endpoint.
+ *  Symmetric to vstStartStream: tears down the recording pipeline for the
+ *  sensor (clears sensor_details.url) while leaving the sensor itself
+ *  registered + live — only recording stops.
+ *  Returns ok:true immediately when proxyStreamRemoveUrl is empty (k8s path).
+ *  404 = stream not currently recording — treated as success (idempotent). */
+export async function vstStopStream(input: {
+  sensorId: string;
+}): Promise<{ ok: boolean; warning?: string }> {
+  const url = CLUSTER.vst.proxyStreamRemoveUrl;
+  if (!url) return { ok: true };
+
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: input.sensorId, name: input.sensorId }),
+      next: { revalidate: 0 },
+      signal: AbortSignal.timeout(15_000),
+    });
+    // 404 = not currently recording — idempotent success.
+    if (resp.status === 404) return { ok: true };
+    if (!resp.ok) {
+      return {
+        ok: false,
+        warning: `proxy/stream/remove HTTP ${resp.status} for ${input.sensorId}`,
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, warning: `proxy/stream/remove failed for ${input.sensorId}: ${msg}` };
+  }
+}
+
+/** Apply a recording on/off change for a sensor on the VST.
+ *  enabled=true  → vstStartStream (arms the recording pipeline; needs rtspUrl).
+ *  enabled=false → vstStopStream  (tears the recording pipeline down).
+ *  The sensor stays registered + live in both cases — only recording changes.
+ *  Returns ok=false with a warning string on failure; never throws. On the
+ *  k8s path both proxy URLs are empty, so this is a no-op (ok:true) — recording
+ *  is governed by the VST config there, not the proxy endpoint. */
+export async function setRecording(
+  sensorId: string,
+  enabled: boolean,
+  rtspUrl?: string,
+): Promise<{ ok: boolean; warning?: string }> {
+  if (enabled) {
+    if (!rtspUrl) {
+      return {
+        ok: false,
+        warning: `cannot start recording for ${sensorId}: no RTSP URL known`,
+      };
+    }
+    return vstStartStream({ sensorId, rtspUrl });
+  }
+  return vstStopStream({ sensorId });
+}
+
 /** Delete a sensor from VST. */
 export async function vstDeleteSensor(
   sensorId: string

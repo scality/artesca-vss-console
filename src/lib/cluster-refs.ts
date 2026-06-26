@@ -105,6 +105,16 @@ const VST_PROXY_STREAM_ADD_URL =
     ? "http://127.0.0.1:30001/api/v1/proxy/stream/add"
     : "");
 
+// Symmetric to proxy/stream/add: tears down the recording pipeline for a
+// sensor (clears sensor_details.url, stops streamprocessing-ms recording)
+// while leaving the sensor registered + live. Same streamprocessing-ms host
+// as the add URL (only reachable from inside the VSS box on docker).
+const VST_PROXY_STREAM_REMOVE_URL =
+  process.env.VST_PROXY_STREAM_REMOVE_URL ??
+  (process.env.CONSOLE_RUNTIME === "docker"
+    ? "http://127.0.0.1:30001/api/v1/proxy/stream/remove"
+    : "");
+
 // VST ConfigMap + Deployment constants used by tuning/storage routes.
 // Helm: ConfigMap vss-vios-sensor-configs with key vst_config.json
 //       Deployment vss-vios-sensor
@@ -512,6 +522,7 @@ export const CLUSTER = {
     sensorUrl: VST_SENSOR_URL,
     sensorAddUrl: VST_SENSOR_ADD_URL,
     proxyStreamAddUrl: VST_PROXY_STREAM_ADD_URL,
+    proxyStreamRemoveUrl: VST_PROXY_STREAM_REMOVE_URL,
     ...VST,
   },
   mediamtx: {
