@@ -5,8 +5,9 @@ import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/tuning/alerts");
 import { z } from "zod";
+import { parse as yamlParse } from "yaml";
 import { coreV1, rolloutRestart } from "@/lib/k8s";
-import { patchConfigMapRawKey } from "@/lib/helpers/configmaps";
+import { patchConfigMapKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
 import {
@@ -93,32 +94,38 @@ export async function GET() {
     });
   }
 
-  let data: Record<string, string> | undefined;
+  // The alert-worker enforces cooldown PER SCENARIO (cooldown_seconds in the
+  // scenarios ConfigMap) — there is no global cooldown env on this chart. Report
+  // a representative value (the max set across scenarios) so the card reflects
+  // what's actually in effect.
+  let scenarios: Array<Record<string, unknown>>;
   try {
     const cm = await coreV1().readNamespacedConfigMap({
-      name: CLUSTER.alertsTuning.configMap,
-      namespace: CLUSTER.alertsTuning.namespace,
+      name: CLUSTER.scenarios.configMap,
+      namespace: CLUSTER.scenarios.namespace,
     });
-    data = cm.data;
+    const doc = yamlParse(cm.data?.[CLUSTER.scenarios.yamlKey] ?? "") as { scenarios?: Array<Record<string, unknown>> } | null;
+    scenarios = Array.isArray(doc?.scenarios) ? doc!.scenarios! : [];
   } catch (err: unknown) {
     const { status, message } = extractK8sError(err);
-    return NextResponse.json(
-      { error: message, k8sCode: status },
-      { status }
-    );
+    if (status === 404) {
+      return NextResponse.json({
+        ...ALERTS_TUNING_DEFAULTS,
+        warning: "scenarios ConfigMap not found — showing defaults",
+      });
+    }
+    return NextResponse.json({ error: message, k8sCode: status }, { status });
   }
 
-  const rawCooldown = data?.[CLUSTER.alertsTuning.cooldownKey];
-  const cooldownSeconds =
-    rawCooldown !== undefined && rawCooldown !== "" && Number.isFinite(parseInt(rawCooldown, 10))
-      ? Math.max(0, parseInt(rawCooldown, 10))
-      : ALERTS_TUNING_DEFAULTS.cooldownSeconds;
+  const cooldowns = scenarios
+    .map((s) => Number(s.cooldown_seconds ?? 0))
+    .filter((n) => Number.isFinite(n));
+  const cooldownSeconds = cooldowns.length ? Math.max(0, ...cooldowns) : 0;
 
-  const rawSlack = data?.[CLUSTER.alertsTuning.slackConfiguredKey];
-  const slackWebhookConfigured =
-    rawSlack === "true" ? true : rawSlack === "false" ? false : ALERTS_TUNING_DEFAULTS.slackWebhookConfigured;
-
-  return NextResponse.json({ cooldownSeconds, slackWebhookConfigured });
+  return NextResponse.json({
+    cooldownSeconds,
+    slackWebhookConfigured: ALERTS_TUNING_DEFAULTS.slackWebhookConfigured,
+  });
 }
 
 export const PATCH = withRequestContext(async function (req: NextRequest) {
@@ -174,40 +181,59 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     return NextResponse.json({ ok: true, applied: envPatch, runtime: "docker" });
   }
 
-  const patches: Array<[string, string]> = [];
-
-  if (tuning.cooldownSeconds !== undefined) {
-    patches.push([CLUSTER.alertsTuning.cooldownKey, String(tuning.cooldownSeconds)]);
-  }
-  if (tuning.slackWebhookConfigured !== undefined) {
-    patches.push([CLUSTER.alertsTuning.slackConfiguredKey, tuning.slackWebhookConfigured ? "true" : "false"]);
+  // Cooldown is per-scenario on this chart — apply the requested value to every
+  // scenario's cooldown_seconds in the scenarios ConfigMap. (slackWebhookConfigured
+  // has no backing on the alerts profile and is ignored.)
+  if (tuning.cooldownSeconds === undefined) {
+    return NextResponse.json({ ok: true, applied: {}, note: "Nothing to apply (cooldown only on this chart)." });
   }
 
+  let doc: { scenarios?: Array<Record<string, unknown>> } | null;
   try {
-    // Real ConfigMap is "alerts-runtime-env" (k8s/nvidia-vss/alerts/11-configmap-runtime-env.yaml),
-    // not "alert-worker-config".
-    for (const [key, val] of patches) {
-      await patchConfigMapRawKey(CLUSTER.alertsTuning.namespace, CLUSTER.alertsTuning.configMap, key, val);
-    }
+    const cm = await coreV1().readNamespacedConfigMap({
+      name: CLUSTER.scenarios.configMap,
+      namespace: CLUSTER.scenarios.namespace,
+    });
+    doc = yamlParse(cm.data?.[CLUSTER.scenarios.yamlKey] ?? "") as typeof doc;
   } catch (err: unknown) {
     const { status, message } = extractK8sError(err);
-    return NextResponse.json(
-      { error: message, k8sCode: status },
-      { status }
-    );
+    return NextResponse.json({ error: `read scenarios ConfigMap failed: ${message}`, k8sCode: status }, { status });
   }
 
-  // Rollout-restart alert-worker to apply new env
+  const scenarios = Array.isArray(doc?.scenarios) ? doc!.scenarios! : [];
+  if (scenarios.length === 0) {
+    return NextResponse.json({ error: "no scenarios to apply cooldown to" }, { status: 409 });
+  }
+  for (const s of scenarios) s.cooldown_seconds = tuning.cooldownSeconds;
+
   try {
-    await rolloutRestart("Deployment", CLUSTER.alertsTuning.namespace, CLUSTER.scenarios.alertWorkerDeployment);
-  } catch (err) {
-    return NextResponse.json(
-      { error: `Rollout restart failed: ${String(err)}` },
-      { status: 502 }
+    await patchConfigMapKey(
+      CLUSTER.scenarios.namespace,
+      CLUSTER.scenarios.configMap,
+      CLUSTER.scenarios.yamlKey,
+      { scenarios },
     );
+  } catch (err: unknown) {
+    const { status, message } = extractK8sError(err);
+    return NextResponse.json({ error: `patch scenarios ConfigMap failed: ${message}`, k8sCode: status }, { status });
   }
 
-  await auditLog("tuning-alerts", `configmap/${CLUSTER.alertsTuning.configMap}`, { patches: Object.fromEntries(patches) });
+  // Rollout-restart alert-worker to reload scenarios.
+  try {
+    await rolloutRestart("Deployment", CLUSTER.scenarios.namespace, CLUSTER.scenarios.alertWorkerDeployment);
+  } catch (err) {
+    return NextResponse.json({ error: `Rollout restart failed: ${String(err)}` }, { status: 502 });
+  }
 
-  return NextResponse.json({ ok: true, applied: Object.fromEntries(patches) });
+  await auditLog("tuning-alerts", `configmap/${CLUSTER.scenarios.configMap}`, {
+    cooldownSeconds: String(tuning.cooldownSeconds),
+    scenariosUpdated: String(scenarios.length),
+  });
+
+  return NextResponse.json({
+    ok: true,
+    applied: { cooldownSeconds: tuning.cooldownSeconds },
+    scenariosUpdated: scenarios.length,
+    note: "Cooldown applied to all scenarios; alert-worker restarted.",
+  });
 });

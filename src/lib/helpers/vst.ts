@@ -227,6 +227,16 @@ export async function setRecording(
   enabled: boolean,
   rtspUrl?: string,
 ): Promise<{ ok: boolean; warning?: string }> {
+  // k8s path: the proxy add/remove endpoints are empty, so a recording toggle
+  // can't be applied here — recording is governed by sensor presence (VST starts
+  // recording when the sensor is registered). Surface that instead of silently
+  // reporting success, so the operator isn't misled.
+  if (!CLUSTER.vst.proxyStreamAddUrl && !CLUSTER.vst.proxyStreamRemoveUrl) {
+    return {
+      ok: true,
+      warning: `recording toggle is not available on this deploy — recording follows sensor presence; use Add/Remove camera to ${enabled ? "start" : "stop"} recording for ${sensorId}`,
+    };
+  }
   if (enabled) {
     if (!rtspUrl) {
       return {
