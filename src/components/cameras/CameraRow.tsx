@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronDown, ChevronRight, Trash2, RefreshCw, Video, VideoOff } from "lucide-react";
+import { ChevronDown, ChevronRight, Trash2, RefreshCw, Video, VideoOff, Eye, EyeOff } from "lucide-react";
 import { FeedList } from "./FeedList";
 import { CameraDetailPanel } from "./CameraDetailPanel";
 import type { PromptSet } from "@/components/prompt/PromptSetManager";
@@ -59,6 +59,42 @@ function RecordingBadge({
       title="Camera is live in VST but NOT recording — no timeline. Re-spin recording (toggle off/on) or check objectstore credentials."
     >
       NOT RECORDING
+    </Badge>
+  );
+}
+
+/** Badge showing whether the VLM is ingesting this camera (active realtime
+ *  rule → incidents), vs registered but not analyzed, vs unknown. */
+function IngestionBadge({ vstIngesting }: { vstIngesting: boolean | undefined }) {
+  if (vstIngesting === undefined) {
+    return (
+      <Badge
+        variant="outline"
+        className="text-[10px] px-1.5 py-0 border-brand-light-gray text-muted-foreground"
+        title="Ingestion status unknown — alert-bridge unreachable"
+      >
+        VLM ?
+      </Badge>
+    );
+  }
+  if (vstIngesting) {
+    return (
+      <Badge
+        variant="outline"
+        className="text-[10px] px-1.5 py-0 bg-indigo-50 border-indigo-200 text-indigo-700"
+        title="VLM is analyzing this camera (active realtime rule) and emitting incidents"
+      >
+        ● VLM
+      </Badge>
+    );
+  }
+  return (
+    <Badge
+      variant="outline"
+      className="text-[10px] px-1.5 py-0 bg-amber-50 border-amber-200 text-amber-700"
+      title="No realtime rule — this camera is NOT analyzed by the VLM (no incidents). Enable ingestion to start."
+    >
+      NOT INGESTED
     </Badge>
   );
 }
@@ -160,6 +196,39 @@ export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
     },
   });
 
+  // Current VLM ingestion state — observed from the alert-bridge (does this
+  // camera have an active realtime rule?). undefined = alert-bridge unreachable.
+  const ingesting = camera.feeds[0]?.vstIngesting;
+  const toggleIngestion = useMutation({
+    mutationFn: async () => {
+      const next = !ingesting;
+      const res = await fetch(`/api/cameras/${camera.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ingestion: { enabled: next } }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error((body as { error?: string }).error ?? "Save failed");
+      }
+      return res.json() as Promise<{ ok: boolean; warnings?: string[] }>;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["cameras"] });
+      const warning = result.warnings?.[0];
+      toast({
+        title: ingesting
+          ? `VLM ingestion disabled for ${camera.id}`
+          : `VLM ingestion enabled for ${camera.id}`,
+        description: warning ? `Note: ${warning}` : undefined,
+        ...(warning ? { variant: "destructive" as const } : {}),
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to change ingestion", description: err.message, variant: "destructive" });
+    },
+  });
+
   // Current recording state — default ON when the camera carries no explicit
   // recording override (matches the stack default).
   const recordingEnabled = camera.recording?.enabled ?? true;
@@ -250,6 +319,7 @@ export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
               vstRecording={camera.feeds[0]?.vstRecording}
               vstRegistered={camera.feeds[0]?.vstRegistered ?? false}
             />
+            <IngestionBadge vstIngesting={camera.feeds[0]?.vstIngesting} />
           </div>
         </TableCell>
         <TableCell>
@@ -315,6 +385,25 @@ export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
                 <Video className="h-3 w-3 mr-1" />
               )}
               {recordingEnabled ? "Disable recording" : "Enable recording"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => toggleIngestion.mutate()}
+              disabled={toggleIngestion.isPending}
+              title={
+                ingesting
+                  ? "Stop VLM analysis of this camera (deletes its realtime rule — no more incidents)"
+                  : "Start VLM analysis of this camera (creates a realtime rule — begins emitting incidents)"
+              }
+            >
+              {ingesting ? (
+                <EyeOff className="h-3 w-3 mr-1" />
+              ) : (
+                <Eye className="h-3 w-3 mr-1" />
+              )}
+              {ingesting ? "Stop ingestion" : "Start ingestion"}
             </Button>
             <Button
               variant="ghost"
