@@ -113,12 +113,18 @@ beforeEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("collectConnectivity()", () => {
-  it("returns all seven backends in stable order: k8s, prometheus, mediamtx, kafka, s3, alert-bridge, config-store", async () => {
+  it("returns all six backends in stable order: k8s, prometheus, kafka, s3, alert-bridge, config-store", async () => {
     const result = await collectConnectivity();
 
-    expect(result).toHaveLength(7);
+    expect(result).toHaveLength(6);
     const ids = result.map((b) => b.id);
-    expect(ids).toEqual(["k8s", "prometheus", "mediamtx", "kafka", "s3", "alert-bridge", "config-store"]);
+    expect(ids).toEqual(["k8s", "prometheus", "kafka", "s3", "alert-bridge", "config-store"]);
+  });
+
+  it("does not include a mediamtx / camera-sim probe", async () => {
+    const result = await collectConnectivity();
+    const ids = result.map((b) => b.id);
+    expect(ids).not.toContain("mediamtx");
   });
 
   it("each backend entry has the required shape (id, label, ok, detail, latencyMs)", async () => {
@@ -187,31 +193,6 @@ describe("collectConnectivity()", () => {
     expect(prom.detail).toBe("Prometheus unreachable: ECONNREFUSED");
   });
 
-  // ── mediamtx ───────────────────────────────────────────────────────────────
-
-  it("mediamtx: ok=true + detail='reachable' when mediamtxListPaths has no warning", async () => {
-    vi.mocked(mediamtxListPaths).mockResolvedValue({ paths: [] });
-
-    const result = await collectConnectivity();
-    const mtx = result.find((b) => b.id === "mediamtx")!;
-
-    expect(mtx.ok).toBe(true);
-    expect(mtx.detail).toBe("reachable");
-    expect(mtx.label).toBe("camera-sim (mediamtx)");
-  });
-
-  it("mediamtx: ok=false + detail=warning when mediamtxListPaths returns a warning", async () => {
-    vi.mocked(mediamtxListPaths).mockResolvedValue({
-      paths: [],
-      warning: "mediamtx unreachable: timeout",
-    });
-
-    const result = await collectConnectivity();
-    const mtx = result.find((b) => b.id === "mediamtx")!;
-
-    expect(mtx.ok).toBe(false);
-    expect(mtx.detail).toBe("mediamtx unreachable: timeout");
-  });
 
   // ── kafka ──────────────────────────────────────────────────────────────────
 
@@ -356,10 +337,10 @@ describe("collectConnectivity()", () => {
     const validIds: BackendStatus["id"][] = [
       "k8s",
       "prometheus",
-      "mediamtx",
       "kafka",
       "s3",
       "alert-bridge",
+      "config-store",
     ];
     expect(validIds).toContain(sample.id);
   });
