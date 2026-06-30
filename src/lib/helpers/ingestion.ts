@@ -1,6 +1,6 @@
 import "server-only";
 import { CLUSTER } from "../cluster-refs";
-import { readConfigMapKey } from "@/lib/helpers/configmaps";
+import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { vstListSensors } from "@/lib/helpers/vst";
 import {
   listRealtimeRules,
@@ -60,18 +60,36 @@ async function resolveStreamId(cameraId: string): Promise<string | undefined> {
 async function readRuleSpec(cameraId: string): Promise<{
   doc?: RulesDoc;
   rule?: NonNullable<RulesDoc["rules"]>[number];
+  resourceVersion?: string;
 }> {
   try {
-    const { value } = await readConfigMapKey<RulesDoc>(
+    const { value, resourceVersion } = await readConfigMapKey<RulesDoc>(
       CLUSTER.alertBridge.rulesNamespace,
       CLUSTER.alertBridge.rulesConfigMap,
       "rules.json",
     );
     const rule = value.rules?.find((r) => r.sensor === cameraId);
-    return { doc: value, rule };
+    return { doc: value, rule, resourceVersion };
   } catch (err) {
     log.warn("rules CM read failed", { err });
     return {};
+  }
+}
+
+/** Persist the updated rules doc back to the ConfigMap so the reconciler
+ *  converges to the new desired set (and doesn't re-seed a toggled-off rule).
+ *  Best-effort: swallows errors (the live alert-bridge change already took). */
+async function writeCmRules(doc: RulesDoc, resourceVersion?: string): Promise<void> {
+  try {
+    await patchConfigMapRawKey(
+      CLUSTER.alertBridge.rulesNamespace,
+      CLUSTER.alertBridge.rulesConfigMap,
+      "rules.json",
+      JSON.stringify(doc),
+      resourceVersion,
+    );
+  } catch (err) {
+    log.warn("rules CM write-back failed", { err });
   }
 }
 
@@ -88,17 +106,22 @@ export async function setIngestion(
     const { rules, warning } = await listRealtimeRules();
     if (warning) return { ok: false, warning };
     const mine = rules.filter((r) => r.sensor_name === cameraId && r.id);
-    if (mine.length === 0) return { ok: true }; // already not ingesting
     const warnings: string[] = [];
     for (const r of mine) {
       const res = await deleteRealtimeRule(r.id);
       if (!res.ok && res.warning) warnings.push(res.warning);
     }
+    // Drop the rule from the CM so the reconciler doesn't re-seed it.
+    const { doc, resourceVersion } = await readRuleSpec(cameraId);
+    if (doc?.rules?.some((r) => r.sensor === cameraId)) {
+      doc.rules = doc.rules.filter((r) => r.sensor !== cameraId);
+      await writeCmRules(doc, resourceVersion);
+    }
     return warnings.length ? { ok: false, warning: warnings.join("; ") } : { ok: true };
   }
 
   // enable
-  const { doc, rule } = await readRuleSpec(cameraId);
+  const { doc, rule, resourceVersion } = await readRuleSpec(cameraId);
   const streamUrl = rule?.stream_url || rtspUrl;
   if (!streamUrl) {
     return {
@@ -106,11 +129,13 @@ export async function setIngestion(
       warning: `no stream URL for ${cameraId} (not in realtime-alert-rules CM and no rtspUrl)`,
     };
   }
+  const alertType = rule?.alert_type ?? "general-activity";
+  const prompt = rule?.prompt ?? "Alert on any notable or anomalous activity.";
   const sensorId = await resolveStreamId(cameraId);
   const res = await addRealtimeRule({
     streamUrl,
-    alertType: rule?.alert_type ?? "general-activity",
-    prompt: rule?.prompt ?? "Alert on any notable or anomalous activity.",
+    alertType,
+    prompt,
     sensorName: cameraId,
     sensorId,
     systemPrompt: doc?.system_prompt,
@@ -121,5 +146,13 @@ export async function setIngestion(
     numFramesPerSecondOrFixedFramesChunk: doc?.num_frames_per_second_or_fixed_frames_chunk,
     useFpsForChunking: doc?.use_fps_for_chunking,
   });
+  // Ensure the rule is present in the CM so the reconciler keeps it alive.
+  if (res.ok && doc) {
+    if (!doc.rules) doc.rules = [];
+    if (!doc.rules.some((r) => r.sensor === cameraId)) {
+      doc.rules.push({ sensor: cameraId, alert_type: alertType, prompt, stream_url: streamUrl });
+      await writeCmRules(doc, resourceVersion);
+    }
+  }
   return { ok: res.ok, warning: res.warning };
 }
