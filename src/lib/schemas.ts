@@ -24,6 +24,8 @@ export const FeedSchema = z.object({
   rtspUrl: z.string(),
   vstRegistered: z.boolean(),
   replayReady: z.boolean(),
+  vstRecording: z.boolean().optional(),
+  vstIngesting: z.boolean().optional(),
   bitrateMbps: z.number().positive().optional(),
   fps: z.number().positive().optional(),
   codec: z.enum(["hevc", "h264"]).optional(),
