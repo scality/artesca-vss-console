@@ -193,19 +193,18 @@ export async function probeConfigStore(): Promise<BackendStatus> {
     return fail(err instanceof Error ? err.message : String(err));
   }
 
+  // Reachability only: a successful readStatus means Firestore is reachable.
+  // Reconcile-run errors are an application-health concern, not a store-
+  // reachability one — surface them in the detail text but never downgrade the
+  // signal, so a failing convergence doesn't masquerade as "Firestore degraded".
   const when = status?.lastRunAt ? ` ${status.lastRunAt}` : "";
-  if (status?.errors && status.errors.length > 0) {
-    return {
-      id, label, ok: true, severity: "warn",
-      detail: `last convergence errored at${when || " (unknown time)"}: ${status.errors[0]}`,
-      latencyMs: Date.now() - t0,
-    };
-  }
-  return {
-    id, label, ok: true, severity: "ok",
-    detail: status?.lastRunAt ? `reachable · converged${when}` : "reachable",
-    latencyMs: Date.now() - t0,
-  };
+  const errs = status?.errors?.length ?? 0;
+  const detail = !status?.lastRunAt
+    ? "reachable"
+    : errs > 0
+      ? `reachable · last convergence${when} had ${errs} error(s)`
+      : `reachable · converged${when}`;
+  return { id, label, ok: true, severity: "ok", detail, latencyMs: Date.now() - t0 };
 }
 
 /**
