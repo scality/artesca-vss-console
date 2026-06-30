@@ -233,7 +233,7 @@ function setupK8sHappyPath() {
 
   // VST sensor list — source-agnostic camera registry (k8s path).
   mockVstListSensors.mockResolvedValue({
-    sensors: [{ sensor_id: "cam1", name: "cam1", state: "online" }],
+    sensors: [{ sensor_id: "cam1", name: "cam1", status: "online" }],
     warning: undefined,
   });
 }

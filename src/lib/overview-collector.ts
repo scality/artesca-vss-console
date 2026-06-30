@@ -434,9 +434,9 @@ async function collectK8sOverview(
     const cameras: NonNullable<OverviewSnapshot["cameraSim"]["cameras"]> = [];
     for (const s of vst.sensors) {
       const name = typeof s.name === "string" ? s.name : "";
-      if (!name || seen.has(name) || s.state === "removed") continue;
+      if (!name || seen.has(name) || s.status === "removed") continue;
       seen.add(name);
-      cameras.push({ name, live: s.state === "online" });
+      cameras.push({ name, live: s.status === "online" });
     }
     cameras.sort((a, b) => a.name.localeCompare(b.name));
     const liveCount = cameras.filter((c) => c.live).length;
