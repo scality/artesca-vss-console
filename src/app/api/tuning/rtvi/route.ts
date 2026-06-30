@@ -98,28 +98,34 @@ export async function GET() {
     });
   }
 
-  // Helm path: NIM tuning lives in a per-NIM ConfigMap (nvidia-nemotron-nano-9b-v2-nim-env).
+  // Helm "alerts" profile: no NIM tuning ConfigMap — the VLM tunables are env
+  // vars on the vss-rtvi-vlm Deployment. Other Helm layouts keep a per-NIM CM.
   // Legacy path: NIM tuning lives in rtvi-runtime-env.
   const cmName = CLUSTER.rtvi.nimTuningConfigMap || CLUSTER.rtvi.runtimeEnvCm;
   const cmNs = CLUSTER.rtvi.nimTuningNamespace;
 
-  let data: Record<string, string> | undefined;
-  try {
-    const cm = await coreV1().readNamespacedConfigMap({
-      name: cmName,
-      namespace: cmNs,
-    });
-    data = cm.data;
-  } catch (err: unknown) {
-    const { status, message } = extractK8sError(err);
-    return NextResponse.json(
-      { error: message, k8sCode: status },
-      { status }
-    );
-  }
-
-  // Read deployment env vars for the rtvi-vlm Deployment (separate from NIM).
+  // Read deployment env vars for the rtvi-vlm Deployment.
   const vlmEnv = await readVlmDeploymentEnv();
+
+  // When no tuning ConfigMap exists, the Deployment env IS the source of truth.
+  let data: Record<string, string> | undefined;
+  if (cmName) {
+    try {
+      const cm = await coreV1().readNamespacedConfigMap({
+        name: cmName,
+        namespace: cmNs,
+      });
+      data = cm.data;
+    } catch (err: unknown) {
+      const { status, message } = extractK8sError(err);
+      return NextResponse.json(
+        { error: message, k8sCode: status },
+        { status }
+      );
+    }
+  } else {
+    data = vlmEnv;
+  }
 
   return NextResponse.json({
     maxNumSeqs: parseIntOrDefault(data?.[CLUSTER.rtvi.nimMaxNumSeqsKey], RTVI_TUNING_DEFAULTS.maxNumSeqs),
@@ -148,6 +154,11 @@ async function patchVlmDeploymentEnv(
   // Read current env list to compute the new merged list.
   const deployment = await appsV1().readNamespacedDeployment({ name, namespace: ns });
   const currentEnv = deployment.spec?.template?.spec?.containers?.[0]?.env ?? [];
+  // Strategic-merge patches key containers by name — must match the live
+  // container (e.g. "vss-rtvi-vlm" on the Helm chart) or a phantom container
+  // gets appended instead of patching the real one.
+  const containerName =
+    deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
 
   // Build a map of existing env vars (preserving those we're not touching).
   const envMap = new Map<string, string>();
@@ -178,7 +189,7 @@ async function patchVlmDeploymentEnv(
         spec: {
           containers: [
             {
-              name: "rtvi-vlm",
+              name: containerName,
               env: [...valueFromEntries, ...plainEntries],
             },
           ],
@@ -279,28 +290,34 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     cmPatches.push([CLUSTER.rtvi.nimModelProfileKey, tuning.modelProfile]);
   }
 
-  // Helm path: NIM tuning ConfigMap is nvidia-nemotron-nano-9b-v2-nim-env.
-  // Legacy path: NIM tuning ConfigMap is rtvi-runtime-env.
+  // Helm "alerts" profile: no NIM tuning ConfigMap — fold the NIM tuning knobs
+  // into the vss-rtvi-vlm Deployment env (cmName === ""). Other layouts patch
+  // the per-NIM ConfigMap; legacy patches rtvi-runtime-env.
   const cmName = CLUSTER.rtvi.nimTuningConfigMap || CLUSTER.rtvi.runtimeEnvCm;
   const cmNs = CLUSTER.rtvi.nimTuningNamespace;
-
-  if (cmPatches.length > 0) {
-    try {
-      for (const [key, val] of cmPatches) {
-        await patchConfigMapRawKey(cmNs, cmName, key, val);
-      }
-    } catch (err: unknown) {
-      const { status, message } = extractK8sError(err);
-      return NextResponse.json(
-        { error: message, k8sCode: status },
-        { status }
-      );
-    }
-  }
 
   // ── Step 2: rtvi-vlm Deployment env patches ───────────────────────────────
   const vlmEnvPatches: Record<string, string | null> = {};
   let hasVlmPatches = false;
+
+  if (cmName) {
+    if (cmPatches.length > 0) {
+      try {
+        for (const [key, val] of cmPatches) {
+          await patchConfigMapRawKey(cmNs, cmName, key, val);
+        }
+      } catch (err: unknown) {
+        const { status, message } = extractK8sError(err);
+        return NextResponse.json({ error: message, k8sCode: status }, { status });
+      }
+    }
+  } else {
+    // No ConfigMap — these knobs live in the Deployment env.
+    for (const [key, val] of cmPatches) {
+      vlmEnvPatches[key] = val;
+      hasVlmPatches = true;
+    }
+  }
 
   if (tuning.disableCudaGraph !== undefined) {
     // Absence = graphs enabled (vLLM default). Presence with "1" = disabled.

@@ -19,7 +19,7 @@ vi.mock("@/lib/k8s", () => ({
   rolloutRestart: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Force legacy layout so namespace/ConfigMap names match test assertions.
+// Cooldown is enforced per-scenario in the scenarios ConfigMap on every layout.
 vi.mock("@/lib/cluster-refs", () => ({
   CLUSTER: {
     legacy: true,
@@ -30,6 +30,9 @@ vi.mock("@/lib/cluster-refs", () => ({
       slackConfiguredKey: "SLACK_WEBHOOK_CONFIGURED",
     },
     scenarios: {
+      namespace: "alerts",
+      configMap: "scenarios",
+      yamlKey: "scenarios.yaml",
       alertWorkerDeployment: "alert-worker",
     },
   },
@@ -76,7 +79,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { coreV1, rolloutRestart } from "@/lib/k8s";
-import { patchConfigMapRawKey } from "@/lib/helpers/configmaps";
+import { patchConfigMapKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
 
 import { GET, PATCH } from "@/app/api/tuning/alerts/route";
@@ -95,6 +98,19 @@ function makeRequest(method: string, body?: unknown): NextRequest {
   }) as unknown as NextRequest;
 }
 
+function scenariosCm(yaml: string) {
+  return { metadata: { resourceVersion: "1" }, data: { "scenarios.yaml": yaml } };
+}
+
+const TWO_SCENARIOS = `scenarios:
+  - id: forklift
+    name: Forklift
+    cooldown_seconds: 180
+  - id: intrusion
+    name: Intrusion
+    cooldown_seconds: 60
+`;
+
 // ── Setup ────────────────────────────────────────────────────────────────────
 
 let mockCoreV1Api: {
@@ -105,13 +121,7 @@ let mockCoreV1Api: {
 
 beforeEach(() => {
   mockCoreV1Api = {
-    readNamespacedConfigMap: vi.fn().mockResolvedValue({
-      metadata: { resourceVersion: "42" },
-      data: {
-        COOLDOWN_SECONDS: "180",
-        SLACK_WEBHOOK_CONFIGURED: "true",
-      },
-    }),
+    readNamespacedConfigMap: vi.fn().mockResolvedValue(scenariosCm(TWO_SCENARIOS)),
     patchNamespacedConfigMap: vi.fn().mockResolvedValue({}),
     replaceNamespacedConfigMap: vi.fn().mockResolvedValue({}),
   };
@@ -122,7 +132,7 @@ beforeEach(() => {
   vi.mocked(rejectIfKiosk).mockReset().mockResolvedValue(null);
   vi.mocked(coreV1).mockReset().mockReturnValue(mockCoreV1Api as never);
   vi.mocked(rolloutRestart).mockReset().mockResolvedValue(undefined);
-  vi.mocked(patchConfigMapRawKey).mockReset().mockResolvedValue(undefined);
+  vi.mocked(patchConfigMapKey).mockReset().mockResolvedValue(undefined);
   vi.mocked(auditLog).mockReset().mockResolvedValue(undefined);
 
   delete process.env.CONSOLE_RUNTIME;
@@ -141,85 +151,67 @@ describe("GET /api/tuning/alerts", () => {
     expect(body.error).toMatch(/unauthorized/i);
   });
 
-  it("happy path: ConfigMap present with values → returns parsed cooldownSeconds and slackWebhookConfigured", async () => {
-    mockCoreV1Api.readNamespacedConfigMap.mockResolvedValue({
-      metadata: { resourceVersion: "42" },
-      data: {
-        COOLDOWN_SECONDS: "180",
-        SLACK_WEBHOOK_CONFIGURED: "true",
-      },
-    });
-    vi.mocked(coreV1).mockReturnValue(mockCoreV1Api as never);
-
+  it("happy path: returns the max cooldown_seconds across scenarios", async () => {
     const res = await GET();
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.cooldownSeconds).toBe(180);
-    expect(body.slackWebhookConfigured).toBe(true);
+    expect(body.slackWebhookConfigured).toBe(false);
   });
 
-  it("ConfigMap data missing keys → returns defaults (120, false)", async () => {
-    mockCoreV1Api.readNamespacedConfigMap.mockResolvedValue({
-      metadata: { resourceVersion: "1" },
-      data: {},
-    });
-    vi.mocked(coreV1).mockReturnValue(mockCoreV1Api as never);
+  it("scenarios with no cooldown set → 0", async () => {
+    mockCoreV1Api.readNamespacedConfigMap.mockResolvedValue(
+      scenariosCm("scenarios:\n  - id: a\n    name: A\n"),
+    );
+
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.cooldownSeconds).toBe(0);
+  });
+
+  it("scenarios ConfigMap absent (404) → defaults with warning", async () => {
+    mockCoreV1Api.readNamespacedConfigMap.mockRejectedValue(
+      Object.assign(new Error("configmap not found"), { code: 404 }),
+    );
 
     const res = await GET();
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.cooldownSeconds).toBe(120);
-    expect(body.slackWebhookConfigured).toBe(false);
+    expect(body.warning).toMatch(/not found/i);
   });
 
-  it("ConfigMap read fails → returns error status from extractK8sError", async () => {
+  it("scenarios ConfigMap read fails (503) → error status", async () => {
     mockCoreV1Api.readNamespacedConfigMap.mockRejectedValue(
-      Object.assign(new Error("configmap not found"), { code: 404 }),
+      Object.assign(new Error("api server down"), { code: 503 }),
     );
-    vi.mocked(coreV1).mockReturnValue(mockCoreV1Api as never);
 
     const res = await GET();
 
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(503);
     const body = await res.json();
     expect(body.error).toBeDefined();
-  });
-
-  it("SLACK_WEBHOOK_CONFIGURED='false' → slackWebhookConfigured is false", async () => {
-    mockCoreV1Api.readNamespacedConfigMap.mockResolvedValue({
-      metadata: { resourceVersion: "3" },
-      data: {
-        COOLDOWN_SECONDS: "60",
-        SLACK_WEBHOOK_CONFIGURED: "false",
-      },
-    });
-    vi.mocked(coreV1).mockReturnValue(mockCoreV1Api as never);
-
-    const res = await GET();
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.slackWebhookConfigured).toBe(false);
-    expect(body.cooldownSeconds).toBe(60);
   });
 });
 
 // ── PATCH ─────────────────────────────────────────────────────────────────────
 
 describe("PATCH /api/tuning/alerts", () => {
-  it("auth missing → 401, no K8s calls", async () => {
+  it("auth missing → 401, no writes", async () => {
     vi.mocked(auth).mockResolvedValue(null as never);
 
     const req = makeRequest("PATCH", { cooldownSeconds: 60 });
     const res = await PATCH(req);
 
     expect(res.status).toBe(401);
-    expect(patchConfigMapRawKey).not.toHaveBeenCalled();
+    expect(patchConfigMapKey).not.toHaveBeenCalled();
   });
 
-  it("kiosk mode → 403, no K8s calls", async () => {
+  it("kiosk mode → 403, no writes", async () => {
     vi.mocked(rejectIfKiosk).mockResolvedValue(
       NextResponse.json({ error: "kiosk mode is read-only" }, { status: 403 }),
     );
@@ -228,65 +220,77 @@ describe("PATCH /api/tuning/alerts", () => {
     const res = await PATCH(req);
 
     expect(res.status).toBe(403);
-    expect(patchConfigMapRawKey).not.toHaveBeenCalled();
+    expect(patchConfigMapKey).not.toHaveBeenCalled();
   });
 
-  it("invalid body: empty object (no fields) → 400 (refine fails), no K8s calls", async () => {
+  it("invalid body: empty object → 400, no writes", async () => {
     const req = makeRequest("PATCH", {});
     const res = await PATCH(req);
 
     expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBeDefined();
-    expect(patchConfigMapRawKey).not.toHaveBeenCalled();
+    expect(patchConfigMapKey).not.toHaveBeenCalled();
   });
 
-  it("invalid body: cooldownSeconds is negative → 400 (nonnegative fails), no K8s calls", async () => {
+  it("invalid body: negative cooldown → 400, no writes", async () => {
     const req = makeRequest("PATCH", { cooldownSeconds: -5 });
     const res = await PATCH(req);
 
     expect(res.status).toBe(400);
-    expect(patchConfigMapRawKey).not.toHaveBeenCalled();
+    expect(patchConfigMapKey).not.toHaveBeenCalled();
   });
 
-  it("happy path: valid cooldownSeconds → ConfigMap patched, rollout restarted, audit logged, 200 ok:true", async () => {
+  it("happy path: cooldown applied to all scenarios, alert-worker restarted, audited", async () => {
     const req = makeRequest("PATCH", { cooldownSeconds: 300 });
     const res = await PATCH(req);
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.applied).toBeDefined();
+    expect(body.applied.cooldownSeconds).toBe(300);
+    expect(body.scenariosUpdated).toBe(2);
 
-    expect(patchConfigMapRawKey).toHaveBeenCalledWith(
+    expect(patchConfigMapKey).toHaveBeenCalledWith(
       "alerts",
-      "alerts-runtime-env",
-      "COOLDOWN_SECONDS",
-      "300",
+      "scenarios",
+      "scenarios.yaml",
+      expect.objectContaining({
+        scenarios: expect.arrayContaining([
+          expect.objectContaining({ id: "forklift", cooldown_seconds: 300 }),
+          expect.objectContaining({ id: "intrusion", cooldown_seconds: 300 }),
+        ]),
+      }),
     );
     expect(rolloutRestart).toHaveBeenCalledWith("Deployment", "alerts", "alert-worker");
     expect(auditLog).toHaveBeenCalledWith(
       "tuning-alerts",
-      expect.stringContaining("alerts-runtime-env"),
-      expect.objectContaining({ patches: expect.objectContaining({ COOLDOWN_SECONDS: "300" }) }),
+      expect.stringContaining("scenarios"),
+      expect.objectContaining({ cooldownSeconds: "300", scenariosUpdated: "2" }),
     );
   });
 
-  it("valid slackWebhookConfigured:true → SLACK_WEBHOOK_CONFIGURED='true' patched, 200 ok:true", async () => {
+  it("slack-only PATCH → no-op (cooldown only on this chart), no scenarios write", async () => {
     const req = makeRequest("PATCH", { slackWebhookConfigured: true });
     const res = await PATCH(req);
 
     expect(res.status).toBe(200);
-    expect(patchConfigMapRawKey).toHaveBeenCalledWith(
-      "alerts",
-      "alerts-runtime-env",
-      "SLACK_WEBHOOK_CONFIGURED",
-      "true",
-    );
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(patchConfigMapKey).not.toHaveBeenCalled();
+    expect(rolloutRestart).not.toHaveBeenCalled();
   });
 
-  it("ConfigMap patch fails → error status from extractK8sError, no audit logged", async () => {
-    vi.mocked(patchConfigMapRawKey).mockRejectedValue(
+  it("no scenarios to update → 409", async () => {
+    mockCoreV1Api.readNamespacedConfigMap.mockResolvedValue(scenariosCm("scenarios: []\n"));
+
+    const req = makeRequest("PATCH", { cooldownSeconds: 60 });
+    const res = await PATCH(req);
+
+    expect(res.status).toBe(409);
+    expect(patchConfigMapKey).not.toHaveBeenCalled();
+  });
+
+  it("scenarios patch fails → error status, no audit", async () => {
+    vi.mocked(patchConfigMapKey).mockRejectedValue(
       Object.assign(new Error("k8s write failed"), { code: 503 }),
     );
 
@@ -297,7 +301,7 @@ describe("PATCH /api/tuning/alerts", () => {
     expect(auditLog).not.toHaveBeenCalled();
   });
 
-  it("rollout restart fails → 502, audit not called", async () => {
+  it("rollout restart fails → 502, no audit", async () => {
     vi.mocked(rolloutRestart).mockRejectedValue(new Error("rollout failed"));
 
     const req = makeRequest("PATCH", { cooldownSeconds: 60 });

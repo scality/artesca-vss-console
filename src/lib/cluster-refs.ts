@@ -267,22 +267,26 @@ const RTVI = LEGACY
       // deploy enables it, set RTVI_EMBED_DEPLOYMENT=vss-rtvi-embed (separate
       // Cosmos Embed1 Deployment/Service:8000); default keeps the calibrated value.
       embedDeployment: process.env.RTVI_EMBED_DEPLOYMENT ?? "vss-rtvi-vlm",
-      // VLM-tuning NIM. 3.2 VLM is the cosmos NIM (vlmNameSlug); set
-      // NIM_TUNING_DEPLOYMENT=nvidia-cosmos-reason2-8b to tune the VLM rather
-      // than the nemotron LLM NIM. Default keeps the calibrated value.
-      nimStatefulSet: process.env.NIM_TUNING_DEPLOYMENT ?? "nvidia-nemotron-nano-9b-v2",
+      // VLM-tuning target. On the "alerts" profile the VLM (cosmos) runs inside
+      // the vss-rtvi-vlm Deployment itself — there is no separate NIM workload.
+      // The tunables are env vars on that Deployment, so nimStatefulSet points at
+      // vss-rtvi-vlm and the keys are the chart's real env names.
+      nimStatefulSet: process.env.NIM_TUNING_DEPLOYMENT ?? "vss-rtvi-vlm",
       nimNamespace: VSS_NS,
-      nimKvCacheKey: "NIM_KVCACHE_PERCENT",
+      nimKvCacheKey: "VLLM_GPU_MEMORY_UTILIZATION",
       nimMaxModelLenKey: "NIM_MAX_MODEL_LEN",
-      nimMaxNumSeqsKey: "NIM_MAX_NUM_SEQS",
+      nimMaxNumSeqsKey: "VLM_BATCH_SIZE",
       nimModelProfileKey: "NIM_MODEL_PROFILE",
     } as const);
 
 // NIM ConfigMap name for tuning (only relevant in Helm path).
 // Legacy: tuning keys live in rtvi-runtime-env (no separate NIM ConfigMap).
+// On the "alerts" profile there is no separate NIM tuning ConfigMap — the VLM
+// tunables are env vars on the vss-rtvi-vlm Deployment. Empty string signals the
+// rtvi tuning route to read/write the Deployment env directly.
 const NIM_TUNING_CONFIG_MAP = LEGACY
   ? ""
-  : (process.env.NIM_TUNING_CONFIG_MAP ?? "nvidia-nemotron-nano-9b-v2-nim-env");
+  : (process.env.NIM_TUNING_CONFIG_MAP ?? "");
 
 const NIM_TUNING_NAMESPACE = LEGACY ? "rtvi" : VSS_NS;
 
