@@ -154,6 +154,11 @@ export function ClipPlayer({ src, seekOffset, clipStatus, fallbackMeta }: ClipPl
   const [hlsError, setHlsError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  // Backend reason for an unavailable clip, fetched from the clip route's 404
+  // JSON body when HLS load gives up (the player itself only sees a generic
+  // "manifestLoadError"). Surfaces VST's real reason — no recording, clock
+  // skew, sensor name not in VST, etc.
+  const [serverDiag, setServerDiag] = useState<string | null>(null);
 
   // If the alert-worker already says the clip has permanently failed, skip HLS
   // entirely and go straight to the data-only fallback.
@@ -229,6 +234,48 @@ export function ClipPlayer({ src, seekOffset, clipStatus, fallbackMeta }: ClipPl
     return () => clearTimeout(timer);
   }, [hlsError, isTransient]);
 
+  // When the clip is permanently unavailable (alert-worker said "failed", or
+  // HLS exhausted its retries), pull the clip route's 404 JSON body so the
+  // fallback card can explain why — VST's diagnostics instead of a bare error.
+  const showingFallback =
+    permanentlyFailed || (hlsError != null && !isTransient);
+  useEffect(() => {
+    if (!showingFallback || serverDiag != null) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(src, { cache: "no-store" });
+        if (resp.ok) return; // clip actually exists — nothing to explain
+        const body = (await resp.json()) as {
+          error?: string;
+          resolvedStreamId?: string | null;
+          window?: { start?: string; end?: string };
+          diagnostics?: string[];
+        };
+        const parts = [
+          `HTTP ${resp.status}`,
+          body.error,
+          body.resolvedStreamId
+            ? `stream ${body.resolvedStreamId}`
+            : "stream unresolved",
+          body.window?.start && body.window?.end
+            ? `window ${body.window.start} → ${body.window.end}`
+            : null,
+          ...(body.diagnostics ?? []),
+        ].filter(Boolean);
+        if (!cancelled) setServerDiag(parts.join(" · "));
+      } catch (e) {
+        if (!cancelled)
+          setServerDiag(
+            `clip route unreachable: ${e instanceof Error ? e.message : String(e)}`
+          );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showingFallback, src, serverDiag]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const video = videoRef.current;
@@ -265,7 +312,7 @@ export function ClipPlayer({ src, seekOffset, clipStatus, fallbackMeta }: ClipPl
 
   // ── Render: permanent failure (alert-worker says "failed") ────────────────
   if (permanentlyFailed) {
-    return <UnavailableFallback meta={fallbackMeta} />;
+    return <UnavailableFallback meta={fallbackMeta} technical={serverDiag ?? undefined} />;
   }
 
   // ── Render: HLS error ─────────────────────────────────────────────────────
@@ -274,8 +321,11 @@ export function ClipPlayer({ src, seekOffset, clipStatus, fallbackMeta }: ClipPl
       // Clip is still materialising or early retry — show spinner.
       return <MaterialisingFallback />;
     }
-    // Exhausted retries → data-only fallback with muted technical detail.
-    return <UnavailableFallback meta={fallbackMeta} technical={hlsError} />;
+    // Exhausted retries → data-only fallback. Prefer the backend's diagnostic
+    // (VST reason) over the generic HLS error string.
+    return (
+      <UnavailableFallback meta={fallbackMeta} technical={serverDiag ?? hlsError} />
+    );
   }
 
   // ── Render: normal player ─────────────────────────────────────────────────
