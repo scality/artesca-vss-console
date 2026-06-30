@@ -60,13 +60,13 @@ describe("probeConfigStore", () => {
     expect(s.detail).toMatch(/2026-06-26T10:00:00Z/);
   });
 
-  it("warn when the last convergence reported errors", async () => {
+  it("stays ok (reachable) even when the last convergence reported errors", async () => {
     mockMakeCtx.mockResolvedValue(ctxWith(() => Promise.resolve({ lastRunAt: "2026-06-26T10:00:00Z", errors: ["addSensor failed: cam-1"] })));
     const s = await probeConfigStore();
-    expect(s.severity).toBe("warn");
-    expect(s.ok).toBe(true); // degraded, not an outage
-    expect(s.detail).toMatch(/errored/i);
-    expect(s.detail).toMatch(/addSensor failed/);
+    expect(s.severity).toBe("ok"); // reachability only — reconcile errors don't degrade the store signal
+    expect(s.ok).toBe(true);
+    expect(s.detail).toMatch(/reachable/i);
+    expect(s.detail).toMatch(/1 error/i);
   });
 
   it("ok + 'reachable' when no status has been written yet (null)", async () => {

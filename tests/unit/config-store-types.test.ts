@@ -7,7 +7,7 @@ describe("config-store types", () => {
     const s: ReconcileStatus = emptyStatus("v-test", "2026-06-12T00:00:00.000Z");
     expect(s.agentVersion).toBe("v-test");
     expect(s.lastRunAt).toBe("2026-06-12T00:00:00.000Z");
-    expect(s.applied).toEqual({ camerasAdded: 0, camerasPruned: 0, promptUpdated: false, scenariosUpdated: false, realtimeApplied: 0 });
+    expect(s.applied).toEqual({ camerasAdded: 0, camerasPruned: 0, promptUpdated: false, scenariosUpdated: false });
     expect(s.drift).toEqual([]);
     expect(s.errors).toEqual([]);
   });
