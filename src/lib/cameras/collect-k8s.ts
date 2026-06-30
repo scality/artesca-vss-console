@@ -14,6 +14,7 @@ export function buildK8sCamerasResponse(
   liveSensorNames: string[],
   mtxReady: Map<string, boolean>,
   status: ReconcileStatus | null,
+  recordingByName?: Map<string, boolean>,
 ): K8sCamerasResponse {
   const registered = new Set(liveSensorNames);
   const cameras = desired.map((c) => {
@@ -24,6 +25,7 @@ export function buildK8sCamerasResponse(
       rtspUrl: c.rtspUrl,
       vstRegistered: registered.has(c.id),
       replayReady: mtxReady.get(c.id) ?? false,
+      vstRecording: recordingByName?.get(c.id),
     };
     const cam: Camera & { gcsPersisted?: boolean } = {
       id: c.id,

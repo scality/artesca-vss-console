@@ -43,6 +43,10 @@ export interface Feed {
   rtspUrl: string; // rtsp://<EIP>:8554/<sensorId>
   vstRegistered: boolean;
   replayReady: boolean; // mediamtx reports path ready
+  /** VST has an active recorded timeline for this sensor — true = recording to
+   *  the objectstore, false = registered/live but NOT recording, undefined =
+   *  unknown (VST unreachable or didn't report). */
+  vstRecording?: boolean;
   bitrateMbps?: number;
   fps?: number;
   codec?: "hevc" | "h264";
