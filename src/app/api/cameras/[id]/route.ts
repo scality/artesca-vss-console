@@ -6,6 +6,7 @@ import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/cameras/[id]");
 import { vstDeleteSensor, setRecording } from "@/lib/helpers/vst";
+import { setIngestion } from "@/lib/helpers/ingestion";
 import { auditLog } from "@/lib/helpers/audit";
 import {
   camsimListCameras,
@@ -89,6 +90,9 @@ const PutCameraOverrideSchema = z.object({
     .optional(),
   /** Bound detection prompt-set id. null = remove the binding. */
   promptId: z.string().nullable().optional(),
+  /** VLM ingestion on/off — creates/deletes the camera's realtime alert rule
+   *  (incident generation). Independent of recording. */
+  ingestion: z.object({ enabled: z.boolean() }).optional(),
 });
 
 export async function PUT(
@@ -109,7 +113,7 @@ export async function PUT(
     );
   }
 
-  const { scenarioIds, recording, promptId } = parsed.data;
+  const { scenarioIds, recording, promptId, ingestion } = parsed.data;
   const updatedBy = session.user?.email ?? "console";
 
   // k8s path: merge overrides into the Firestore camera doc.
@@ -145,7 +149,14 @@ export async function PUT(
         if (!vst.ok && vst.warning) warnings.push(vst.warning);
       }
 
-      await auditLog("camera-override-update", `camera/${id}`, { scenarioIds, promptId, recording });
+      // Apply the VLM ingestion on/off change to the alert-bridge so the
+      // realtime rule (incident generation) is actually created/deleted.
+      if (ingestion !== undefined) {
+        const ing = await setIngestion(id, ingestion.enabled, existing.rtspUrl);
+        if (!ing.ok && ing.warning) warnings.push(ing.warning);
+      }
+
+      await auditLog("camera-override-update", `camera/${id}`, { scenarioIds, promptId, recording, ingestion });
       return NextResponse.json({ ok: true, cameraId: id, ...(warnings.length ? { warnings } : {}) });
     } catch (err) {
       const msg = err instanceof ReconcileContextError ? err.message : String(err);

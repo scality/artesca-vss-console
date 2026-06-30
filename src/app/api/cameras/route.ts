@@ -61,17 +61,20 @@ export async function GET() {
   if (!DOCKER_MODE) {
     const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
     const { buildK8sCamerasResponse } = await import("@/lib/cameras/collect-k8s");
+    const { listIngestingCameras } = await import("@/lib/helpers/ingestion");
     try {
       const ctx = await makeReconcileContext();
-      const [desired, vstResult, mtxResult, status] = await Promise.all([
+      const [desired, vstResult, mtxResult, status, ingestResult] = await Promise.all([
         ctx.store.readCameras(ctx.instance),
         vstListSensors(),
         mediamtxListPaths().catch(() => ({ paths: [] as { name: string; ready: boolean }[], warning: undefined })),
         ctx.store.readStatus(ctx.instance).catch(() => null),
+        listIngestingCameras().catch(() => ({ ingesting: new Set<string>(), warning: undefined })),
       ]);
       const warnings: string[] = [];
       if (vstResult.warning) warnings.push(vstResult.warning);
       if (mtxResult.warning) warnings.push(mtxResult.warning);
+      if (ingestResult.warning) warnings.push(ingestResult.warning);
       const liveNames = vstResult.sensors.map((s) => s.sensor_id);
       const mtxReady = new Map(mtxResult.paths.map((p) => [p.name, p.ready]));
       // Recording status keyed by camera id (= VST sensor name). isTimelinePresent
@@ -81,7 +84,11 @@ export async function GET() {
           .filter((s) => typeof s.isTimelinePresent === "boolean")
           .map((s) => [s.sensor_id, s.isTimelinePresent as boolean]),
       );
-      const { cameras, reconcile } = buildK8sCamerasResponse(desired, liveNames, mtxReady, status, recordingByName);
+      // VLM ingestion: cameras with an active realtime alert rule. Pass the set
+      // only when the alert-bridge was reachable, so an outage reads "unknown"
+      // (undefined) rather than falsely "not ingesting" for every camera.
+      const ingestingNames = ingestResult.warning ? undefined : ingestResult.ingesting;
+      const { cameras, reconcile } = buildK8sCamerasResponse(desired, liveNames, mtxReady, status, recordingByName, ingestingNames);
       return NextResponse.json({ cameras, eip: "", gcs: { available: false }, reconcile, warnings });
     } catch (err) {
       const msg = err instanceof ReconcileContextError ? err.message : String(err);

@@ -47,6 +47,10 @@ export interface Feed {
    *  the objectstore, false = registered/live but NOT recording, undefined =
    *  unknown (VST unreachable or didn't report). */
   vstRecording?: boolean;
+  /** A realtime alert rule is active for this sensor on the alert-bridge — i.e.
+   *  the VLM is analyzing this stream and emitting incidents. undefined =
+   *  unknown (alert-bridge unreachable). */
+  vstIngesting?: boolean;
   bitrateMbps?: number;
   fps?: number;
   codec?: "hevc" | "h264";

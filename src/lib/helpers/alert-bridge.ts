@@ -57,19 +57,35 @@ export async function addRealtimeRule(input: {
   alertType: string;
   prompt: string;
   sensorName?: string;
+  /** VST stream id (UUID). Lets the alert-bridge bind the rule to the exact
+   *  recorded stream instead of resolving by name. */
+  sensorId?: string;
   systemPrompt?: string;
   model?: string;
+  /** Chunking / frame-sampling globals, mirrored from the realtime-alert-rules
+   *  ConfigMap so a toggle-created rule matches the reconciler-seeded ones. */
+  chunkDuration?: number;
+  chunkOverlapDuration?: number;
+  enableReasoning?: boolean;
+  numFramesPerSecondOrFixedFramesChunk?: number;
+  useFpsForChunking?: boolean;
 }): Promise<{ ok: boolean; id?: string; warning?: string }> {
   const url = CLUSTER.alertBridge.realtimeUrl;
 
-  const body: Record<string, string> = {
+  const body: Record<string, string | number | boolean> = {
     live_stream_url: input.streamUrl,
     alert_type: input.alertType,
     prompt: input.prompt,
   };
   if (input.sensorName !== undefined) body.sensor_name = input.sensorName;
+  if (input.sensorId !== undefined) body.sensor_id = input.sensorId;
   if (input.systemPrompt !== undefined) body.system_prompt = input.systemPrompt;
   if (input.model !== undefined) body.model = input.model;
+  if (input.chunkDuration !== undefined) body.chunk_duration = input.chunkDuration;
+  if (input.chunkOverlapDuration !== undefined) body.chunk_overlap_duration = input.chunkOverlapDuration;
+  if (input.enableReasoning !== undefined) body.enable_reasoning = input.enableReasoning;
+  if (input.numFramesPerSecondOrFixedFramesChunk !== undefined) body.num_frames_per_second_or_fixed_frames_chunk = input.numFramesPerSecondOrFixedFramesChunk;
+  if (input.useFpsForChunking !== undefined) body.use_fps_for_chunking = input.useFpsForChunking;
 
   try {
     const resp = await fetch(url, {
