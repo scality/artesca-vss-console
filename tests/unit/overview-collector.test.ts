@@ -28,6 +28,7 @@ const {
   mockGetKafka,
   mockPromQuery,
   mockMediamtxListPaths,
+  mockVstListSensors,
   mockListComposeContainers,
   mockInspectContainer,
   mockRunOneShotGpuContainer,
@@ -41,6 +42,7 @@ const {
   const mockGetKafka = vi.fn();
   const mockPromQuery = vi.fn();
   const mockMediamtxListPaths = vi.fn();
+  const mockVstListSensors = vi.fn();
   const mockListComposeContainers = vi.fn();
   const mockInspectContainer = vi.fn();
   const mockRunOneShotGpuContainer = vi.fn();
@@ -54,6 +56,7 @@ const {
     mockGetKafka,
     mockPromQuery,
     mockMediamtxListPaths,
+    mockVstListSensors,
     mockListComposeContainers,
     mockInspectContainer,
     mockRunOneShotGpuContainer,
@@ -84,6 +87,10 @@ vi.mock("@/lib/helpers/prometheus", () => ({
 
 vi.mock("@/lib/helpers/mediamtx", () => ({
   mediamtxListPaths: mockMediamtxListPaths,
+}));
+
+vi.mock("@/lib/helpers/vst", () => ({
+  vstListSensors: mockVstListSensors,
 }));
 
 vi.mock("@/lib/helpers/docker-sock", () => ({
@@ -117,6 +124,7 @@ vi.mock("@/lib/cluster-refs", () => ({
     rtvi: {},
     alerts: {},
     nim: {},
+    s3: { capacityBytes: 0 },
   },
 }));
 
@@ -211,14 +219,21 @@ function setupK8sHappyPath() {
     bucket: "test-bucket",
     objectCount: 42,
     bytesTotal: 1_000_000,
+    bytesLast24h: 100_000,
   });
 
-  // Camera-sim / mediamtx — working.
+  // Camera-sim / mediamtx — working (docker path only).
   mockMediamtxListPaths.mockResolvedValue({
     paths: [
       { name: "cam1", ready: true },
       { name: "cam1-h264", ready: true }, // should be filtered out
     ],
+    warning: undefined,
+  });
+
+  // VST sensor list — source-agnostic camera registry (k8s path).
+  mockVstListSensors.mockResolvedValue({
+    sensors: [{ sensor_id: "cam1", name: "cam1", state: "online" }],
     warning: undefined,
   });
 }
@@ -247,12 +262,15 @@ function setupDockerHappyPath() {
     bucket: "test-bucket",
     objectCount: 10,
     bytesTotal: 500_000,
+    bytesLast24h: 50_000,
   });
 
   mockMediamtxListPaths.mockResolvedValue({
     paths: [],
     warning: undefined,
   });
+
+  mockVstListSensors.mockResolvedValue({ sensors: [], warning: undefined });
 }
 
 // ─── Lifecycle ──────────────────────────────────────────────────────────────
@@ -387,15 +405,15 @@ describe("collectOverviewSnapshot — degraded-snapshot contract (k8s mode)", ()
     }
   });
 
-  it("mediamtx / camera-sim probe throws → returns result with camera-sim warning", async () => {
-    mockMediamtxListPaths.mockRejectedValue(new Error("mediamtx timeout"));
+  it("VST sensor list unreachable → camera-sim reads unreachable with a warning", async () => {
+    // vstListSensors returns a warning (does not throw) when VST is unreachable;
+    // the collector surfaces it and marks cameraSim degraded.
+    mockVstListSensors.mockResolvedValue({ sensors: [], warning: "VST sensor-ms unreachable: timeout" });
 
     const result = await collectOverviewSnapshot();
 
     expect(result).toBeDefined();
-    const camWarning = result.warnings.find(
-      (w) => w.toLowerCase().includes("camera") || w.toLowerCase().includes("mediamtx") || w.toLowerCase().includes("cam")
-    );
+    const camWarning = result.warnings.find((w) => w.toLowerCase().includes("vst"));
     expect(camWarning).toBeDefined();
 
     // cameraSim should fall back to degraded state.

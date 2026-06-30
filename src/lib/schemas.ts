@@ -140,11 +140,15 @@ export const OverviewSnapshotSchema = z.object({
     objectCount: z.number().int().nonnegative(),
     bytesTotal: z.number().nonnegative(),
     growth24h: z.number(),
+    bytesCapacity: z.number().nonnegative(),
   }),
   cameraSim: z.object({
     instanceState: z.enum(["running", "stopped", "unreachable"]),
     pathsReady: z.number().int().nonnegative(),
     pathsTotal: z.number().int().nonnegative(),
+    cameras: z
+      .array(z.object({ name: z.string(), live: z.boolean() }))
+      .optional(),
   }),
 });
 

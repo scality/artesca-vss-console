@@ -118,16 +118,17 @@ export interface OverviewSnapshot {
     objectCount: number;
     bytesTotal: number;
     growth24h: number;
+    // Configured storage capacity in bytes (STORAGE_CAPACITY_BYTES). 0 = unset/unknown.
+    bytesCapacity: number;
   };
   cameraSim: {
     instanceState: "running" | "stopped" | "unreachable";
     pathsReady: number;
     pathsTotal: number;
-    // All registered cameras, both the synthetic camera-sim streams and the
-    // real (e.g. faytech) cameras VST records directly. `live` = mediamtx path
-    // ready (synthetic) or VST online + has-timeline (real). Empty on the
-    // docker overview path (no VST sensor list there).
-    cameras?: { name: string; type: "synthetic" | "real"; live: boolean }[];
+    // All registered cameras, source-agnostic. `live` = the VST sensor is
+    // online. Empty on the docker overview path (where liveness comes from
+    // mediamtx path readiness instead of a VST sensor list).
+    cameras?: { name: string; live: boolean }[];
   };
 }
 
