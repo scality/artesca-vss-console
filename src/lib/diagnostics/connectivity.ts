@@ -2,14 +2,13 @@ import "server-only";
 
 import { coreV1 } from "@/lib/k8s";
 import { promQuery } from "@/lib/helpers/prometheus";
-import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
 import { getKafka } from "@/lib/kafka";
 import { makeS3Client, s3Endpoint, s3BucketForRecordings } from "@/lib/s3";
 import { HeadBucketCommand } from "@aws-sdk/client-s3";
 import { CLUSTER } from "@/lib/cluster-refs";
 
 export interface BackendStatus {
-  id: "k8s" | "prometheus" | "mediamtx" | "kafka" | "s3" | "alert-bridge" | "config-store";
+  id: "k8s" | "prometheus" | "kafka" | "s3" | "alert-bridge" | "config-store";
   label: string;
   ok: boolean;
   /** Optional finer grade. Absent → derived as ok?"ok":"error". "warn" = healthy
@@ -60,20 +59,6 @@ async function probePrometheus(): Promise<BackendStatus> {
   const label = "Prometheus";
   const t0 = Date.now();
   const { warning } = await promQuery("up");
-  return {
-    id,
-    label,
-    ok: !warning,
-    detail: warning ?? "reachable",
-    latencyMs: Date.now() - t0,
-  };
-}
-
-async function probeMediamtx(): Promise<BackendStatus> {
-  const id: BackendStatus["id"] = "mediamtx";
-  const label = "camera-sim (mediamtx)";
-  const t0 = Date.now();
-  const { warning } = await mediamtxListPaths();
   return {
     id,
     label,
@@ -202,19 +187,18 @@ export async function probeConfigStore(): Promise<BackendStatus> {
 /**
  * Probe every backend the console depends on.
  * Each probe is wrapped in a timeout; the whole set runs concurrently.
- * Returns results in stable order: k8s, prometheus, mediamtx, kafka, s3, alert-bridge, config-store.
+ * Returns results in stable order: k8s, prometheus, kafka, s3, alert-bridge, config-store.
  * Never throws.
  */
 export async function collectConnectivity(): Promise<BackendStatus[]> {
-  const [k8s, prometheus, mediamtx, kafka, s3, alertBridge, configStore] = await Promise.all([
+  const [k8s, prometheus, kafka, s3, alertBridge, configStore] = await Promise.all([
     Promise.race([probeK8s(), timeoutStatus("k8s", "K8s API", PROBE_TIMEOUT_MS)]),
     Promise.race([probePrometheus(), timeoutStatus("prometheus", "Prometheus", PROBE_TIMEOUT_MS)]),
-    Promise.race([probeMediamtx(), timeoutStatus("mediamtx", "camera-sim (mediamtx)", PROBE_TIMEOUT_MS)]),
     Promise.race([probeKafka(), timeoutStatus("kafka", "Kafka", PROBE_TIMEOUT_MS)]),
     Promise.race([probeS3(), timeoutStatus("s3", "S3", PROBE_TIMEOUT_MS)]),
     Promise.race([probeAlertBridge(), timeoutStatus("alert-bridge", "Alert bridge (incidents)", PROBE_TIMEOUT_MS)]),
     Promise.race([probeConfigStore(), timeoutStatus("config-store", "Config store (Firestore)", PROBE_TIMEOUT_MS)]),
   ]);
 
-  return [k8s, prometheus, mediamtx, kafka, s3, alertBridge, configStore];
+  return [k8s, prometheus, kafka, s3, alertBridge, configStore];
 }
