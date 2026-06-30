@@ -9,9 +9,11 @@ interface KpiGridProps {
 }
 
 function formatBytes(n: number): string {
+  const TiB = 2 ** 40;
   const GiB = 2 ** 30;
   const MiB = 2 ** 20;
   const KiB = 2 ** 10;
+  if (n >= TiB) return `${(n / TiB).toFixed(2)} TiB`;
   if (n >= GiB) return `${(n / GiB).toFixed(2)} GiB`;
   if (n >= MiB) return `${(n / MiB).toFixed(1)} MiB`;
   if (n >= KiB) return `${Math.round(n / KiB)} KiB`;
@@ -42,12 +44,31 @@ export function KpiGrid({ data }: KpiGridProps) {
   const kafkaUnreachable = kafkaEntries.length > 0 && measuredDepth.length === 0;
   const kafkaDepthSum = measuredDepth.reduce((s, v) => s + v, 0);
 
-  // S3 24h growth — average write rate in MB/s over the 24h window.
-  const growthAvgMBps = (data.s3.growth24h / 86400 / 1e6).toFixed(3);
-  const totalSize =
-    data.s3.bytesCapacity > 0
-      ? `${formatBytes(data.s3.bytesTotal)} / ${formatBytes(data.s3.bytesCapacity)}`
-      : formatBytes(data.s3.bytesTotal);
+  // S3 capacity usage + 24h growth.
+  const hasCapacity = data.s3.bytesCapacity > 0;
+  const usedPct = hasCapacity
+    ? (data.s3.bytesTotal / data.s3.bytesCapacity) * 100
+    : 0;
+  const totalSize = hasCapacity
+    ? `${formatBytes(data.s3.bytesTotal)} / ${formatBytes(data.s3.bytesCapacity)}`
+    : formatBytes(data.s3.bytesTotal);
+  const objectsLabel = `${data.s3.objectCount.toLocaleString()} objects`;
+  const usedLabel = hasCapacity
+    ? ` · ${usedPct < 0.1 ? "<0.1" : usedPct.toFixed(1)}% used`
+    : "";
+  // Average write rate over the 24h window, in the largest sensible unit.
+  const growthAvgBps = data.s3.growth24h / 86400;
+  const growthRate =
+    growthAvgBps >= 1e6
+      ? `${(growthAvgBps / 1e6).toFixed(1)} MB/s`
+      : growthAvgBps >= 1e3
+        ? `${(growthAvgBps / 1e3).toFixed(0)} kB/s`
+        : null;
+  const growthLabel =
+    data.s3.growth24h > 0
+      ? ` · +${formatBytes(data.s3.growth24h)} (24h${growthRate ? `, ${growthRate}` : ""})`
+      : " · no growth (24h)";
+  const totalSizeSub = `${objectsLabel}${usedLabel}${growthLabel}`;
   const cams = data.cameraSim.cameras ?? [];
   const camsLive = cams.filter((c) => c.live).length;
 
@@ -101,8 +122,8 @@ export function KpiGrid({ data }: KpiGridProps) {
       <KpiCard
         label="Total Size"
         value={totalSize}
-        sub={`${data.s3.objectCount.toLocaleString()} objects · +${formatBytes(data.s3.growth24h)} (24h), ${growthAvgMBps} MB/s avg`}
-        trend="up"
+        sub={totalSizeSub}
+        trend={data.s3.growth24h > 0 ? "up" : "flat"}
       />
 
       <KpiCard
