@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import dynamic from "next/dynamic";
 import {
   Dialog,
@@ -38,10 +39,23 @@ const SEVERITY_BADGE: Record<Incident["severity"], string> = {
 };
 
 export function IncidentDetail({ incident, onClose }: IncidentDetailProps) {
+  const [rawExpanded, setRawExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
   if (!incident) return null;
 
   const clipUrl = buildClipUrl(incident.sensorId, incident.ts);
   const rawJson = JSON.stringify(incident.raw, null, 2);
+
+  const copyRaw = async () => {
+    try {
+      await navigator.clipboard.writeText(rawJson);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
 
   return (
     <Dialog open={!!incident} onOpenChange={(v) => !v && onClose()}>
@@ -106,20 +120,42 @@ export function IncidentDetail({ incident, onClose }: IncidentDetailProps) {
 
           {/* Raw payload */}
           <div>
-            <p className="text-xs text-muted-foreground mb-1.5">Raw Payload</p>
-            <div className="h-48 overflow-hidden rounded border border-border">
+            <div className="mb-1.5 flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">Raw Payload</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={copyRaw}
+                  className="rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
+                >
+                  {copied ? "Copied" : "Copy"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRawExpanded((v) => !v)}
+                  className="rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
+                >
+                  {rawExpanded ? "Collapse" : "View entire payload"}
+                </button>
+              </div>
+            </div>
+            <div
+              className="overflow-hidden rounded border border-border"
+              style={{ height: rawExpanded ? "70vh" : "192px" }}
+            >
               <MonacoEditor
-                height="192px"
+                height={rawExpanded ? "70vh" : "192px"}
                 defaultLanguage="json"
                 value={rawJson}
                 theme="vs-dark"
                 options={{
                   readOnly: true,
-                  minimap: { enabled: false },
+                  minimap: { enabled: rawExpanded },
                   scrollBeyondLastLine: false,
                   fontSize: 11,
-                  lineNumbers: "off",
+                  lineNumbers: rawExpanded ? "on" : "off",
                   folding: true,
+                  wordWrap: "on",
                 }}
               />
             </div>

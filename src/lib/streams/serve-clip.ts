@@ -62,14 +62,31 @@ async function fetchManifestFromS3(
   }
 }
 
-/** Fetches raw MP4 bytes from a VST clip URL (s3-confirmed or vst-live). */
-async function fetchMp4FromUrl(url: string): Promise<Buffer | null> {
+/** Fetches raw MP4 bytes from a VST clip URL (s3-confirmed or vst-live).
+ *  On failure, pushes a human-readable reason onto `diag` so the 404 the
+ *  caller returns can explain *why* playback is unavailable. */
+async function fetchMp4FromUrl(
+  url: string,
+  diag?: string[]
+): Promise<Buffer | null> {
   try {
     const resp = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      // VST encodes its reason in the JSON body (e.g. VMSNoDataError —
+      // "No valid stream found for given timestamps"); surface it verbatim.
+      let body = "";
+      try {
+        body = (await resp.text()).slice(0, 300).replace(/\s+/g, " ").trim();
+      } catch {
+        /* body unreadable */
+      }
+      diag?.push(`HTTP ${resp.status}${body ? ` — ${body}` : ""}`);
+      return null;
+    }
     const ab = await resp.arrayBuffer();
     return Buffer.from(ab);
-  } catch {
+  } catch (e) {
+    diag?.push(`fetch failed: ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
 }
@@ -102,21 +119,29 @@ export async function serveClipPlaylist(
   const tsRounded = roundTs(ts);
   let mp4Buffer: Buffer | null = null;
   let source: "s3-confirmed" | "vst-live" = "vst-live";
+  // Diagnostics accumulated across resolution branches, surfaced in the 404
+  // body so the operator learns *why* a clip is missing (no recording, clock
+  // skew, sensor name not in VST, …) instead of a bare "not found".
+  const diag: string[] = [];
+  let resolvedStreamId: string | null = null;
 
   // Branch 1: manifest exists → the materializer confirmed the clip in VST.
   const manifest = await fetchManifestFromS3(sensor, tsRounded);
   if (manifest) {
-    mp4Buffer = await fetchMp4FromUrl(manifest.vst_clip_url);
+    mp4Buffer = await fetchMp4FromUrl(manifest.vst_clip_url, diag);
     if (mp4Buffer) {
       source = "s3-confirmed";
     }
+  } else {
+    diag.push("no alert-clip manifest in S3");
   }
 
   // Branch 2: no manifest → fetch the recorded clip from VST storage.
   if (!mp4Buffer) {
     const streamId = await resolveStreamId(sensor);
+    resolvedStreamId = streamId;
     if (streamId) {
-      mp4Buffer = await fetchMp4FromUrl(buildVstClipUrl(streamId, ts));
+      mp4Buffer = await fetchMp4FromUrl(buildVstClipUrl(streamId, ts), diag);
 
       // Camera-clock skew: VST records on the node clock (use_sensor_ntp_time
       // off), but an incident's NTP ts comes from the camera clock. When those
@@ -128,14 +153,27 @@ export async function serveClipPlaylist(
       // clock-synced cameras (the exact fetch succeeds).
       if (!mp4Buffer) {
         const recentTs = new Date(Date.now() - 30_000).toISOString();
-        mp4Buffer = await fetchMp4FromUrl(buildVstClipUrl(streamId, recentTs));
+        mp4Buffer = await fetchMp4FromUrl(buildVstClipUrl(streamId, recentTs), diag);
       }
+    } else {
+      diag.push(
+        `no VST stream resolved for sensor "${sensor}" (name not found / no online sensor)`
+      );
     }
   }
 
   if (!mp4Buffer) {
+    const start = new Date(new Date(ts).getTime() - 5_000).toISOString();
+    const end = new Date(new Date(ts).getTime() + 5_000).toISOString();
     return NextResponse.json(
-      { error: "Clip not found in S3 or VST" },
+      {
+        error: "Clip not found in S3 or VST",
+        sensor,
+        resolvedStreamId,
+        requestedTs: ts,
+        window: { start, end },
+        diagnostics: diag,
+      },
       { status: 404 }
     );
   }
