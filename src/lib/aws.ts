@@ -101,6 +101,9 @@ export interface S3Stats {
   bucket: string;
   objectCount: number;
   bytesTotal: number;
+  // Bytes written in the last 24h (sum of obj.Size where LastModified >= now-24h).
+  // Partial when `truncated` (page limit hit before exhausting the bucket).
+  bytesLast24h: number;
   truncated?: boolean;
 }
 
@@ -110,9 +113,11 @@ export async function s3Stats(bucket: string): Promise<S3Stats> {
   const client = s3Client();
   let objectCount = 0;
   let bytesTotal = 0;
+  let bytesLast24h = 0;
   let continuationToken: string | undefined;
   let pages = 0;
   let truncated = false;
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
 
   do {
     const resp = await client.send(
@@ -123,7 +128,11 @@ export async function s3Stats(bucket: string): Promise<S3Stats> {
     );
     for (const obj of resp.Contents ?? []) {
       objectCount++;
-      bytesTotal += obj.Size ?? 0;
+      const size = obj.Size ?? 0;
+      bytesTotal += size;
+      if (obj.LastModified && obj.LastModified.getTime() >= cutoff) {
+        bytesLast24h += size;
+      }
     }
     continuationToken = resp.NextContinuationToken;
     pages++;
@@ -133,5 +142,5 @@ export async function s3Stats(bucket: string): Promise<S3Stats> {
     }
   } while (continuationToken);
 
-  return { bucket, objectCount, bytesTotal, ...(truncated ? { truncated } : {}) };
+  return { bucket, objectCount, bytesTotal, bytesLast24h, ...(truncated ? { truncated } : {}) };
 }

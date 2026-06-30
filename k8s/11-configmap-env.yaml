@@ -45,6 +45,11 @@ data:
   # (the --base-domain flag passed to artesca-installer deploy).
   S3_ENDPOINT: "https://s3.<base-domain>"
   S3_BUCKET: "nvidia-vss-video"
+  # STORAGE_CAPACITY_BYTES : total storage capacity in BYTES, shown in the
+  #                          Overview "Total Size" KPI as "<used> / <capacity>".
+  #                          Unset or 0 = unknown (KPI renders used-only).
+  #                          Example: 1 TiB = 1099511627776.
+  # STORAGE_CAPACITY_BYTES: "1099511627776"
 
   # ── Camera-sim EC2 ───────────────────────────────────────────────────────────
   # CAMERA_SIM_HOST      : public IP or DNS name of the camera-sim instance.
