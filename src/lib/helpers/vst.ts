@@ -13,6 +13,9 @@ export interface VstSensor {
   name?: string;
   rtsp_url?: string;
   status?: string;
+  /** VST has a recorded timeline for this sensor — i.e. recording is actively
+   *  producing segments. False = registered/live but NOT recording. */
+  isTimelinePresent?: boolean;
   [key: string]: unknown;
 }
 
@@ -93,6 +96,8 @@ export async function vstListSensors(): Promise<{
             : typeof o.status === "string"
               ? o.status
               : undefined,
+        isTimelinePresent:
+          typeof o.isTimelinePresent === "boolean" ? o.isTimelinePresent : undefined,
         streamId: o.sensorId ?? o.streamId,
       }));
     return { sensors };

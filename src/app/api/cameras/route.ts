@@ -74,7 +74,14 @@ export async function GET() {
       if (mtxResult.warning) warnings.push(mtxResult.warning);
       const liveNames = vstResult.sensors.map((s) => s.sensor_id);
       const mtxReady = new Map(mtxResult.paths.map((p) => [p.name, p.ready]));
-      const { cameras, reconcile } = buildK8sCamerasResponse(desired, liveNames, mtxReady, status);
+      // Recording status keyed by camera id (= VST sensor name). isTimelinePresent
+      // true means VST is actively recording segments to the objectstore.
+      const recordingByName = new Map(
+        vstResult.sensors
+          .filter((s) => typeof s.isTimelinePresent === "boolean")
+          .map((s) => [s.sensor_id, s.isTimelinePresent as boolean]),
+      );
+      const { cameras, reconcile } = buildK8sCamerasResponse(desired, liveNames, mtxReady, status, recordingByName);
       return NextResponse.json({ cameras, eip: "", gcs: { available: false }, reconcile, warnings });
     } catch (err) {
       const msg = err instanceof ReconcileContextError ? err.message : String(err);

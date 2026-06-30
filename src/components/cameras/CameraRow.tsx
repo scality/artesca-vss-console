@@ -19,6 +19,50 @@ interface CameraRowProps {
   promptSets: PromptSet[];
 }
 
+/** Badge showing whether VST is actually recording this camera (timeline
+ *  present), vs registered/live but not recording, vs unknown. Distinct from
+ *  the recording-enabled *toggle* (operator intent) — this is observed state. */
+function RecordingBadge({
+  vstRecording,
+  vstRegistered,
+}: {
+  vstRecording: boolean | undefined;
+  vstRegistered: boolean;
+}) {
+  if (!vstRegistered) return null; // not in VST → recording status N/A
+  if (vstRecording === undefined) {
+    return (
+      <Badge
+        variant="outline"
+        className="text-[10px] px-1.5 py-0 border-brand-light-gray text-muted-foreground"
+        title="Recording status unknown — VST didn't report a timeline state"
+      >
+        REC ?
+      </Badge>
+    );
+  }
+  if (vstRecording) {
+    return (
+      <Badge
+        variant="outline"
+        className="text-[10px] px-1.5 py-0 bg-emerald-50 border-emerald-200 text-emerald-700"
+        title="VST is actively recording this camera to the objectstore"
+      >
+        ● REC
+      </Badge>
+    );
+  }
+  return (
+    <Badge
+      variant="outline"
+      className="text-[10px] px-1.5 py-0 bg-red-50 border-red-200 text-red-700"
+      title="Camera is live in VST but NOT recording — no timeline. Re-spin recording (toggle off/on) or check objectstore credentials."
+    >
+      NOT RECORDING
+    </Badge>
+  );
+}
+
 /** Badge indicating where the camera definition lives. */
 function GcsBadge({
   gcsPersisted,
@@ -200,6 +244,10 @@ export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
             {camera.id}
             <GcsBadge
               gcsPersisted={(camera as Camera & { gcsPersisted?: boolean }).gcsPersisted}
+              vstRegistered={camera.feeds[0]?.vstRegistered ?? false}
+            />
+            <RecordingBadge
+              vstRecording={camera.feeds[0]?.vstRecording}
               vstRegistered={camera.feeds[0]?.vstRegistered ?? false}
             />
           </div>
