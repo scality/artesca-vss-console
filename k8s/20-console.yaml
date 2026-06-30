@@ -46,27 +46,29 @@ spec:
         - secretRef:
             name: console-aws
         # Object-store credentials, contract from scripts/install-objectstore/.
-        # Uses agent-corpus-creds (read-only across all three VSS buckets per
-        # iam-policies/agent-reader.json): recordings (storage probes in
-        # topology + overview), alert-clips (incident replay route), and
-        # agent-corpus (forensic browsing). Remapped to OBJECTSTORE_* names
-        # so they don't collide with AWS_ACCESS_KEY_ID from console-aws
-        # (scoped to ec2:*SecurityGroupIngress only — would 403 against S3).
-        # The S3 client in console/src/lib/s3.ts reads OBJECTSTORE_ACCESS_KEY_ID
-        # / OBJECTSTORE_SECRET_ACCESS_KEY explicitly. Marked optional so the
-        # console pod still starts in OBJECTSTORE=none / single-bucket legacy
-        # modes where this Secret may not be provisioned.
+        # Uses objectstore-creds — the recordings-account root key, which owns
+        # the nvidia-vss-recordings bucket the storage probes (topology +
+        # overview KPI) read. ARTESCA mints account-scoped root keys with no
+        # cross-account bucket policy, so a key can only read its own account's
+        # bucket; the recordings key is same-account for the bucket the console
+        # actually probes. Remapped to OBJECTSTORE_* names so they don't collide
+        # with AWS_ACCESS_KEY_ID from console-aws (scoped to
+        # ec2:*SecurityGroupIngress only — would 403 against S3). The S3 client
+        # in console/src/lib/s3.ts reads OBJECTSTORE_ACCESS_KEY_ID /
+        # OBJECTSTORE_SECRET_ACCESS_KEY explicitly. Marked optional so the
+        # console pod still starts in OBJECTSTORE=none / single-bucket modes
+        # where this Secret may not be provisioned.
         env:
         - name: OBJECTSTORE_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: agent-corpus-creds
+              name: objectstore-creds
               key: AWS_ACCESS_KEY_ID
               optional: true
         - name: OBJECTSTORE_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: agent-corpus-creds
+              name: objectstore-creds
               key: AWS_SECRET_ACCESS_KEY
               optional: true
         volumeMounts:
