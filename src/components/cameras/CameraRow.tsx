@@ -309,7 +309,7 @@ export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
           </Button>
         </TableCell>
         <TableCell className="font-mono text-sm font-medium">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             {camera.id}
             <GcsBadge
               gcsPersisted={(camera as Camera & { gcsPersisted?: boolean }).gcsPersisted}
@@ -358,57 +358,54 @@ export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
           <div className="flex justify-end gap-1">
             <Button
               variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
+              size="icon"
+              className="h-7 w-7"
               onClick={() => restartReplay.mutate()}
               disabled={restartReplay.isPending}
               title="Restart replay"
             >
-              <RefreshCw className="h-3 w-3 mr-1" />
-              Restart
+              <RefreshCw className="h-3.5 w-3.5" />
             </Button>
             <Button
               variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
+              size="icon"
+              className="h-7 w-7"
               onClick={() => toggleRecording.mutate()}
               disabled={toggleRecording.isPending}
               title={
                 recordingEnabled
-                  ? "Stop recording this camera on the VST (keeps it registered + live)"
-                  : "Start recording this camera on the VST"
+                  ? "Recording ON — click to stop recording this camera (keeps it registered + live)"
+                  : "Recording OFF — click to start recording this camera on the VST"
               }
             >
               {recordingEnabled ? (
-                <VideoOff className="h-3 w-3 mr-1" />
+                <VideoOff className="h-3.5 w-3.5 text-red-600" />
               ) : (
-                <Video className="h-3 w-3 mr-1" />
+                <Video className="h-3.5 w-3.5" />
               )}
-              {recordingEnabled ? "Disable recording" : "Enable recording"}
             </Button>
             <Button
               variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
+              size="icon"
+              className="h-7 w-7"
               onClick={() => toggleIngestion.mutate()}
               disabled={toggleIngestion.isPending}
               title={
                 ingesting
-                  ? "Stop VLM analysis of this camera (deletes its realtime rule — no more incidents)"
-                  : "Start VLM analysis of this camera (creates a realtime rule — begins emitting incidents)"
+                  ? "VLM ingestion ON — click to stop analysis (deletes its realtime rule — no more incidents)"
+                  : "VLM ingestion OFF — click to start analysis (creates a realtime rule — begins emitting incidents)"
               }
             >
               {ingesting ? (
-                <EyeOff className="h-3 w-3 mr-1" />
+                <EyeOff className="h-3.5 w-3.5 text-red-600" />
               ) : (
-                <Eye className="h-3 w-3 mr-1" />
+                <Eye className="h-3.5 w-3.5" />
               )}
-              {ingesting ? "Stop ingestion" : "Start ingestion"}
             </Button>
             <Button
               variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+              size="icon"
+              className="h-7 w-7 text-destructive hover:text-destructive"
               onClick={() => {
                 if (confirm(`Remove camera ${camera.id}?`)) {
                   removeCamera.mutate();
@@ -417,8 +414,7 @@ export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
               disabled={removeCamera.isPending}
               title="Remove camera"
             >
-              <Trash2 className="h-3 w-3 mr-1" />
-              Remove
+              <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </div>
         </TableCell>
