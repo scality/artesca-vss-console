@@ -357,9 +357,14 @@ const DEMO_DATA = {
 // writes + console replay reads), agent-corpus (optional forensic Q&A).
 // Each bucket is independently configurable via env vars injected from the
 // objectstore-creds Secret + console-env ConfigMap.
+// Operator-configured storage capacity (bytes) shown in the Overview
+// "Total Size" KPI. 0 = unset/unknown (KPI renders used-only).
+const S3_CAPACITY_BYTES = Number(process.env.STORAGE_CAPACITY_BYTES ?? 0) || 0;
+
 const S3 = {
   endpoint: process.env.OBJECTSTORE_ENDPOINT ?? process.env.S3_ENDPOINT ?? "",
   region: process.env.OBJECTSTORE_REGION ?? "us-east-1",
+  capacityBytes: S3_CAPACITY_BYTES,
   buckets: {
     recordings:
       process.env.OBJECTSTORE_RECORDINGS_BUCKET ?? "nvidia-vss-recordings",

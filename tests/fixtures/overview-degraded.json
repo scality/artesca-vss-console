@@ -32,7 +32,8 @@
     "bucket": "nvidia-vss-video",
     "objectCount": 0,
     "bytesTotal": 0,
-    "growth24h": 0
+    "growth24h": 0,
+    "bytesCapacity": 0
   },
   "cameraSim": {
     "instanceState": "unreachable",

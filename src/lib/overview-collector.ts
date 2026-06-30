@@ -63,7 +63,7 @@ function emptySnapshot(takenAt: string): OverviewSnapshot {
     nim: { ready: false, warmupPct: 0, queueDepth: 0 },
     gpus: [],
     kafka: {},
-    s3: { bucket: s3BucketForRecordings(), objectCount: 0, bytesTotal: 0, growth24h: 0 },
+    s3: { bucket: s3BucketForRecordings(), objectCount: 0, bytesTotal: 0, growth24h: 0, bytesCapacity: CLUSTER.s3.capacityBytes },
     cameraSim: { instanceState: "unreachable", pathsReady: 0, pathsTotal: 0, cameras: [] },
   };
 }
@@ -168,7 +168,8 @@ async function collectDockerOverview(
       : Promise.resolve({ paths: [], warning: undefined }),
     (async () => {
       const bucket = s3BucketForRecordings();
-      if (!s3Configured) return { bucket: bucket || "", objectCount: 0, bytesTotal: 0, growth24h: 0 };
+      const capacity = CLUSTER.s3.capacityBytes;
+      if (!s3Configured) return { bucket: bucket || "", objectCount: 0, bytesTotal: 0, growth24h: 0, bytesCapacity: capacity };
       try {
         const stats = await Promise.race([
           s3Stats(bucket),
@@ -176,10 +177,10 @@ async function collectDockerOverview(
             setTimeout(() => reject(Object.assign(new Error("s3Stats timeout"), { code: "ETIMEOUT" })), 5_000)
           ),
         ]);
-        return { ...stats, growth24h: 0 };
+        return { ...stats, growth24h: stats.bytesLast24h, bytesCapacity: capacity };
       } catch (err) {
         warnings.push(`S3 stats failed: ${describeS3Error(err)}`);
-        return { bucket, objectCount: 0, bytesTotal: 0, growth24h: 0 };
+        return { bucket, objectCount: 0, bytesTotal: 0, growth24h: 0, bytesCapacity: capacity };
       }
     })(),
   ]);
@@ -208,8 +209,8 @@ async function collectDockerOverview(
     instanceState: cameraSimConfigured && cameraPaths.length > 0 ? "running" : cameraSimConfigured ? "unreachable" : "stopped",
     pathsReady,
     pathsTotal: cameraPaths.length,
-    // Docker overview has no VST sensor list — synthetic streams only.
-    cameras: cameraPaths.map((p) => ({ name: p.name, type: "synthetic" as const, live: p.ready })),
+    // Docker overview has no VST sensor list — liveness from mediamtx readiness.
+    cameras: cameraPaths.map((p) => ({ name: p.name, live: p.ready })),
   };
 
   return {
@@ -404,10 +405,11 @@ async function collectK8sOverview(
     objectCount: 0,
     bytesTotal: 0,
     growth24h: 0,
+    bytesCapacity: CLUSTER.s3.capacityBytes,
   };
   try {
     const stats = await s3Stats(bucket);
-    s3 = { ...stats, growth24h: 0 };
+    s3 = { ...stats, growth24h: stats.bytesLast24h, bytesCapacity: CLUSTER.s3.capacityBytes };
   } catch (err) {
     warnings.push(`S3 stats failed: ${describeS3Error(err)}`);
   }
@@ -419,40 +421,33 @@ async function collectK8sOverview(
     cameras: [],
   };
   try {
-    // mediamtx = synthetic camera-sim streams + flow status; VST = the full
-    // camera registry (synthetic AND real cameras like the faytech units that
-    // record straight into VST without going through the camera-sim).
-    const [{ paths, warning }, vst] = await Promise.all([
-      mediamtxListPaths(),
-      vstListSensors().catch(() => ({ sensors: [] as Awaited<ReturnType<typeof vstListSensors>>["sensors"], warning: undefined })),
-    ]);
-    if (warning) warnings.push(warning);
-    // Filter out -h264 transcodes (browser HLS preview duplicates) so the
-    // count reflects cameras, not raw mediamtx paths.
-    const cameraPaths = paths.filter((p) => !p.name.endsWith("-h264"));
-    const pathsReady = cameraPaths.filter((p) => p.ready).length;
-    const syntheticReady = new Map(cameraPaths.map((p) => [p.name, p.ready]));
+    // VST is the source-agnostic camera registry — every sensor it records,
+    // regardless of which source (GCP sim, AWS sim, or real cameras) feeds it.
+    // Liveness is the VST sensor's own online state; the console no longer
+    // classifies cameras as synthetic vs real or probes a privileged mediamtx.
+    const vst = await vstListSensors().catch(() => ({
+      sensors: [] as Awaited<ReturnType<typeof vstListSensors>>["sensors"],
+      warning: undefined as string | undefined,
+    }));
+    if (vst.warning) warnings.push(vst.warning);
     const seen = new Set<string>();
     const cameras: NonNullable<OverviewSnapshot["cameraSim"]["cameras"]> = [];
     for (const s of vst.sensors) {
       const name = typeof s.name === "string" ? s.name : "";
       if (!name || seen.has(name) || s.state === "removed") continue;
       seen.add(name);
-      const synthetic = syntheticReady.has(name);
-      const live = synthetic
-        ? (syntheticReady.get(name) ?? false)
-        : s.state === "online" && s.isTimelinePresent === true;
-      cameras.push({ name, type: synthetic ? "synthetic" : "real", live });
+      cameras.push({ name, live: s.state === "online" });
     }
     cameras.sort((a, b) => a.name.localeCompare(b.name));
+    const liveCount = cameras.filter((c) => c.live).length;
     cameraSim = {
-      instanceState: cameraPaths.length > 0 || !warning ? "running" : "unreachable",
-      pathsReady,
-      pathsTotal: cameraPaths.length,
+      instanceState: vst.warning ? "unreachable" : "running",
+      pathsReady: liveCount,
+      pathsTotal: cameras.length,
       cameras,
     };
   } catch (err) {
-    warnings.push(`Camera-sim ping failed: ${String(err)}`);
+    warnings.push(`VST sensor list failed: ${String(err)}`);
   }
 
   return {
