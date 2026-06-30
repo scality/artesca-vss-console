@@ -70,8 +70,9 @@ export function CameraTable() {
       const raw = await res.json();
       return CamerasResponseSchema.parse(raw);
     },
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   });
 
   const syncToGcs = useMutation({
