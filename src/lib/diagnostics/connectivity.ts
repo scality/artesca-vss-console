@@ -6,9 +6,10 @@ import { getKafka } from "@/lib/kafka";
 import { makeS3Client, s3Endpoint, s3BucketForRecordings } from "@/lib/s3";
 import { HeadBucketCommand } from "@aws-sdk/client-s3";
 import { CLUSTER } from "@/lib/cluster-refs";
+import { vstListSensors } from "@/lib/helpers/vst";
 
 export interface BackendStatus {
-  id: "k8s" | "prometheus" | "kafka" | "s3" | "alert-bridge" | "config-store";
+  id: "k8s" | "prometheus" | "kafka" | "vst" | "s3" | "alert-bridge" | "config-store";
   label: string;
   ok: boolean;
   /** Optional finer grade. Absent → derived as ok?"ok":"error". "warn" = healthy
@@ -123,6 +124,29 @@ async function probeS3(): Promise<BackendStatus> {
   }
 }
 
+async function probeVst(): Promise<BackendStatus> {
+  const id: BackendStatus["id"] = "vst";
+  const label = "Cameras (VST)";
+  const t0 = Date.now();
+  // Source-agnostic camera reachability: VST is the registry every camera
+  // (GCP sim, AWS sim, real cameras) registers into. Reachable + how many
+  // sensors are online. vstListSensors never throws (returns a warning).
+  const { sensors, warning } = await vstListSensors();
+  if (warning) {
+    return { id, label, ok: false, detail: warning, latencyMs: Date.now() - t0 };
+  }
+  const active = sensors.filter((s) => s.status !== "removed");
+  const online = active.filter((s) => s.status === "online").length;
+  return {
+    id,
+    label,
+    ok: true,
+    severity: online === 0 && active.length > 0 ? "warn" : "ok",
+    detail: `reachable · ${online}/${active.length} cameras online`,
+    latencyMs: Date.now() - t0,
+  };
+}
+
 async function probeAlertBridge(): Promise<BackendStatus> {
   const id: BackendStatus["id"] = "alert-bridge";
   const label = "Alert bridge (incidents)";
@@ -187,18 +211,19 @@ export async function probeConfigStore(): Promise<BackendStatus> {
 /**
  * Probe every backend the console depends on.
  * Each probe is wrapped in a timeout; the whole set runs concurrently.
- * Returns results in stable order: k8s, prometheus, kafka, s3, alert-bridge, config-store.
+ * Returns results in stable order: k8s, prometheus, kafka, vst, s3, alert-bridge, config-store.
  * Never throws.
  */
 export async function collectConnectivity(): Promise<BackendStatus[]> {
-  const [k8s, prometheus, kafka, s3, alertBridge, configStore] = await Promise.all([
+  const [k8s, prometheus, kafka, vst, s3, alertBridge, configStore] = await Promise.all([
     Promise.race([probeK8s(), timeoutStatus("k8s", "K8s API", PROBE_TIMEOUT_MS)]),
     Promise.race([probePrometheus(), timeoutStatus("prometheus", "Prometheus", PROBE_TIMEOUT_MS)]),
     Promise.race([probeKafka(), timeoutStatus("kafka", "Kafka", PROBE_TIMEOUT_MS)]),
+    Promise.race([probeVst(), timeoutStatus("vst", "Cameras (VST)", PROBE_TIMEOUT_MS)]),
     Promise.race([probeS3(), timeoutStatus("s3", "S3", PROBE_TIMEOUT_MS)]),
     Promise.race([probeAlertBridge(), timeoutStatus("alert-bridge", "Alert bridge (incidents)", PROBE_TIMEOUT_MS)]),
     Promise.race([probeConfigStore(), timeoutStatus("config-store", "Config store (Firestore)", PROBE_TIMEOUT_MS)]),
   ]);
 
-  return [k8s, prometheus, kafka, s3, alertBridge, configStore];
+  return [k8s, prometheus, kafka, vst, s3, alertBridge, configStore];
 }

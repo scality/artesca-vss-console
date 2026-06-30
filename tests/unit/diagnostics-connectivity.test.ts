@@ -6,8 +6,8 @@ vi.mock("@/lib/helpers/prometheus", () => ({
   promQuery: vi.fn().mockResolvedValue({ results: [] }),
 }));
 
-vi.mock("@/lib/helpers/mediamtx", () => ({
-  mediamtxListPaths: vi.fn().mockResolvedValue({ paths: [] }),
+vi.mock("@/lib/helpers/vst", () => ({
+  vstListSensors: vi.fn().mockResolvedValue({ sensors: [], warning: undefined }),
 }));
 
 // Mock Kafka admin interface
@@ -56,7 +56,7 @@ vi.mock("@aws-sdk/client-s3", () => ({
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { promQuery } from "@/lib/helpers/prometheus";
-import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
+import { vstListSensors } from "@/lib/helpers/vst";
 import { getKafka } from "@/lib/kafka";
 import { makeS3Client, s3Endpoint } from "@/lib/s3";
 import { coreV1 } from "@/lib/k8s";
@@ -68,7 +68,7 @@ import type { BackendStatus } from "@/lib/diagnostics/connectivity";
 
 beforeEach(() => {
   vi.mocked(promQuery).mockReset().mockResolvedValue({ results: [] });
-  vi.mocked(mediamtxListPaths).mockReset().mockResolvedValue({ paths: [] });
+  vi.mocked(vstListSensors).mockReset().mockResolvedValue({ sensors: [], warning: undefined });
 
   mockAdmin.connect.mockReset().mockResolvedValue(undefined);
   mockAdmin.listTopics.mockReset().mockResolvedValue([]);
@@ -113,12 +113,12 @@ beforeEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("collectConnectivity()", () => {
-  it("returns all six backends in stable order: k8s, prometheus, kafka, s3, alert-bridge, config-store", async () => {
+  it("returns all seven backends in stable order: k8s, prometheus, kafka, vst, s3, alert-bridge, config-store", async () => {
     const result = await collectConnectivity();
 
-    expect(result).toHaveLength(6);
+    expect(result).toHaveLength(7);
     const ids = result.map((b) => b.id);
-    expect(ids).toEqual(["k8s", "prometheus", "kafka", "s3", "alert-bridge", "config-store"]);
+    expect(ids).toEqual(["k8s", "prometheus", "kafka", "vst", "s3", "alert-bridge", "config-store"]);
   });
 
   it("does not include a mediamtx / camera-sim probe", async () => {
