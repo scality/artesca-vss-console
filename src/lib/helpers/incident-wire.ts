@@ -61,6 +61,48 @@ function scenarioNameForCategory(category: unknown): string {
   return pretty.charAt(0).toUpperCase() + pretty.slice(1);
 }
 
+// Chain-of-thought lead-in phrases stripped from the chosen sentence.
+const LEAD_INS =
+  /^(?:okay[^.]*\.\s*|so[,]?\s*|therefore[,]?\s*|thus[,]?\s*|in conclusion[,]?\s*|in summary[,]?\s*|to summari[sz]e[,]?\s*|putting (?:it all|this) together[,]?\s*|overall[,]?\s*|first[,]?\s*|finally[,]?\s*|ultimately[,]?\s*)/i;
+
+// Meta / self-deliberation sentences that aren't a finding.
+const META_SENTENCE =
+  /^(?:i\b|i'?ll|i'?m|let me|let's|we need|the user|the task|the question|okay|so the task|looking at|to determine|to identify|to check|to assess|considering|now,|next,|then,|the key points?|the main focus|the description|the camera|the video (?:shows|is|appears|description))/i;
+
+// Cue words that mark an actual conclusion / finding.
+const CONCLUSION_CUE =
+  /(?:main concern|primary issue|key issue|most likely|conclusion|indicat|suggest|appears? to|attempt(?:ing)? to|evidence of|consistent with|risk of|unsafe|hazard|theft|conceal|intrusion|restock|empty shelves|out of stock|this (?:is|behavior|behaviour|action|activity|scene))/i;
+
+/** Extract a concise finding from the VLM's chain-of-thought reasoning:
+ *  prefer the last substantive sentence that states a conclusion, skipping
+ *  self-deliberation ("I should check…") and setup ("The video shows…"). */
+function concludeFromReasoning(reasoning: string): string {
+  const sentences = reasoning
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 15);
+  if (sentences.length === 0) return "";
+
+  const substantive = sentences.filter((s) => !META_SENTENCE.test(s));
+  const pool = substantive.length ? substantive : sentences;
+  // Prefer the LAST sentence carrying a conclusion cue; else the last
+  // substantive sentence.
+  const cued = pool.filter((s) => CONCLUSION_CUE.test(s));
+  let c = (cued.length ? cued[cued.length - 1] : pool[pool.length - 1]).trim();
+
+  const marker = c.match(/(?:most likely conclusion is that|conclusion is that)\s+(.+)/i);
+  if (marker) c = marker[1];
+
+  let prev = "";
+  while (c !== prev) {
+    prev = c;
+    c = c.replace(LEAD_INS, "");
+  }
+  c = c.trim();
+  return c ? c.charAt(0).toUpperCase() + c.slice(1) : "";
+}
+
 // The VLM emits chain-of-thought reasoning ("Okay, let's break this down…").
 // Extract the concluding statement — the actual "what triggered this" — instead
 // of surfacing the whole thinking trace. Falls back to the terse verdict fields.
@@ -70,21 +112,8 @@ function cleanTrigger(info: Record<string, unknown>): string {
     (typeof info.reasoning === "string" && info.reasoning) ||
     "";
   if (reasoning.trim()) {
-    const paras = reasoning
-      .split(/\n+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    let c = paras.length ? paras[paras.length - 1] : reasoning.trim();
-    // Drop chain-of-thought lead-ins.
-    c = c.replace(
-      /^(?:okay,[^.]*\.\s*|so,\s*|therefore,\s*|in conclusion,\s*|putting this together,?\s*)+/i,
-      "",
-    );
-    // Pull the clause after a conclusion marker when present.
-    const m = c.match(/(?:most likely conclusion is that|conclusion is that|the person is|it (?:is|appears))\s+(.*)/i);
-    if (m) c = (m[0].toLowerCase().startsWith("the person") || m[0].toLowerCase().startsWith("it ") ? m[0] : m[1]);
-    c = c.trim();
-    if (c) return (c.charAt(0).toUpperCase() + c.slice(1)).slice(0, 500);
+    const clean = concludeFromReasoning(reasoning);
+    if (clean) return clean.slice(0, 500);
   }
   const verdict = typeof info.verdict === "string" ? info.verdict : "";
   const trigger = typeof info.triggerPhrase === "string" ? info.triggerPhrase : "";
