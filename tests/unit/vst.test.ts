@@ -74,8 +74,10 @@ afterEach(() => {
 
 describe("vstListSensors", () => {
   it("k8s array shape: returns sensors from a bare JSON array", async () => {
+    // The k8s sensor-ms /list API keys sensors by `name` (= the camera id) with
+    // a UUID `sensorId`; vstListSensors() maps `name` onto `sensor_id`.
     const sensors = [
-      { sensor_id: "cam1", name: "Camera 1", rtsp_url: "rtsp://host/cam1" },
+      { name: "cam1", sensorId: "b2c3d4e5-uuid", rtsp_url: "rtsp://host/cam1" },
     ];
     vi.mocked(fetch).mockResolvedValueOnce(okResponse(sensors));
 

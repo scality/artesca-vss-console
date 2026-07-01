@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 /**
- * Unit tests for the per-camera "Disable / Enable recording" toggle on
- * CameraRow.  Verifies:
- *   1. The button label reflects the camera's current recording state
- *      (default ON when no recording override → "Disable recording").
+ * Unit tests for the per-camera recording toggle on CameraRow.  The toggle is
+ * an icon-only button (VideoOff/Video) whose intent is carried by its `title`
+ * attribute — "Recording ON — click to stop…" when enabled, "Recording OFF —
+ * click to start…" when disabled.  Verifies:
+ *   1. The button's title reflects the camera's current recording state
+ *      (default ON when no recording override → "Recording ON").
  *   2. Clicking it PUTs /api/cameras/{id} with the flipped recording.enabled
  *      plus the preserved policy + retentionDays.
- *   3. A camera with recording.enabled=false renders "Enable recording" and
- *      PUTs enabled:true.
+ *   3. A camera with recording.enabled=false renders the "Recording OFF" title
+ *      and PUTs enabled:true.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -15,6 +17,12 @@ import { createRoot } from "react-dom/client";
 import React, { act } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Camera } from "@/lib/types";
+
+// React 19 gates the synchronous act(...) form on this flag; without it the
+// call errors with "The current testing environment is not configured to
+// support act(...)" and no-ops the render. The async act(async () => …) form
+// used elsewhere doesn't need it, but this file renders synchronously.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // useToast is a side effect we don't assert on — stub it so the component
 // renders without the Toaster provider.
@@ -47,9 +55,11 @@ function renderRow(camera: Camera) {
   });
 }
 
-function findButtonByText(text: string): HTMLButtonElement | undefined {
+// The recording toggle is icon-only — match it on the `title` attribute, which
+// carries the operator-facing intent ("Recording ON…" / "Recording OFF…").
+function findButtonByTitle(text: string): HTMLButtonElement | undefined {
   return Array.from(container.querySelectorAll("button")).find((b) =>
-    (b.textContent ?? "").includes(text),
+    (b.getAttribute("title") ?? "").includes(text),
   ) as HTMLButtonElement | undefined;
 }
 
@@ -94,27 +104,27 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("CameraRow recording toggle", () => {
-  it("defaults to 'Disable recording' when the camera has no recording override", () => {
+  it("shows the 'Recording ON' toggle when the camera has no recording override", () => {
     renderRow(BASE_CAMERA);
-    expect(findButtonByText("Disable recording")).toBeDefined();
-    expect(findButtonByText("Enable recording")).toBeUndefined();
+    expect(findButtonByTitle("Recording ON")).toBeDefined();
+    expect(findButtonByTitle("Recording OFF")).toBeUndefined();
   });
 
-  it("renders 'Enable recording' when recording is currently disabled", () => {
+  it("shows the 'Recording OFF' toggle when recording is currently disabled", () => {
     renderRow({
       ...BASE_CAMERA,
       recording: { enabled: false, policy: "off", retentionDays: 7 },
     });
-    expect(findButtonByText("Enable recording")).toBeDefined();
-    expect(findButtonByText("Disable recording")).toBeUndefined();
+    expect(findButtonByTitle("Recording OFF")).toBeDefined();
+    expect(findButtonByTitle("Recording ON")).toBeUndefined();
   });
 
-  it("clicking 'Disable recording' PUTs recording.enabled=false with preserved policy", async () => {
+  it("clicking the 'Recording ON' toggle PUTs recording.enabled=false with preserved policy", async () => {
     renderRow({
       ...BASE_CAMERA,
       recording: { enabled: true, policy: "always", retentionDays: 14 },
     });
-    const btn = findButtonByText("Disable recording");
+    const btn = findButtonByTitle("Recording ON");
     expect(btn).toBeDefined();
 
     await act(async () => {
@@ -131,12 +141,12 @@ describe("CameraRow recording toggle", () => {
     });
   });
 
-  it("clicking 'Enable recording' PUTs recording.enabled=true", async () => {
+  it("clicking the 'Recording OFF' toggle PUTs recording.enabled=true", async () => {
     renderRow({
       ...BASE_CAMERA,
       recording: { enabled: false, policy: "off", retentionDays: 7 },
     });
-    const btn = findButtonByText("Enable recording");
+    const btn = findButtonByTitle("Recording OFF");
     expect(btn).toBeDefined();
 
     await act(async () => {
