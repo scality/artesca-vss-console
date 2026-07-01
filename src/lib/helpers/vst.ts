@@ -12,6 +12,10 @@ export interface VstSensor {
   sensor_id: string;
   name?: string;
   rtsp_url?: string;
+  /** Source host VST is pulling from (RTSP camera / camera-sim). Present in the
+   *  k8s sensor-ms shape as `sensorIp`; lets callers reconstruct the RTSP URL
+   *  (`rtsp://<sensorIp>:8554/<name>`) when the explicit URL isn't persisted. */
+  sensorIp?: string;
   status?: string;
   /** VST has a recorded timeline for this sensor — i.e. recording is actively
    *  producing segments. False = registered/live but NOT recording. */
@@ -90,6 +94,7 @@ export async function vstListSensors(): Promise<{
             : String(o.sensorId ?? o.sensor_id ?? ""),
         name: typeof o.name === "string" ? o.name : undefined,
         rtsp_url: typeof o.rtsp_url === "string" ? o.rtsp_url : undefined,
+        sensorIp: typeof o.sensorIp === "string" ? o.sensorIp : undefined,
         status:
           typeof o.state === "string"
             ? o.state
