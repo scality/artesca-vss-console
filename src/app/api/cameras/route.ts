@@ -62,6 +62,7 @@ export async function GET() {
     const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
     const { buildK8sCamerasResponse } = await import("@/lib/cameras/collect-k8s");
     const { listIngestingCameras } = await import("@/lib/helpers/ingestion");
+    const { probeRecordingByName } = await import("@/lib/helpers/recording-health");
     try {
       const ctx = await makeReconcileContext();
       const [desired, vstResult, mtxResult, status, ingestResult] = await Promise.all([
@@ -77,13 +78,10 @@ export async function GET() {
       if (ingestResult.warning) warnings.push(ingestResult.warning);
       const liveNames = vstResult.sensors.map((s) => s.sensor_id);
       const mtxReady = new Map(mtxResult.paths.map((p) => [p.name, p.ready]));
-      // Recording status keyed by camera id (= VST sensor name). isTimelinePresent
-      // true means VST is actively recording segments to the objectstore.
-      const recordingByName = new Map(
-        vstResult.sensors
-          .filter((s) => typeof s.isTimelinePresent === "boolean")
-          .map((s) => [s.sensor_id, s.isTimelinePresent as boolean]),
-      );
+      // Recording status keyed by camera id (= VST sensor name). Ground truth,
+      // not isTimelinePresent (which goes stale): probe VST storage for a recent
+      // finalized window. true = recording, false = not, undefined = unknown.
+      const recordingByName = await probeRecordingByName(vstResult.sensors);
       // VLM ingestion: cameras with an active realtime alert rule. Pass the set
       // only when the alert-bridge was reachable, so an outage reads "unknown"
       // (undefined) rather than falsely "not ingesting" for every camera.

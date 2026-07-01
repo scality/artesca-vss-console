@@ -14,7 +14,7 @@ export function buildK8sCamerasResponse(
   liveSensorNames: string[],
   mtxReady: Map<string, boolean>,
   status: ReconcileStatus | null,
-  recordingByName?: Map<string, boolean>,
+  recordingByName?: Map<string, boolean | undefined>,
   ingestingNames?: Set<string>,
 ): K8sCamerasResponse {
   const registered = new Set(liveSensorNames);

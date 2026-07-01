@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { coreV1, listAllPodsInNs, watchedNamespaces } from "@/lib/k8s";
 import { CLUSTER } from "@/lib/cluster-refs";
+import { probeRecording } from "@/lib/helpers/recording-health";
 import type { Health } from "@/lib/types";
 import type { NodeType } from "@/lib/types/pipeline";
 
@@ -209,19 +210,27 @@ async function fetchFeedNodes(
       }
     }
 
-    return [...activeByName.values()].map((s, i) => {
-      const sensorId = s.sensor_id ?? s.sensorId ?? `sensor-${i}`;
-      return {
-        id: `feed:${sensorId}`,
-        type: "feed" as NodeType,
-        label: s.name ?? sensorId, // friendly camera name; UUID is the stable id
-        health: "unknown" as Health,
-        namespace: "external",
-        parent: "camera-sim",
-        // Lay out feed nodes slightly offset from camera-sim
-        position: { x: 50 + i * 40, y: 420 + i * 30 },
-      };
-    });
+    return await Promise.all(
+      [...activeByName.values()].map(async (s, i) => {
+        const sensorId = s.sensor_id ?? s.sensorId ?? `sensor-${i}`;
+        // Ground-truth recording health (not the stale isTimelinePresent flag):
+        // a feed node is only green when VST actually has a recent recording.
+        const uuid = typeof s.sensorId === "string" ? s.sensorId : "";
+        const rec = uuid ? await probeRecording(uuid) : "unknown";
+        const health: Health =
+          rec === "recording" ? "ok" : rec === "not-recording" ? "fail" : "unknown";
+        return {
+          id: `feed:${sensorId}`,
+          type: "feed" as NodeType,
+          label: s.name ?? sensorId, // friendly camera name; UUID is the stable id
+          health,
+          namespace: "external",
+          parent: "camera-sim",
+          // Lay out feed nodes slightly offset from camera-sim
+          position: { x: 50 + i * 40, y: 420 + i * 30 },
+        };
+      }),
+    );
   } catch (err) {
     warnings.push(`VST sensor list failed: ${String(err)} — no feed sub-nodes emitted`);
     return [];
