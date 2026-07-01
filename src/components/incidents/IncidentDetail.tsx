@@ -59,7 +59,11 @@ export function IncidentDetail({ incident, onClose }: IncidentDetailProps) {
 
   return (
     <Dialog open={!!incident} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className={`max-h-[92vh] overflow-y-auto transition-[max-width] ${
+          rawExpanded ? "max-w-6xl" : "max-w-3xl"
+        }`}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 flex-wrap">
             <span
@@ -74,51 +78,55 @@ export function IncidentDetail({ incident, onClose }: IncidentDetailProps) {
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {/* Metadata */}
-          <div className="grid grid-cols-2 gap-3 text-sm">
+        {/* When the payload is expanded, split into two columns: incident
+            details on the left, the full raw payload on the right. */}
+        <div className={rawExpanded ? "grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]" : "space-y-4"}>
+          <div className="space-y-4">
+            {/* Metadata */}
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Scenario</p>
+                <p className="font-medium">{incident.scenarioName}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Topic</p>
+                <p className="font-mono text-xs">{incident.topic}</p>
+              </div>
+            </div>
+
+            {/* Summary */}
             <div>
-              <p className="text-xs text-muted-foreground">Scenario</p>
-              <p className="font-medium">{incident.scenarioName}</p>
+              <p className="text-xs text-muted-foreground mb-1">What triggered this</p>
+              <p className="text-sm">{incident.summary || "—"}</p>
             </div>
+
+            {/* HLS Clip */}
             <div>
-              <p className="text-xs text-muted-foreground">Topic</p>
-              <p className="font-mono text-xs">{incident.topic}</p>
+              <p className="text-xs text-muted-foreground mb-1.5">Clip</p>
+              <div className="space-y-2">
+                {incident.clipStatus === "ready" && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span>Replay</span>
+                    <span className="text-emerald-700">● clip ready (S3)</span>
+                  </div>
+                )}
+                <ClipPlayer
+                  src={clipUrl}
+                  seekOffset={SEEK_OFFSET}
+                  clipStatus={incident.clipStatus}
+                  fallbackMeta={{
+                    ts: incident.ts,
+                    sensorId: incident.sensorId,
+                    severity: incident.severity,
+                    summary: incident.summary,
+                    scenarioName: incident.scenarioName,
+                  }}
+                />
+              </div>
             </div>
           </div>
 
-          {/* Summary */}
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">Summary</p>
-            <p className="text-sm">{incident.summary}</p>
-          </div>
-
-          {/* HLS Clip */}
-          <div>
-            <p className="text-xs text-muted-foreground mb-1.5">Clip</p>
-            <div className="space-y-2">
-              {incident.clipStatus === "ready" && (
-                <div className="flex items-center justify-between text-xs">
-                  <span>Replay</span>
-                  <span className="text-emerald-700">● clip ready (S3)</span>
-                </div>
-              )}
-              <ClipPlayer
-                src={clipUrl}
-                seekOffset={SEEK_OFFSET}
-                clipStatus={incident.clipStatus}
-                fallbackMeta={{
-                  ts: incident.ts,
-                  sensorId: incident.sensorId,
-                  severity: incident.severity,
-                  summary: incident.summary,
-                  scenarioName: incident.scenarioName,
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Raw payload */}
+          {/* Raw payload — moves to the right column (taller) when expanded. */}
           <div>
             <div className="mb-1.5 flex items-center justify-between">
               <p className="text-xs text-muted-foreground">Raw Payload</p>
@@ -141,10 +149,10 @@ export function IncidentDetail({ incident, onClose }: IncidentDetailProps) {
             </div>
             <div
               className="overflow-hidden rounded border border-border"
-              style={{ height: rawExpanded ? "70vh" : "192px" }}
+              style={{ height: rawExpanded ? "80vh" : "192px" }}
             >
               <MonacoEditor
-                height={rawExpanded ? "70vh" : "192px"}
+                height={rawExpanded ? "80vh" : "192px"}
                 defaultLanguage="json"
                 value={rawJson}
                 theme="vs-dark"
