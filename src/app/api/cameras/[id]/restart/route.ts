@@ -68,21 +68,24 @@ export const POST = withRequestContext(async function (
     );
   }
 
-  // Resolve the RTSP URL. Priority: stored definition → live VST sensor's
-  // explicit URL → reconstruct from the live sensor's source IP (VST reports
-  // the host it's pulling from as `sensorIp`) → constructed from CAMERA_SIM_HOST
-  // (last resort, sim-only). This keeps the source of truth on the camera's own
-  // stream, not on a sim-specific env var.
+  // Find the live VST sensor for this camera. VST keys deletes by the UUID it
+  // assigned (`sensorId`), not by our camera name, and reports the source host
+  // it's pulling from as `sensorIp`. Pick the active registration (a camera may
+  // have stale "removed" entries lingering in the list).
+  const live = await vstListSensors();
+  const matches = live.sensors.filter((s) => s.sensor_id === id);
+  const active =
+    matches.find((s) => s.status === "online") ??
+    matches.find((s) => s.isTimelinePresent) ??
+    matches[0];
+
+  // Resolve the RTSP URL. Priority: stored definition → live sensor's explicit
+  // URL → reconstruct from the live sensor's source IP → constructed from
+  // CAMERA_SIM_HOST (last resort, sim-only). Keeps the source of truth on the
+  // camera's own stream, not on a sim-specific env var.
   let rtspUrl = stored?.rtspUrl?.trim() || "";
-  if (!rtspUrl) {
-    const live = await vstListSensors();
-    const sensor = live.sensors.find((s) => s.sensor_id === id);
-    if (sensor?.rtsp_url) {
-      rtspUrl = sensor.rtsp_url;
-    } else if (sensor?.sensorIp) {
-      rtspUrl = `rtsp://${sensor.sensorIp}:8554/${id}`;
-    }
-  }
+  if (!rtspUrl && active?.rtsp_url) rtspUrl = active.rtsp_url;
+  if (!rtspUrl && active?.sensorIp) rtspUrl = `rtsp://${active.sensorIp}:8554/${id}`;
   if (!rtspUrl) {
     const camsimHost = process.env.CAMERA_SIM_HOST;
     if (camsimHost && !camsimHost.startsWith("<")) {
@@ -96,8 +99,11 @@ export const POST = withRequestContext(async function (
     );
   }
 
-  // Primary action: bounce VST ingest (unregister → re-register).
-  const del = await vstDeleteSensor(id);
+  // Primary action: bounce VST ingest (unregister → re-register). Delete by the
+  // UUID sensorId (a name-keyed delete 404s and leaves the old sensor live,
+  // making the re-add collide).
+  const uuid = active?.streamId != null ? String(active.streamId) : "";
+  const del = await vstDeleteSensor(uuid || id);
   if (!del.ok && del.warning) warnings.push(del.warning);
   const add = await vstAddSensor({ sensorId: id, rtspUrl, description: stored?.description });
   if (!add.ok && add.warning) warnings.push(add.warning);
