@@ -795,6 +795,11 @@ function MediamtxStatus({ runtimeState }: { runtimeState?: NodeRuntimeState }) {
           Path count unavailable — mediamtx not probed in this snapshot.
         </p>
       )}
+      <p className="text-xs text-muted-foreground">
+        Serves the camera-sim-sourced feeds only. Real local cameras register
+        straight into VST with their own IP and are unaffected if this is
+        unreachable.
+      </p>
     </div>
   );
 }
