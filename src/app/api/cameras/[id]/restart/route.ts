@@ -79,22 +79,29 @@ export const POST = withRequestContext(async function (
     matches.find((s) => s.isTimelinePresent) ??
     matches[0];
 
-  // Resolve the RTSP URL. Priority: stored definition → live sensor's explicit
-  // URL → reconstruct from the live sensor's source IP → constructed from
-  // CAMERA_SIM_HOST (last resort, sim-only). Keeps the source of truth on the
-  // camera's own stream, not on a sim-specific env var.
+  // Resolve the RTSP URL from the camera's own definition. NEVER construct it
+  // from host+id: the source publishes arbitrary path names (e.g. the pyramid
+  // camera-sim serves aisle-1 as `gcp-aisle-1-h264`), so a `rtsp://<host>/<id>`
+  // guess silently registers a dead stream. Priority: config store (Firestore
+  // on k8s, GCS on docker) → GCS camera doc (holds the real URLs even when the
+  // Firestore entry doesn't) → the live VST sensor's explicit URL.
   let rtspUrl = stored?.rtspUrl?.trim() || "";
-  if (!rtspUrl && active?.rtsp_url) rtspUrl = active.rtsp_url;
-  if (!rtspUrl && active?.sensorIp) rtspUrl = `rtsp://${active.sensorIp}:8554/${id}`;
-  if (!rtspUrl) {
-    const camsimHost = process.env.CAMERA_SIM_HOST;
-    if (camsimHost && !camsimHost.startsWith("<")) {
-      rtspUrl = `rtsp://${camsimHost}:8554/${id}`;
+  if (!rtspUrl && VSS_INSTANCE_NAME) {
+    try {
+      const doc = await gcsCamerasGet(VSS_INSTANCE_NAME);
+      rtspUrl = doc?.cameras.find((c) => c.id === id)?.rtspUrl?.trim() || "";
+    } catch (err) {
+      warnings.push(
+        `GCS camera lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
+  if (!rtspUrl && active?.rtsp_url) rtspUrl = active.rtsp_url;
   if (!rtspUrl) {
     return NextResponse.json(
-      { error: `No RTSP URL known for camera '${id}' — cannot restart ingest.` },
+      {
+        error: `No RTSP URL known for camera '${id}' — cannot restart ingest. The camera has no rtspUrl in the config store or GCS camera list.`,
+      },
       { status: 400 },
     );
   }
