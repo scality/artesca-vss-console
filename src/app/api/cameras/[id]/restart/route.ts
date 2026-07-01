@@ -68,13 +68,20 @@ export const POST = withRequestContext(async function (
     );
   }
 
-  // Resolve the RTSP URL: stored definition → live VST sensor → constructed
-  // from CAMERA_SIM_HOST (last resort, sim-only).
+  // Resolve the RTSP URL. Priority: stored definition → live VST sensor's
+  // explicit URL → reconstruct from the live sensor's source IP (VST reports
+  // the host it's pulling from as `sensorIp`) → constructed from CAMERA_SIM_HOST
+  // (last resort, sim-only). This keeps the source of truth on the camera's own
+  // stream, not on a sim-specific env var.
   let rtspUrl = stored?.rtspUrl?.trim() || "";
   if (!rtspUrl) {
     const live = await vstListSensors();
     const sensor = live.sensors.find((s) => s.sensor_id === id);
-    if (sensor && typeof sensor.rtsp_url === "string") rtspUrl = sensor.rtsp_url;
+    if (sensor?.rtsp_url) {
+      rtspUrl = sensor.rtsp_url;
+    } else if (sensor?.sensorIp) {
+      rtspUrl = `rtsp://${sensor.sensorIp}:8554/${id}`;
+    }
   }
   if (!rtspUrl) {
     const camsimHost = process.env.CAMERA_SIM_HOST;
