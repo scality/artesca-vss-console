@@ -379,7 +379,6 @@ interface VstSensorRaw {
   fps?: number;
   gop?: number;
   last_frame_ts?: number; // epoch ms
-  registered?: boolean;
   [key: string]: unknown;
 }
 
@@ -410,15 +409,16 @@ async function collectFeeds(
 
     const nowMs = Date.now();
 
-    // RTSP host: prefer the operator-configured camera-sim host, fall back to
-    // the source IP VST recorded. The stream path is the camera `name` (the
-    // mediamtx path), NOT the VST sensorId UUID.
-    const rtspHost = process.env.CAMERA_SIM_HOST?.trim() || null;
+    // RTSP host: sources are mixed (camera-sim + real local cameras), so
+    // prefer the per-sensor IP VST actually recorded; CAMERA_SIM_HOST is only
+    // a fallback for sensors VST didn't record an IP for. The stream path is
+    // the camera `name` (the mediamtx path), NOT the VST sensorId UUID.
+    const rtspHostFallback = process.env.CAMERA_SIM_HOST?.trim() || null;
 
     return sensors.map((s) => {
       const sensorId = s.sensor_id ?? s.sensorId ?? "unknown";
       const name = s.name ?? null;
-      const host = rtspHost ?? s.sensorIp ?? null;
+      const host = s.sensorIp || rtspHostFallback || null;
       const lastFrameTs =
         typeof s.last_frame_ts === "number" ? s.last_frame_ts : null;
       const rawCodec = (s.codec ?? "").toLowerCase();
@@ -442,7 +442,11 @@ async function collectFeeds(
             s.width && s.height ? { width: s.width, height: s.height } : null,
           fps: s.fps ?? null,
           gop: s.gop ?? null,
-          vstRegistered: s.registered ?? true,
+          // VST's /sensor/list has no "registered" field — it keeps deleted
+          // sensors around as state:"removed" instead of dropping them, so a
+          // sensor only counts as registered while VST still considers it
+          // live (matches the removed-filter in /api/topology/route.ts).
+          vstRegistered: s.state !== "removed" && Boolean(name),
           lastFrameAgoMs:
             lastFrameTs !== null ? nowMs - lastFrameTs : null,
         } satisfies FeedState,
@@ -1098,9 +1102,14 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
   };
 
   // ── mediamtx node (RTSP server on the camera-sim host) ─────────────────────
+  // camera-sim/mediamtx is one optional RTSP source among possibly several —
+  // real local cameras register straight into VST with their own sensorIp and
+  // keep streaming regardless of mediamtx's health. So an unreachable
+  // mediamtx degrades only the camera-sim-sourced feeds, never the whole
+  // pipeline — "warn", not "fail".
   if (mediamtxState) {
     const mtxHealth: PipelineHealth = !mediamtxState.reachable
-      ? "fail"
+      ? "warn"
       : mediamtxState.pathsTotal > 0
         ? "ok"
         : "warn";
