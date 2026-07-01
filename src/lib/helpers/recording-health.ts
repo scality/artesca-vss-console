@@ -16,10 +16,17 @@ import type { VstSensor } from "@/lib/helpers/vst";
 export type RecordingStatus = "recording" | "not-recording" | "unknown";
 
 const TTL_MS = 45_000;
-// A short slice ending ~20s in the past — recent enough to reflect "now",
-// old enough that the segment has finalized (a live edge can 404 spuriously).
-const LOOKBACK_END_MS = 20_000;
-const WINDOW_MS = 3_000;
+// The probe asks "does VST hold ANY recorded video in a recent finalized
+// window?" — 200 anywhere in [start,end] = recording. Two cluster realities
+// force a WIDE window (measured on Pyramid): (1) finalization lag — low-bitrate
+// gcp cams finalize in ~3s but high-bitrate faytech cams (multi-MB segments)
+// take ~35s, so the recent edge must sit well past that; (2) source gaps — the
+// looped gcp streams record intermittently, so a narrow window lands between
+// segments and 404s a camera that IS recording. A window ending 30s ago and
+// spanning 60s ([now-90s, now-30s]) clears both (verified 7/7); the recent edge
+// still reflects "recording now" and the 45s cache keeps VST load bounded.
+const LOOKBACK_END_MS = 30_000;
+const WINDOW_MS = 60_000;
 
 const cache = new Map<string, { status: RecordingStatus; at: number }>();
 
@@ -41,7 +48,7 @@ export async function probeRecording(streamId: string): Promise<RecordingStatus>
 
   let status: RecordingStatus = "unknown";
   try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(8_000), cache: "no-store" });
+    const resp = await fetch(url, { signal: AbortSignal.timeout(15_000), cache: "no-store" });
     try {
       await resp.body?.cancel();
     } catch {
