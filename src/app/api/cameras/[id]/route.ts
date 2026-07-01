@@ -35,6 +35,24 @@ export const dynamic = "force-dynamic";
 
 const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 
+/**
+ * Read a camera's authoritative definition from the config store — Firestore
+ * on the k8s path, GCS on the docker path. Independent of the camera-sim
+ * control-plane: a camera is defined by its RTSP URL, not by the simulator.
+ */
+async function readStoredCameraEntry(id: string): Promise<CameraEntry | undefined> {
+  if (process.env.CONSOLE_RUNTIME !== "docker") {
+    const { makeReconcileContext } = await import("@/lib/reconcile/context");
+    const ctx = await makeReconcileContext();
+    return (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
+  }
+  if (VSS_INSTANCE_NAME) {
+    const list = await gcsCamerasGet(VSS_INSTANCE_NAME);
+    return list?.cameras.find((c) => c.id === id);
+  }
+  return undefined;
+}
+
 // ─── GET — single camera overrides ────────────────────────────────────────────
 
 export async function GET(
@@ -316,58 +334,62 @@ export const PATCH = withRequestContext(async function (
   const update = parsed.data;
   const warnings: string[] = [];
 
-  // Read current state from control-plane.
-  let current: Awaited<ReturnType<typeof camsimListCameras>>[number] | undefined;
+  // The config store (Firestore/GCS) is authoritative for a camera's
+  // definition. The camera-sim entry is consulted only for its synthetic
+  // source file — a camera defined by RTSP URL alone need not exist there.
+  let stored: CameraEntry | undefined;
   try {
-    const all = await camsimListCameras();
-    current = all.find((c) => c.name === id);
+    stored = await readStoredCameraEntry(id);
   } catch (err) {
-    const status = err instanceof CamsimControlError ? err.status : 502;
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status },
+    warnings.push(
+      `config store read failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  if (!current) {
-    return NextResponse.json(
-      { error: `Camera '${id}' not found on camera-sim` },
-      { status: 404 },
-    );
+
+  let simEntry: Awaited<ReturnType<typeof camsimListCameras>>[number] | undefined;
+  try {
+    simEntry = (await camsimListCameras()).find((c) => c.name === id);
+  } catch {
+    // Control-plane unreachable — the sim republish below is skipped.
+  }
+
+  if (!stored && !simEntry) {
+    return NextResponse.json({ error: `Camera '${id}' not found` }, { status: 404 });
   }
 
   const feed = update.feeds?.[0];
-  const newSource = feed?.fileName ?? current.source;
-  const newDescription = update.description ?? current.description;
+  const newSource = feed?.fileName ?? simEntry?.source;
+  const newDescription =
+    update.description ?? stored?.description ?? simEntry?.description;
 
-  // Upload replacement file if one was supplied (control-plane HTTP, no SSH).
+  // Upload a replacement synthetic source file if supplied — best-effort
+  // (only meaningful for camera-sim streams; failure must not block the edit).
   if (feed?.fileName && feed.fileBase64) {
     try {
       const buf = Buffer.from(feed.fileBase64, "base64");
       await camsimUploadFile(feed.fileName, buf);
     } catch (err) {
-      const status = err instanceof CamsimControlError ? err.status : 502;
-      return NextResponse.json(
-        { error: `Upload failed: ${err instanceof Error ? err.message : String(err)}` },
-        { status },
+      warnings.push(
+        `source upload skipped: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
 
-  // Replace the entry atomically: delete then re-add. Two stack restarts
-  // worst-case (~20s) — acceptable for a rarely-used operation.
-  try {
-    await camsimDeleteCamera(id);
-    await camsimAddCamera({
-      name: id,
-      source: newSource,
-      description: newDescription,
-    });
-  } catch (err) {
-    const status = err instanceof CamsimControlError ? err.status : 502;
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status },
-    );
+  // Bounce the camera-sim publisher (delete + re-add) when this is a sim
+  // stream and the control-plane is reachable — best-effort side-effect.
+  if (simEntry && newSource) {
+    try {
+      await camsimDeleteCamera(id);
+      await camsimAddCamera({
+        name: id,
+        source: newSource,
+        description: newDescription,
+      });
+    } catch (err) {
+      warnings.push(
+        `camera-sim update skipped: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   // k8s path: upsert the updated entry to Firestore + apply to cluster.
@@ -422,14 +444,15 @@ export const DELETE = withRequestContext(async function (
     warnings.push(err instanceof Error ? err.message : String(err));
   }
 
-  // 1. Remove from cameras.yaml + mediamtx.yml via control-plane.
+  // 1. Remove from the camera-sim publisher (cameras.yaml + mediamtx.yml) —
+  //    best-effort. Only relevant when the source is our simulator; a camera
+  //    defined solely by its RTSP URL has nothing here. Failure must not block
+  //    the authoritative VST + config-store removal below.
   try {
     await camsimDeleteCamera(id);
   } catch (err) {
-    const status = err instanceof CamsimControlError ? err.status : 502;
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status },
+    warnings.push(
+      `camera-sim delete skipped: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
