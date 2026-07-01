@@ -116,11 +116,16 @@ export async function vstAddSensor(input: {
   rtspUrl: string;
   description?: string;
 }): Promise<{ ok: boolean; warning?: string }> {
+  // `username` is a REQUIRED field for sensor/add — omitting it registers the
+  // sensor but the recorder never starts a pipeline (sensor comes up online but
+  // never records). Empty string is valid. This is the difference between a
+  // camera that shows up and one that actually records.
   const body: Record<string, string> = {
     sensorUrl: input.rtspUrl,
     name: input.sensorId,
+    username: "",
   };
-  if (input.description) body.location = input.description;
+  if (input.description) body.description = input.description;
 
   try {
     const resp = await fetch(CLUSTER.vst.sensorAddUrl, {

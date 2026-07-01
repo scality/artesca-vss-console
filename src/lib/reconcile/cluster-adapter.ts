@@ -1,6 +1,6 @@
 import "server-only";
 
-import { vstListSensors, vstAddSensor } from "@/lib/helpers/vst";
+import { vstListSensors, vstAddSensor, vstStartStream } from "@/lib/helpers/vst";
 import { appsV1, rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import {
@@ -62,7 +62,14 @@ export class VstClusterAdapter implements ClusterAdapter {
     rtspUrl: string,
     description?: string,
   ): Promise<{ ok: boolean; warning?: string }> {
-    return vstAddSensor({ sensorId: name, rtspUrl, description });
+    // Step 1: register metadata. Step 2: start the recording pipeline
+    // (proxy/stream/add) — required for the recorder to actually record;
+    // no-op where the proxy endpoint is unset (legacy path).
+    const add = await vstAddSensor({ sensorId: name, rtspUrl, description });
+    if (!add.ok) return add;
+    const stream = await vstStartStream({ sensorId: name, rtspUrl });
+    if (!stream.ok && stream.warning) return { ok: true, warning: stream.warning };
+    return { ok: true };
   }
   // removeSensor intentionally omitted — convergence is additive-only here.
 
