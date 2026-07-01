@@ -201,7 +201,8 @@ async function fetchFeedNodes(
     for (const s of sensors) {
       const lifecycle = s.state ?? s.status;
       if (lifecycle === "removed") continue;
-      const key = s.name ?? s.sensor_id ?? s.sensorId ?? "";
+      const key = (s.name ?? "").trim();
+      if (!key) continue; // skip nameless sensors — not a real camera to render
       const existing = activeByName.get(key);
       if (!existing || (existing.state ?? existing.status) !== "online") {
         activeByName.set(key, s);
