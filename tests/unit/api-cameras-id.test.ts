@@ -518,7 +518,7 @@ describe("DELETE /api/cameras/[id]", () => {
     );
   });
 
-  it("DELETE: camsim delete fails → returns error, VST + GCS not called", async () => {
+  it("DELETE: camsim delete fails → best-effort warning, VST + config-store removal still authoritative", async () => {
     vi.mocked(camsimDeleteCamera).mockRejectedValueOnce(
       new CamsimControlError("camera not found", 404),
     );
@@ -526,14 +526,16 @@ describe("DELETE /api/cameras/[id]", () => {
     const req = makeRequest("DELETE");
     const res = await DELETE(req, makeParams("cam01"));
 
-    // camsimDeleteCamera threw — route returns that error
-    expect([404, 502]).toContain(res.status);
+    // camsim delete is best-effort — it must NOT block the authoritative
+    // VST + config-store removal; the failure surfaces as a warning.
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.error).toBeDefined();
-    // VST and GCS must NOT be called when camsim fails
-    expect(vstDeleteSensor).not.toHaveBeenCalled();
-    expect(writeToGcs).not.toHaveBeenCalled();
-    expect(auditLog).not.toHaveBeenCalled();
+    expect(body.ok).toBe(true);
+    expect(
+      (body.warnings as string[]).some((w) => /camera-sim delete skipped/i.test(w)),
+    ).toBe(true);
+    expect(vstDeleteSensor).toHaveBeenCalled();
+    expect(auditLog).toHaveBeenCalled();
   });
 
   it("DELETE rollback: VST delete fails after camsim succeeds → camsim NOT rolled back, warning in response, audit still logged", async () => {
