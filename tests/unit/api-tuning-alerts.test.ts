@@ -10,16 +10,9 @@ vi.mock("@/lib/kiosk-server", () => ({
   rejectIfKiosk: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock("@/lib/k8s", () => ({
-  coreV1: vi.fn(() => ({
-    readNamespacedConfigMap: vi.fn(),
-    patchNamespacedConfigMap: vi.fn(),
-    replaceNamespacedConfigMap: vi.fn(),
-  })),
-  rolloutRestart: vi.fn().mockResolvedValue(undefined),
-}));
-
-// Cooldown is enforced per-scenario in the scenarios ConfigMap on every layout.
+// Cooldown is enforced per-scenario. On k8s, Firestore is the source of truth
+// for scenarios (the scenarios ConfigMap is reconciled FROM it), so the route
+// reads/writes through the config store + triggers a reconcile.
 vi.mock("@/lib/cluster-refs", () => ({
   CLUSTER: {
     legacy: true,
@@ -38,25 +31,30 @@ vi.mock("@/lib/cluster-refs", () => ({
   },
 }));
 
-vi.mock("@/lib/helpers/configmaps", () => ({
-  readConfigMapKey: vi.fn(),
-  patchConfigMapKey: vi.fn().mockResolvedValue(undefined),
-  patchConfigMapRawKey: vi.fn().mockResolvedValue(undefined),
-  replaceConfigMapData: vi.fn().mockResolvedValue(undefined),
+class ReconcileContextError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReconcileContextError";
+  }
+}
+
+const mockReadScenarios = vi.fn();
+const mockWriteScenarios = vi.fn();
+const mockMakeReconcileContext = vi.fn();
+
+vi.mock("@/lib/reconcile/context", () => ({
+  ReconcileContextError,
+  makeReconcileContext: (...args: unknown[]) => mockMakeReconcileContext(...args),
+}));
+
+const mockReconcileScenarios = vi.fn();
+
+vi.mock("@/lib/reconcile/scenarios", () => ({
+  reconcileScenarios: (...args: unknown[]) => mockReconcileScenarios(...args),
 }));
 
 vi.mock("@/lib/helpers/audit", () => ({
   auditLog: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("@/lib/errors", () => ({
-  extractK8sError: vi.fn((err: unknown) => {
-    if (err !== null && typeof err === "object") {
-      const e = err as { code?: number; message?: string };
-      return { status: e.code ?? 500, message: e.message ?? "kubernetes error" };
-    }
-    return { status: 500, message: String(err) };
-  }),
 }));
 
 vi.mock("@/lib/helpers/docker-sock", () => ({
@@ -78,9 +76,8 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
-import { coreV1, rolloutRestart } from "@/lib/k8s";
-import { patchConfigMapKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
+import type { ScenarioEntry } from "@/lib/config-store/types";
 
 import { GET, PATCH } from "@/app/api/tuning/alerts/route";
 
@@ -98,42 +95,43 @@ function makeRequest(method: string, body?: unknown): NextRequest {
   }) as unknown as NextRequest;
 }
 
-function scenariosCm(yaml: string) {
-  return { metadata: { resourceVersion: "1" }, data: { "scenarios.yaml": yaml } };
+function scenarioEntry(overrides: Partial<ScenarioEntry> & { id: string }): ScenarioEntry {
+  return {
+    name: overrides.id,
+    severity: "medium",
+    channels: ["ui"],
+    sensor_filter: "*",
+    keywords: [],
+    enabled: true,
+    ...overrides,
+  };
 }
 
-const TWO_SCENARIOS = `scenarios:
-  - id: forklift
-    name: Forklift
-    cooldown_seconds: 180
-  - id: intrusion
-    name: Intrusion
-    cooldown_seconds: 60
-`;
+const TWO_SCENARIOS: ScenarioEntry[] = [
+  scenarioEntry({ id: "forklift", name: "Forklift", cooldown_seconds: 180 }),
+  scenarioEntry({ id: "intrusion", name: "Intrusion", cooldown_seconds: 60 }),
+];
 
 // ── Setup ────────────────────────────────────────────────────────────────────
 
-let mockCoreV1Api: {
-  readNamespacedConfigMap: ReturnType<typeof vi.fn>;
-  patchNamespacedConfigMap: ReturnType<typeof vi.fn>;
-  replaceNamespacedConfigMap: ReturnType<typeof vi.fn>;
-};
+const INSTANCE = "test-instance";
 
 beforeEach(() => {
-  mockCoreV1Api = {
-    readNamespacedConfigMap: vi.fn().mockResolvedValue(scenariosCm(TWO_SCENARIOS)),
-    patchNamespacedConfigMap: vi.fn().mockResolvedValue({}),
-    replaceNamespacedConfigMap: vi.fn().mockResolvedValue({}),
-  };
-
   vi.mocked(auth).mockReset().mockResolvedValue({
     user: { name: "operator", email: "operator@test.com" },
   } as never);
   vi.mocked(rejectIfKiosk).mockReset().mockResolvedValue(null);
-  vi.mocked(coreV1).mockReset().mockReturnValue(mockCoreV1Api as never);
-  vi.mocked(rolloutRestart).mockReset().mockResolvedValue(undefined);
-  vi.mocked(patchConfigMapKey).mockReset().mockResolvedValue(undefined);
   vi.mocked(auditLog).mockReset().mockResolvedValue(undefined);
+
+  mockReadScenarios.mockReset().mockResolvedValue(structuredClone(TWO_SCENARIOS));
+  mockWriteScenarios.mockReset().mockResolvedValue(undefined);
+  mockReconcileScenarios.mockReset().mockResolvedValue({ updated: true });
+  mockMakeReconcileContext.mockReset().mockResolvedValue({
+    store: { readScenarios: mockReadScenarios, writeScenarios: mockWriteScenarios },
+    adapter: { adapter: true },
+    refs: { scenarios: { ns: "alerts", configMap: "scenarios", yamlKey: "scenarios.yaml", alertWorkerDeployment: "alert-worker" } },
+    instance: INSTANCE,
+  });
 
   delete process.env.CONSOLE_RUNTIME;
 });
@@ -151,19 +149,18 @@ describe("GET /api/tuning/alerts", () => {
     expect(body.error).toMatch(/unauthorized/i);
   });
 
-  it("happy path: returns the max cooldown_seconds across scenarios", async () => {
+  it("happy path: returns the max cooldown_seconds across scenarios from the store", async () => {
     const res = await GET();
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.cooldownSeconds).toBe(180);
     expect(body.slackWebhookConfigured).toBe(false);
+    expect(mockReadScenarios).toHaveBeenCalledWith(INSTANCE);
   });
 
   it("scenarios with no cooldown set → 0", async () => {
-    mockCoreV1Api.readNamespacedConfigMap.mockResolvedValue(
-      scenariosCm("scenarios:\n  - id: a\n    name: A\n"),
-    );
+    mockReadScenarios.mockResolvedValue([scenarioEntry({ id: "a", name: "A" })]);
 
     const res = await GET();
 
@@ -172,29 +169,36 @@ describe("GET /api/tuning/alerts", () => {
     expect(body.cooldownSeconds).toBe(0);
   });
 
-  it("scenarios ConfigMap absent (404) → defaults with warning", async () => {
-    mockCoreV1Api.readNamespacedConfigMap.mockRejectedValue(
-      Object.assign(new Error("configmap not found"), { code: 404 }),
-    );
+  it("no scenarios in store → 0", async () => {
+    mockReadScenarios.mockResolvedValue([]);
+
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.cooldownSeconds).toBe(0);
+  });
+
+  it("config store unavailable (ReconcileContextError) → defaults with warning", async () => {
+    mockMakeReconcileContext.mockRejectedValue(new ReconcileContextError("VSS_INSTANCE_NAME unset"));
 
     const res = await GET();
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.cooldownSeconds).toBe(120);
-    expect(body.warning).toMatch(/not found/i);
+    expect(body.warning).toMatch(/config store unavailable/i);
+    expect(mockReadScenarios).not.toHaveBeenCalled();
   });
 
-  it("scenarios ConfigMap read fails (503) → error status", async () => {
-    mockCoreV1Api.readNamespacedConfigMap.mockRejectedValue(
-      Object.assign(new Error("api server down"), { code: 503 }),
-    );
+  it("store read throws non-context error → 502", async () => {
+    mockReadScenarios.mockRejectedValue(new Error("firestore read failed"));
 
     const res = await GET();
 
-    expect(res.status).toBe(503);
+    expect(res.status).toBe(502);
     const body = await res.json();
-    expect(body.error).toBeDefined();
+    expect(body.error).toMatch(/firestore read failed/i);
   });
 });
 
@@ -208,7 +212,7 @@ describe("PATCH /api/tuning/alerts", () => {
     const res = await PATCH(req);
 
     expect(res.status).toBe(401);
-    expect(patchConfigMapKey).not.toHaveBeenCalled();
+    expect(mockWriteScenarios).not.toHaveBeenCalled();
   });
 
   it("kiosk mode → 403, no writes", async () => {
@@ -220,7 +224,7 @@ describe("PATCH /api/tuning/alerts", () => {
     const res = await PATCH(req);
 
     expect(res.status).toBe(403);
-    expect(patchConfigMapKey).not.toHaveBeenCalled();
+    expect(mockWriteScenarios).not.toHaveBeenCalled();
   });
 
   it("invalid body: empty object → 400, no writes", async () => {
@@ -228,7 +232,7 @@ describe("PATCH /api/tuning/alerts", () => {
     const res = await PATCH(req);
 
     expect(res.status).toBe(400);
-    expect(patchConfigMapKey).not.toHaveBeenCalled();
+    expect(mockWriteScenarios).not.toHaveBeenCalled();
   });
 
   it("invalid body: negative cooldown → 400, no writes", async () => {
@@ -236,10 +240,10 @@ describe("PATCH /api/tuning/alerts", () => {
     const res = await PATCH(req);
 
     expect(res.status).toBe(400);
-    expect(patchConfigMapKey).not.toHaveBeenCalled();
+    expect(mockWriteScenarios).not.toHaveBeenCalled();
   });
 
-  it("happy path: cooldown applied to all scenarios, alert-worker restarted, audited", async () => {
+  it("happy path: cooldown written to all scenarios in the store, reconcile triggered, audited", async () => {
     const req = makeRequest("PATCH", { cooldownSeconds: 300 });
     const res = await PATCH(req);
 
@@ -249,67 +253,89 @@ describe("PATCH /api/tuning/alerts", () => {
     expect(body.applied.cooldownSeconds).toBe(300);
     expect(body.scenariosUpdated).toBe(2);
 
-    expect(patchConfigMapKey).toHaveBeenCalledWith(
-      "alerts",
-      "scenarios",
-      "scenarios.yaml",
-      expect.objectContaining({
-        scenarios: expect.arrayContaining([
-          expect.objectContaining({ id: "forklift", cooldown_seconds: 300 }),
-          expect.objectContaining({ id: "intrusion", cooldown_seconds: 300 }),
-        ]),
-      }),
+    expect(mockWriteScenarios).toHaveBeenCalledWith(
+      INSTANCE,
+      expect.arrayContaining([
+        expect.objectContaining({ id: "forklift", cooldown_seconds: 300 }),
+        expect.objectContaining({ id: "intrusion", cooldown_seconds: 300 }),
+      ]),
+      "operator@test.com",
     );
-    expect(rolloutRestart).toHaveBeenCalledWith("Deployment", "alerts", "alert-worker");
+    // Every scenario got the new cooldown — none left at its old value.
+    const writtenEntries = mockWriteScenarios.mock.calls[0][1] as ScenarioEntry[];
+    expect(writtenEntries).toHaveLength(2);
+    expect(writtenEntries.every((s) => s.cooldown_seconds === 300)).toBe(true);
+
+    expect(mockReconcileScenarios).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "forklift", cooldown_seconds: 300 }),
+        expect.objectContaining({ id: "intrusion", cooldown_seconds: 300 }),
+      ]),
+      expect.anything(),
+      expect.objectContaining({ configMap: "scenarios", alertWorkerDeployment: "alert-worker" }),
+    );
     expect(auditLog).toHaveBeenCalledWith(
       "tuning-alerts",
-      expect.stringContaining("scenarios"),
+      expect.stringContaining(INSTANCE),
       expect.objectContaining({ cooldownSeconds: "300", scenariosUpdated: "2" }),
     );
   });
 
-  it("slack-only PATCH → no-op (cooldown only on this chart), no scenarios write", async () => {
+  it("slack-only PATCH → no-op (cooldown only on this chart), no store write / reconcile", async () => {
     const req = makeRequest("PATCH", { slackWebhookConfigured: true });
     const res = await PATCH(req);
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(patchConfigMapKey).not.toHaveBeenCalled();
-    expect(rolloutRestart).not.toHaveBeenCalled();
+    expect(mockWriteScenarios).not.toHaveBeenCalled();
+    expect(mockReconcileScenarios).not.toHaveBeenCalled();
   });
 
-  it("no scenarios to update → 409", async () => {
-    mockCoreV1Api.readNamespacedConfigMap.mockResolvedValue(scenariosCm("scenarios: []\n"));
+  it("no scenarios to update → 409, no write", async () => {
+    mockReadScenarios.mockResolvedValue([]);
 
     const req = makeRequest("PATCH", { cooldownSeconds: 60 });
     const res = await PATCH(req);
 
     expect(res.status).toBe(409);
-    expect(patchConfigMapKey).not.toHaveBeenCalled();
+    expect(mockWriteScenarios).not.toHaveBeenCalled();
   });
 
-  it("scenarios patch fails → error status, no audit", async () => {
-    vi.mocked(patchConfigMapKey).mockRejectedValue(
-      Object.assign(new Error("k8s write failed"), { code: 503 }),
-    );
-
-    const req = makeRequest("PATCH", { cooldownSeconds: 60 });
-    const res = await PATCH(req);
-
-    expect(res.status).toBe(503);
-    expect(auditLog).not.toHaveBeenCalled();
-  });
-
-  it("rollout restart fails → 502, no audit", async () => {
-    vi.mocked(rolloutRestart).mockRejectedValue(new Error("rollout failed"));
+  it("config store unavailable (ReconcileContextError) → 502, no audit", async () => {
+    mockMakeReconcileContext.mockRejectedValue(new ReconcileContextError("Firestore init failed"));
 
     const req = makeRequest("PATCH", { cooldownSeconds: 60 });
     const res = await PATCH(req);
 
     expect(res.status).toBe(502);
     const body = await res.json();
-    expect(body.error).toMatch(/rollout restart failed/i);
+    expect(body.error).toMatch(/read scenarios failed/i);
     expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it("store write fails → 502, no audit", async () => {
+    mockWriteScenarios.mockRejectedValue(new Error("firestore write failed"));
+
+    const req = makeRequest("PATCH", { cooldownSeconds: 60 });
+    const res = await PATCH(req);
+
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toMatch(/write scenarios failed/i);
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it("reconcile returns an error → 200 with warning, still audited", async () => {
+    mockReconcileScenarios.mockResolvedValue({ updated: false, error: "restart failed" });
+
+    const req = makeRequest("PATCH", { cooldownSeconds: 60 });
+    const res = await PATCH(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.warnings).toContain("restart failed");
+    expect(auditLog).toHaveBeenCalled();
   });
 });
