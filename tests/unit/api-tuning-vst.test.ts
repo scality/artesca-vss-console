@@ -20,15 +20,20 @@ vi.mock("@/lib/k8s", () => ({
 }));
 
 // Force legacy layout so VST namespace/ConfigMap names match test assertions.
+// Legacy shares one ConfigMap + Deployment kind across both components; the
+// Helm path (not exercised here) splits them — see cluster-refs.ts.
 vi.mock("@/lib/cluster-refs", () => ({
   CLUSTER: {
     legacy: true,
     vst: {
       namespace: "vst",
-      configMap: "vst-config",
+      sensorConfigMap: "vst-config",
+      streamProcessingConfigMap: "vst-config",
       configKey: "vst_config.json",
       sensorDeployment: "sensor-ms",
+      sensorKind: "Deployment",
       streamProcessingDeployment: "streamprocessing-ms",
+      streamProcessingKind: "Deployment",
       sensorListUrl: "http://sensor-ms.vst.svc.cluster.local:30000/api/v1/live/sensor/list",
     },
   },
@@ -349,7 +354,7 @@ describe("PATCH /api/tuning/vst", () => {
 
     expect(res.status).toBe(502);
     const body = await res.json();
-    expect(body.error).toMatch(/rollout restart of sensor-ms failed/i);
+    expect(body.error).toMatch(/rollout restart of deployment\/sensor-ms failed/i);
     expect(auditLog).not.toHaveBeenCalled();
   });
 
