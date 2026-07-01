@@ -5,8 +5,8 @@ import { auditLog } from "@/lib/helpers/audit";
 import {
   vstListSensors,
   vstAddSensor,
+  vstStartStream,
   vstDeleteSensor,
-  setRecording,
 } from "@/lib/helpers/vst";
 import {
   camsimListCameras,
@@ -121,12 +121,11 @@ export const POST = withRequestContext(async function (
     );
   }
 
-  // Re-arm recording if the stored policy had it enabled (no-op on the k8s
-  // path where proxyStreamAddUrl is empty).
-  if (stored?.recording?.enabled) {
-    const rec = await setRecording(id, true, rtspUrl);
-    if (!rec.ok && rec.warning) warnings.push(rec.warning);
-  }
+  // Step 2: start the recording pipeline (proxy/stream/add). A bare sensor/add
+  // registers the sensor but the recorder never records it — this call is what
+  // actually (re)starts recording. No-op where the proxy endpoint is unset.
+  const stream = await vstStartStream({ sensorId: id, rtspUrl });
+  if (!stream.ok && stream.warning) warnings.push(stream.warning);
 
   // Best-effort: bounce the camera-sim publisher when this camera's source is
   // our simulator and the control-plane is reachable. Failures are warnings.
