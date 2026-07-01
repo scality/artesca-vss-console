@@ -76,7 +76,9 @@ describe("GET /api/incidents", () => {
     expect(body.incidents[0]).toMatchObject({
       ts: "2026-05-10T10:00:00Z",
       scenarioId: "retail_activity",
-      scenarioName: "Shoplifting detector",
+      // scenarioName derives from the incident category (the matched scenario),
+      // not the analyticsModule's single generic detector description.
+      scenarioName: "Retail activity",
       severity: "high",
       sensorId: "cam-01",
       topic: "mdx-vlm-incidents",

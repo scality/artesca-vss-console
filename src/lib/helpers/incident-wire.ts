@@ -42,15 +42,64 @@ function severityForCategory(category: unknown, isAnomaly: unknown): "high" | "m
   return CATEGORY_SEVERITY[c] ?? (isAnomaly ? "high" : "medium");
 }
 
+// Friendly per-scenario names. The incident's `category` IS the matched
+// scenario id — deriving the name from it gives each alert its real scenario
+// name instead of the analyticsModule's single generic detector description.
+const CATEGORY_NAME: Record<string, string> = {
+  "self-checkout-theft": "Self-checkout theft",
+  "forklift-safety": "Forklift safety",
+  intrusion: "Intrusion / after-hours",
+  "shelf-restock": "Shelf restocking",
+};
+
+function scenarioNameForCategory(category: unknown): string {
+  const c = typeof category === "string" ? category : "";
+  if (CATEGORY_NAME[c]) return CATEGORY_NAME[c];
+  if (!c) return "Alert";
+  // Prettify an unknown category: "some-new-thing" → "Some new thing".
+  const pretty = c.replace(/[-_]/g, " ").trim();
+  return pretty.charAt(0).toUpperCase() + pretty.slice(1);
+}
+
+// The VLM emits chain-of-thought reasoning ("Okay, let's break this down…").
+// Extract the concluding statement — the actual "what triggered this" — instead
+// of surfacing the whole thinking trace. Falls back to the terse verdict fields.
+function cleanTrigger(info: Record<string, unknown>): string {
+  const reasoning =
+    (typeof info.reasoningDescription === "string" && info.reasoningDescription) ||
+    (typeof info.reasoning === "string" && info.reasoning) ||
+    "";
+  if (reasoning.trim()) {
+    const paras = reasoning
+      .split(/\n+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    let c = paras.length ? paras[paras.length - 1] : reasoning.trim();
+    // Drop chain-of-thought lead-ins.
+    c = c.replace(
+      /^(?:okay,[^.]*\.\s*|so,\s*|therefore,\s*|in conclusion,\s*|putting this together,?\s*)+/i,
+      "",
+    );
+    // Pull the clause after a conclusion marker when present.
+    const m = c.match(/(?:most likely conclusion is that|conclusion is that|the person is|it (?:is|appears))\s+(.*)/i);
+    if (m) c = (m[0].toLowerCase().startsWith("the person") || m[0].toLowerCase().startsWith("it ") ? m[0] : m[1]);
+    c = c.trim();
+    if (c) return (c.charAt(0).toUpperCase() + c.slice(1)).slice(0, 500);
+  }
+  const verdict = typeof info.verdict === "string" ? info.verdict : "";
+  const trigger = typeof info.triggerPhrase === "string" ? info.triggerPhrase : "";
+  if (verdict || trigger) return [verdict, trigger].filter(Boolean).join(" — ").slice(0, 500);
+  return "";
+}
+
 export function fromAlertBridge(raw: unknown): unknown {
   if (!raw || typeof raw !== "object") return raw;
   const a = raw as Record<string, unknown>;
   const info = (a.info ?? {}) as Record<string, unknown>;
-  const am = (a.analyticsModule ?? {}) as Record<string, unknown>;
   return {
     ts: a.timestamp ?? a.created_at ?? new Date().toISOString(),
     scenarioId: (a.category as string) ?? "alert",
-    scenarioName: (am.description as string) ?? (a.category as string) ?? "Alert",
+    scenarioName: scenarioNameForCategory(a.category),
     severity: severityForCategory(a.category, a.isAnomaly),
     sensorId:
       (info.sensorId as string) ??
@@ -58,11 +107,7 @@ export function fromAlertBridge(raw: unknown): unknown {
       (info.streamId as string) ??
       "",
     topic: (a.type as string) ?? "mdx-vlm-incidents",
-    summary:
-      (info.reasoningDescription as string) ??
-      (info.reasoning as string) ??
-      (info.triggerPhrase as string) ??
-      "",
+    summary: cleanTrigger(info),
     raw: a,
   };
 }
