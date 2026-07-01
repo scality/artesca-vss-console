@@ -120,9 +120,22 @@ const VST_PROXY_STREAM_REMOVE_URL =
       : `http://vss-vios-streamprocessing.${VSS_NS}.svc.cluster.local:30001/api/v1/proxy/stream/remove`);
 
 // VST ConfigMap + Deployment constants used by tuning/storage routes.
-// Helm: ConfigMap vss-vios-sensor-configs with key vst_config.json
-//       Deployment vss-vios-sensor
-// Legacy: ConfigMap vst-config in namespace vst
+// Helm: sensor and streamprocessing each mount their OWN ConfigMap — they are
+//       NOT shared, despite carrying the identical vst_config.json schema.
+//       Verified on live pyramid-showroom cluster (2026-07-01): patching only
+//       vss-vios-sensor-configs left streamprocessing's recorder settings
+//       (recorder_enable_frame_drop, etc.) unchanged because it reads
+//       vss-vios-streamprocessing-configs instead. A tuning PATCH must write
+//       both ConfigMaps to keep them in sync (they're expected to be
+//       identical copies of the same rendered template, not a field-level
+//       split — the Helm chart just gives each component its own copy so
+//       restarting one doesn't require restarting the other).
+//       streamprocessing is also a StatefulSet on this chart version, not a
+//       Deployment — rollout restart must use the matching kind per
+//       component (verified via `kubectl get deploy,statefulset`).
+// Legacy: ONE ConfigMap vst-config in namespace vst, shared by both
+//         Deployments (sensor-ms, streamprocessing-ms) — confirmed against
+//         k8s/nvidia-vss/vst/{30-sensor-ms,31-streamprocessing-ms}.yaml.
 // Storage API base (timelines + clip download). On Helm this is the nginx
 // ingress at :30888/vst/api/v1 — clip download is
 // GET /storage/file/{streamId}?startTime=..&endTime=..&container=mp4. The
@@ -136,10 +149,14 @@ const VST_STORAGE_URL = LEGACY
 const VST = LEGACY
   ? ({
       namespace: "vst",
-      configMap: "vst-config",
+      sensorConfigMap: process.env.VST_SENSOR_CONFIGMAP ?? "vst-config",
+      streamProcessingConfigMap:
+        process.env.VST_STREAMPROCESSING_CONFIGMAP ?? "vst-config",
       configKey: "vst_config.json",
       sensorDeployment: "sensor-ms",
+      sensorKind: "Deployment" as const,
       streamProcessingDeployment: "streamprocessing-ms",
+      streamProcessingKind: "Deployment" as const,
       sensorListUrl: VST_SENSOR_LIST_URL,
       sensorBase: VST_SENSOR_URL,
       storageBase: VST_STORAGE_URL,
@@ -147,10 +164,20 @@ const VST = LEGACY
     } as const)
   : ({
       namespace: VSS_NS,
-      configMap: "vss-vios-sensor-configs",
+      sensorConfigMap:
+        process.env.VST_SENSOR_CONFIGMAP ?? "vss-vios-sensor-configs",
+      streamProcessingConfigMap:
+        process.env.VST_STREAMPROCESSING_CONFIGMAP ??
+        "vss-vios-streamprocessing-configs",
       configKey: "vst_config.json",
       sensorDeployment: "vss-vios-sensor",
+      sensorKind: "Deployment" as const,
       streamProcessingDeployment: "vss-vios-streamprocessing",
+      streamProcessingKind:
+        (process.env.VST_STREAMPROCESSING_KIND as
+          | "Deployment"
+          | "StatefulSet"
+          | undefined) ?? "StatefulSet",
       sensorListUrl: VST_SENSOR_LIST_URL,
       sensorBase: VST_SENSOR_URL,
       storageBase: VST_STORAGE_URL,

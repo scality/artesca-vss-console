@@ -159,6 +159,54 @@ const VstTuningPatchSchema = z
     message: "At least one tuning field is required",
   });
 
+type VstTuningPatch = z.infer<typeof VstTuningPatchSchema>;
+
+/**
+ * Mutates `cfg` in place with the given field-level patches. Shared by the
+ * docker path and every ConfigMap target on the k8s path (sensor +
+ * streamprocessing each hold their own copy of this schema — see the VST
+ * comment in cluster-refs.ts).
+ */
+function applyVstPatches(cfg: VstConfigJson, patches: VstTuningPatch): void {
+  cfg.data = cfg.data ?? {};
+  cfg.onvif = cfg.onvif ?? {};
+
+  if (patches.recordingMode !== undefined) {
+    cfg.data.always_recording =
+      patches.recordingMode === "always" || patches.recordingMode === "both";
+    cfg.data.event_recording =
+      patches.recordingMode === "event" || patches.recordingMode === "both";
+  }
+  if (patches.eventRecordLengthSecs !== undefined) {
+    cfg.data.event_record_length_secs = patches.eventRecordLengthSecs;
+  }
+  if (patches.recordBufferLengthSecs !== undefined) {
+    cfg.data.record_buffer_length_secs = patches.recordBufferLengthSecs;
+  }
+  if (patches.defaultGovLength !== undefined) {
+    cfg.onvif.default_gov_length = patches.defaultGovLength;
+  }
+  if (patches.supportedVideoCodecs !== undefined) {
+    cfg.data.supported_video_codecs = patches.supportedVideoCodecs;
+  }
+  if (patches.storageThresholdPercentage !== undefined) {
+    cfg.data.storage_threshold_percentage = patches.storageThresholdPercentage;
+  }
+  if (patches.storageMonitoringFrequencySecs !== undefined) {
+    cfg.data.storage_monitoring_frequency_secs =
+      patches.storageMonitoringFrequencySecs;
+  }
+  if (patches.defaultFileExpiryMinutes !== undefined) {
+    cfg.data.default_file_expiry_minutes = patches.defaultFileExpiryMinutes;
+  }
+  if (patches.enableAgingPolicy !== undefined) {
+    cfg.data.enable_aging_policy = patches.enableAgingPolicy;
+  }
+  if (patches.recorderEnableFrameDrop !== undefined) {
+    cfg.data.recorder_enable_frame_drop = patches.recorderEnableFrameDrop;
+  }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function deriveRecordingMode(cfg: VstConfigJson): "always" | "event" | "both" {
@@ -174,6 +222,36 @@ function filterCodecs(raw: string[] | undefined): ("h264" | "h265")[] {
   return (raw ?? ["h264", "h265"]).filter((c): c is "h264" | "h265" =>
     allowed.has(c.toLowerCase())
   );
+}
+
+/**
+ * Sensor and streamprocessing each hold their own copy of vst_config.json on
+ * the Helm path (see cluster-refs.ts). They're expected to stay identical for
+ * the recorder-related fields this route writes — best-effort check so a
+ * repeat of the 2026-07-01 drift (one ConfigMap patched, the other left
+ * stale) surfaces in the UI instead of silently no-op'ing.
+ */
+async function checkRecorderDrift(sensorCfg: VstConfigJson): Promise<string[]> {
+  if (CLUSTER.vst.streamProcessingConfigMap === CLUSTER.vst.sensorConfigMap) {
+    return [];
+  }
+  try {
+    const { value: spCfg } = await readConfigMapKey<VstConfigJson>(
+      CLUSTER.vst.namespace,
+      CLUSTER.vst.streamProcessingConfigMap,
+      CLUSTER.vst.configKey
+    );
+    const sensorDrop = sensorCfg.data?.recorder_enable_frame_drop ?? false;
+    const spDrop = spCfg.data?.recorder_enable_frame_drop ?? false;
+    if (sensorDrop !== spDrop) {
+      const msg = `Config drift: recorderEnableFrameDrop is ${sensorDrop} in ${CLUSTER.vst.sensorConfigMap} but ${spDrop} in ${CLUSTER.vst.streamProcessingConfigMap} — streamprocessing reads its own copy. Save this form again to resync both.`;
+      log.warn(msg);
+      return [msg];
+    }
+    return [];
+  } catch {
+    return [];
+  }
 }
 
 /** Fetch the VST sensor list with a 2 s timeout. Returns null on any failure. */
@@ -318,7 +396,7 @@ export async function GET() {
   try {
     const { value } = await readConfigMapKey<VstConfigJson>(
       CLUSTER.vst.namespace,
-      CLUSTER.vst.configMap,
+      CLUSTER.vst.sensorConfigMap,
       CLUSTER.vst.configKey
     );
     cfg = value;
@@ -342,6 +420,8 @@ export async function GET() {
     log.warn("VST sensor list unavailable — omitting observed field");
   }
 
+  const warnings = await checkRecorderDrift(cfg);
+
   const response: VstTuningResponse = {
     recordingMode: deriveRecordingMode(cfg),
     eventRecordLengthSecs: cfg.data?.event_record_length_secs ?? 10,
@@ -356,7 +436,10 @@ export async function GET() {
     ...(observed ? { observed } : {}),
   };
 
-  return NextResponse.json(response);
+  return NextResponse.json({
+    ...response,
+    ...(warnings.length ? { warnings } : {}),
+  });
 }
 
 // ─── PATCH ────────────────────────────────────────────────────────────────────
@@ -397,22 +480,7 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
   if (DOCKER_MODE) {
     const current = (await readVstConfigDocker()) ?? (await readPersistedVstConfig()) ?? {};
     const cfg: VstConfigJson = { ...current };
-    cfg.data = cfg.data ?? {};
-    cfg.onvif = cfg.onvif ?? {};
-
-    if (patches.recordingMode !== undefined) {
-      cfg.data.always_recording = patches.recordingMode === "always" || patches.recordingMode === "both";
-      cfg.data.event_recording = patches.recordingMode === "event" || patches.recordingMode === "both";
-    }
-    if (patches.eventRecordLengthSecs !== undefined) cfg.data.event_record_length_secs = patches.eventRecordLengthSecs;
-    if (patches.recordBufferLengthSecs !== undefined) cfg.data.record_buffer_length_secs = patches.recordBufferLengthSecs;
-    if (patches.defaultGovLength !== undefined) cfg.onvif.default_gov_length = patches.defaultGovLength;
-    if (patches.supportedVideoCodecs !== undefined) cfg.data.supported_video_codecs = patches.supportedVideoCodecs;
-    if (patches.storageThresholdPercentage !== undefined) cfg.data.storage_threshold_percentage = patches.storageThresholdPercentage;
-    if (patches.storageMonitoringFrequencySecs !== undefined) cfg.data.storage_monitoring_frequency_secs = patches.storageMonitoringFrequencySecs;
-    if (patches.defaultFileExpiryMinutes !== undefined) cfg.data.default_file_expiry_minutes = patches.defaultFileExpiryMinutes;
-    if (patches.enableAgingPolicy !== undefined) cfg.data.enable_aging_policy = patches.enableAgingPolicy;
-    if (patches.recorderEnableFrameDrop !== undefined) cfg.data.recorder_enable_frame_drop = patches.recorderEnableFrameDrop;
+    applyVstPatches(cfg, patches);
 
     try {
       await writeVstConfigDocker(cfg);
@@ -441,98 +509,78 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     });
   }
 
-  // Read current ConfigMap JSON.
-  let cfg: VstConfigJson;
-  let resourceVersion: string | undefined;
-  try {
-    const result = await readConfigMapKey<VstConfigJson>(
-      CLUSTER.vst.namespace,
-      CLUSTER.vst.configMap,
-      CLUSTER.vst.configKey
-    );
-    cfg = result.value;
-    resourceVersion = result.resourceVersion;
-  } catch (err: unknown) {
-    const { status, message } = extractK8sError(err);
-    return NextResponse.json(
-      { error: message, k8sCode: status },
-      { status }
-    );
-  }
+  // Sensor and streamprocessing each hold their own copy of vst_config.json
+  // on the Helm path (identical on legacy, where both point at "vst-config")
+  // — patch every distinct ConfigMap so they can't drift apart. Each target
+  // is read/mutated/written independently so unrelated fields already set
+  // differently per-component (if any) are preserved rather than clobbered.
+  const configMapTargets = Array.from(
+    new Set([CLUSTER.vst.sensorConfigMap, CLUSTER.vst.streamProcessingConfigMap])
+  );
 
-  // Ensure nested objects exist.
-  cfg.data = cfg.data ?? {};
-  cfg.onvif = cfg.onvif ?? {};
-
-  // Apply mutations.
-  if (patches.recordingMode !== undefined) {
-    cfg.data.always_recording =
-      patches.recordingMode === "always" || patches.recordingMode === "both";
-    cfg.data.event_recording =
-      patches.recordingMode === "event" || patches.recordingMode === "both";
-  }
-  if (patches.eventRecordLengthSecs !== undefined) {
-    cfg.data.event_record_length_secs = patches.eventRecordLengthSecs;
-  }
-  if (patches.recordBufferLengthSecs !== undefined) {
-    cfg.data.record_buffer_length_secs = patches.recordBufferLengthSecs;
-  }
-  if (patches.defaultGovLength !== undefined) {
-    cfg.onvif.default_gov_length = patches.defaultGovLength;
-  }
-  if (patches.supportedVideoCodecs !== undefined) {
-    cfg.data.supported_video_codecs = patches.supportedVideoCodecs;
-  }
-  if (patches.storageThresholdPercentage !== undefined) {
-    cfg.data.storage_threshold_percentage = patches.storageThresholdPercentage;
-  }
-  if (patches.storageMonitoringFrequencySecs !== undefined) {
-    cfg.data.storage_monitoring_frequency_secs = patches.storageMonitoringFrequencySecs;
-  }
-  if (patches.defaultFileExpiryMinutes !== undefined) {
-    cfg.data.default_file_expiry_minutes = patches.defaultFileExpiryMinutes;
-  }
-  if (patches.enableAgingPolicy !== undefined) {
-    cfg.data.enable_aging_policy = patches.enableAgingPolicy;
-  }
-  if (patches.recorderEnableFrameDrop !== undefined) {
-    cfg.data.recorder_enable_frame_drop = patches.recorderEnableFrameDrop;
-  }
-
-  // Write back as JSON string.
-  try {
-    await patchConfigMapRawKey(
-      CLUSTER.vst.namespace,
-      CLUSTER.vst.configMap,
-      CLUSTER.vst.configKey,
-      JSON.stringify(cfg, null, 2),
-      resourceVersion
-    );
-  } catch (err: unknown) {
-    const { status, message } = extractK8sError(err);
-    return NextResponse.json(
-      { error: message, k8sCode: status },
-      { status }
-    );
-  }
-
-  // Rollout-restart both VST deployments to pick up the new config.
-  const deployments = [
-    CLUSTER.vst.sensorDeployment,
-    CLUSTER.vst.streamProcessingDeployment,
-  ];
-  for (const dep of deployments) {
+  for (const configMap of configMapTargets) {
+    let cfg: VstConfigJson;
+    let resourceVersion: string | undefined;
     try {
-      await rolloutRestart("Deployment", CLUSTER.vst.namespace, dep);
+      const result = await readConfigMapKey<VstConfigJson>(
+        CLUSTER.vst.namespace,
+        configMap,
+        CLUSTER.vst.configKey
+      );
+      cfg = result.value;
+      resourceVersion = result.resourceVersion;
+    } catch (err: unknown) {
+      const { status, message } = extractK8sError(err);
+      return NextResponse.json(
+        { error: `${message} (configmap/${configMap})`, k8sCode: status },
+        { status }
+      );
+    }
+
+    applyVstPatches(cfg, patches);
+
+    try {
+      await patchConfigMapRawKey(
+        CLUSTER.vst.namespace,
+        configMap,
+        CLUSTER.vst.configKey,
+        JSON.stringify(cfg, null, 2),
+        resourceVersion
+      );
+    } catch (err: unknown) {
+      const { status, message } = extractK8sError(err);
+      return NextResponse.json(
+        { error: `${message} (configmap/${configMap})`, k8sCode: status },
+        { status }
+      );
+    }
+  }
+
+  // Rollout-restart both VST components, using each one's actual resource
+  // kind — streamprocessing is a StatefulSet on the Helm path, not a
+  // Deployment (verified against the live cluster; legacy keeps both as
+  // Deployments).
+  const restarts: Array<{ kind: "Deployment" | "StatefulSet"; name: string }> = [
+    { kind: CLUSTER.vst.sensorKind, name: CLUSTER.vst.sensorDeployment },
+    {
+      kind: CLUSTER.vst.streamProcessingKind,
+      name: CLUSTER.vst.streamProcessingDeployment,
+    },
+  ];
+  for (const { kind, name } of restarts) {
+    try {
+      await rolloutRestart(kind, CLUSTER.vst.namespace, name);
     } catch (err) {
       return NextResponse.json(
-        { error: `Rollout restart of ${dep} failed: ${String(err)}` },
+        {
+          error: `Rollout restart of ${kind.toLowerCase()}/${name} failed: ${String(err)}`,
+        },
         { status: 502 }
       );
     }
   }
 
-  await auditLog("tuning-vst", `configmap/${CLUSTER.vst.configMap}`, {
+  await auditLog("tuning-vst", `configmap/${configMapTargets.join(",")}`, {
     patches,
   });
 
