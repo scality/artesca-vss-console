@@ -164,6 +164,10 @@ interface VstSensorRaw {
   sensor_id?: string;
   sensorId?: string;
   name?: string;
+  /** VST lifecycle state — "online" | "removed" | … . VST keeps deleted
+   *  sensors in /list as `state: "removed"`; those must not render. */
+  state?: string;
+  status?: string;
   [key: string]: unknown;
 }
 
@@ -189,7 +193,22 @@ async function fetchFeedNodes(
       ? body
       : (body as { sensors?: VstSensorRaw[] }).sensors ?? [];
 
-    return sensors.map((s, i) => {
+    // VST /list retains deleted sensors as `state: "removed"`, and a
+    // delete+re-add leaves both the old (removed) and new (online) entry under
+    // the same camera name. Drop removed sensors, then dedupe by display name
+    // (prefer an online entry) so each camera renders once.
+    const activeByName = new Map<string, VstSensorRaw>();
+    for (const s of sensors) {
+      const lifecycle = s.state ?? s.status;
+      if (lifecycle === "removed") continue;
+      const key = s.name ?? s.sensor_id ?? s.sensorId ?? "";
+      const existing = activeByName.get(key);
+      if (!existing || (existing.state ?? existing.status) !== "online") {
+        activeByName.set(key, s);
+      }
+    }
+
+    return [...activeByName.values()].map((s, i) => {
       const sensorId = s.sensor_id ?? s.sensorId ?? `sensor-${i}`;
       return {
         id: `feed:${sensorId}`,
