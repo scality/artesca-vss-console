@@ -5,17 +5,14 @@ import { withRequestContext } from "@/lib/with-request-context";
 
 const log = createLogger("api/tuning/alerts");
 import { z } from "zod";
-import { parse as yamlParse } from "yaml";
-import { coreV1, rolloutRestart } from "@/lib/k8s";
-import { patchConfigMapKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
+import type { ScenarioEntry } from "@/lib/config-store/types";
 import {
   inspectContainer,
   dockerRecreateWithEnv,
   DOCKER_TUNING_DIR,
 } from "@/lib/helpers/docker-sock";
-import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import fs from "fs/promises";
 import path from "node:path";
@@ -94,27 +91,25 @@ export async function GET() {
     });
   }
 
-  // The alert-worker enforces cooldown PER SCENARIO (cooldown_seconds in the
-  // scenarios ConfigMap) — there is no global cooldown env on this chart. Report
-  // a representative value (the max set across scenarios) so the card reflects
-  // what's actually in effect.
-  let scenarios: Array<Record<string, unknown>>;
+  // The alert-worker enforces cooldown PER SCENARIO (cooldown_seconds on each
+  // scenario) — there is no global cooldown env on this chart. Firestore is the
+  // source of truth for scenarios on k8s (the scenarios ConfigMap is reconciled
+  // FROM it), so read from the config store and report a representative value
+  // (the max cooldown set across scenarios) so the card reflects what's in effect.
+  const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+  let scenarios: ScenarioEntry[];
   try {
-    const cm = await coreV1().readNamespacedConfigMap({
-      name: CLUSTER.scenarios.configMap,
-      namespace: CLUSTER.scenarios.namespace,
-    });
-    const doc = yamlParse(cm.data?.[CLUSTER.scenarios.yamlKey] ?? "") as { scenarios?: Array<Record<string, unknown>> } | null;
-    scenarios = Array.isArray(doc?.scenarios) ? doc!.scenarios! : [];
+    const ctx = await makeReconcileContext();
+    scenarios = await ctx.store.readScenarios(ctx.instance);
   } catch (err: unknown) {
-    const { status, message } = extractK8sError(err);
-    if (status === 404) {
+    if (err instanceof ReconcileContextError) {
       return NextResponse.json({
         ...ALERTS_TUNING_DEFAULTS,
-        warning: "scenarios ConfigMap not found — showing defaults",
+        warning: `config store unavailable — showing defaults: ${err.message}`,
       });
     }
-    return NextResponse.json({ error: message, k8sCode: status }, { status });
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 
   const cooldowns = scenarios
@@ -181,59 +176,53 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     return NextResponse.json({ ok: true, applied: envPatch, runtime: "docker" });
   }
 
-  // Cooldown is per-scenario on this chart — apply the requested value to every
-  // scenario's cooldown_seconds in the scenarios ConfigMap. (slackWebhookConfigured
-  // has no backing on the alerts profile and is ignored.)
+  // Cooldown is per-scenario on this chart, and Firestore is the source of truth
+  // for scenarios on k8s (the scenarios ConfigMap is reconciled FROM it). Apply
+  // the requested value to every scenario's cooldown_seconds in the config store,
+  // then reconcile so the ConfigMap converges + the alert-worker reloads.
+  // (slackWebhookConfigured has no backing on the alerts profile and is ignored.)
   if (tuning.cooldownSeconds === undefined) {
     return NextResponse.json({ ok: true, applied: {}, note: "Nothing to apply (cooldown only on this chart)." });
   }
 
-  let doc: { scenarios?: Array<Record<string, unknown>> } | null;
+  const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+  const { reconcileScenarios } = await import("@/lib/reconcile/scenarios");
+
+  let ctx: Awaited<ReturnType<typeof makeReconcileContext>>;
+  let scenarios: ScenarioEntry[];
   try {
-    const cm = await coreV1().readNamespacedConfigMap({
-      name: CLUSTER.scenarios.configMap,
-      namespace: CLUSTER.scenarios.namespace,
-    });
-    doc = yamlParse(cm.data?.[CLUSTER.scenarios.yamlKey] ?? "") as typeof doc;
+    ctx = await makeReconcileContext();
+    scenarios = await ctx.store.readScenarios(ctx.instance);
   } catch (err: unknown) {
-    const { status, message } = extractK8sError(err);
-    return NextResponse.json({ error: `read scenarios ConfigMap failed: ${message}`, k8sCode: status }, { status });
+    const msg = err instanceof ReconcileContextError ? err.message : String(err);
+    return NextResponse.json({ error: `read scenarios failed: ${msg}` }, { status: 502 });
   }
 
-  const scenarios = Array.isArray(doc?.scenarios) ? doc!.scenarios! : [];
   if (scenarios.length === 0) {
     return NextResponse.json({ error: "no scenarios to apply cooldown to" }, { status: 409 });
   }
-  for (const s of scenarios) s.cooldown_seconds = tuning.cooldownSeconds;
+  const updated = scenarios.map((s) => ({ ...s, cooldown_seconds: tuning.cooldownSeconds! }));
 
+  let reconcileWarning: string | undefined;
   try {
-    await patchConfigMapKey(
-      CLUSTER.scenarios.namespace,
-      CLUSTER.scenarios.configMap,
-      CLUSTER.scenarios.yamlKey,
-      { scenarios },
-    );
+    await ctx.store.writeScenarios(ctx.instance, updated, session.user?.email ?? "console");
+    const res = await reconcileScenarios(updated, ctx.adapter, ctx.refs.scenarios);
+    reconcileWarning = res.error;
   } catch (err: unknown) {
-    const { status, message } = extractK8sError(err);
-    return NextResponse.json({ error: `patch scenarios ConfigMap failed: ${message}`, k8sCode: status }, { status });
+    const msg = err instanceof ReconcileContextError ? err.message : String(err);
+    return NextResponse.json({ error: `write scenarios failed: ${msg}` }, { status: 502 });
   }
 
-  // Rollout-restart alert-worker to reload scenarios.
-  try {
-    await rolloutRestart("Deployment", CLUSTER.scenarios.namespace, CLUSTER.scenarios.alertWorkerDeployment);
-  } catch (err) {
-    return NextResponse.json({ error: `Rollout restart failed: ${String(err)}` }, { status: 502 });
-  }
-
-  await auditLog("tuning-alerts", `configmap/${CLUSTER.scenarios.configMap}`, {
+  await auditLog("tuning-alerts", `firestore/${ctx.instance}`, {
     cooldownSeconds: String(tuning.cooldownSeconds),
-    scenariosUpdated: String(scenarios.length),
+    scenariosUpdated: String(updated.length),
   });
 
   return NextResponse.json({
     ok: true,
     applied: { cooldownSeconds: tuning.cooldownSeconds },
-    scenariosUpdated: scenarios.length,
+    scenariosUpdated: updated.length,
     note: "Cooldown applied to all scenarios; alert-worker restarted.",
+    ...(reconcileWarning ? { warnings: [reconcileWarning] } : {}),
   });
 });
