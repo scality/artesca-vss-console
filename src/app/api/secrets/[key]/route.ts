@@ -91,6 +91,10 @@ interface SecretSpec {
   /** hash the value with bcrypt before storing (single-field only) */
   bcryptHash?: boolean;
   restartTargets?: RestartTarget[];
+  /** If set, "configured" = ANY of these data keys is present (not the default
+   *  all-non-optional-fields rule). Lets a secret read as configured whether it
+   *  holds the bootstrap plain value or a rotated hash. */
+  statusKeys?: string[];
 }
 
 // Helm: all VSS secrets live in vss-<profile>.
@@ -106,7 +110,9 @@ function vssNs(): string {
 const SECRET_REGISTRY: Record<string, SecretSpec> = {
   "ngc-key": {
     namespace: _legacy ? "rtvi" : vssNs(),
-    secretName: "ngc-secret",
+    // Helm: NGC_API_KEY lives in the `ngc-api` Secret; `ngc-secret` is the
+    // image-pull secret (.dockerconfigjson only).
+    secretName: _legacy ? "ngc-secret" : "ngc-api",
     fields: [{ dataKey: "NGC_API_KEY" }],
     restartTargets: _legacy
       ? [
@@ -121,7 +127,8 @@ const SECRET_REGISTRY: Record<string, SecretSpec> = {
   "nvidia-api-key": {
     namespace: _legacy ? "rtvi" : vssNs(),
     secretName: _legacy ? "nvidia-api-secret" : "ngc-api",
-    fields: [{ dataKey: _legacy ? "NVIDIA_API_KEY" : "key" }],
+    // Helm `ngc-api` holds NGC_API_KEY / NGC_CLI_API_KEY (no `key` field).
+    fields: [{ dataKey: _legacy ? "NVIDIA_API_KEY" : "NGC_API_KEY" }],
     restartTargets: _legacy
       ? [{ kind: "Deployment", namespace: "rtvi", name: "rtvi-vlm" }]
       : [{ kind: "Deployment", namespace: vssNs(), name: "vss-rtvi-vlm" }],
@@ -151,6 +158,9 @@ const SECRET_REGISTRY: Record<string, SecretSpec> = {
     namespace: "console",
     secretName: "console-auth",
     fields: [{ dataKey: "CONSOLE_PASSWORD_HASH" }],
+    // Configured if EITHER the rotated hash OR the bootstrap plain password is
+    // present — the deployed secret ships `CONSOLE_PASSWORD`.
+    statusKeys: ["CONSOLE_PASSWORD_HASH", "CONSOLE_PASSWORD"],
     bcryptHash: true,
     restartTargets: [
       // Pod reads the secret via envFrom — needs a restart for new hash
@@ -263,9 +273,10 @@ export async function GET(
       namespace: spec.namespace,
     });
     const data = (secret.data ?? {}) as Record<string, string>;
-    configured = spec.fields
-      .filter((f) => !f.optional)
-      .every((f) => typeof data[f.dataKey] === "string" && data[f.dataKey].length > 0);
+    const present = (dk: string) => typeof data[dk] === "string" && data[dk].length > 0;
+    configured = spec.statusKeys
+      ? spec.statusKeys.some(present)
+      : spec.fields.filter((f) => !f.optional).every((f) => present(f.dataKey));
 
     const ct = secret.metadata?.creationTimestamp;
     if (ct) {
