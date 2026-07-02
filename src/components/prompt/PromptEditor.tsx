@@ -72,6 +72,7 @@ export function PromptEditor({ original, value, onChange }: PromptEditorProps) {
               scrollBeyondLastLine: false,
               renderSideBySide: true,
               originalEditable: false,
+              wordWrap: "on",
             }}
             onMount={(editor) => {
               editor.getModifiedEditor().onDidChangeModelContent(() => {
@@ -96,6 +97,7 @@ export function PromptEditor({ original, value, onChange }: PromptEditorProps) {
                     fontSize: 13,
                     scrollBeyondLastLine: false,
                     lineNumbers: "on",
+                    wordWrap: "on",
                   }}
                 />
               </div>
@@ -114,6 +116,7 @@ export function PromptEditor({ original, value, onChange }: PromptEditorProps) {
                     fontSize: 13,
                     scrollBeyondLastLine: false,
                     lineNumbers: "on",
+                    wordWrap: "on",
                   }}
                   onChange={(v) => onChange(v ?? "")}
                 />
