@@ -180,6 +180,9 @@ export interface GpuSharingMode {
   migStrategy: string | null;
 }
 
+/** Live reachability of a remote model endpoint, as the agent would see it. */
+export type RemoteModelHealth = "ok" | "bad-url" | "auth-error" | "unreachable" | "unknown";
+
 /** A model the agent uses that is NOT served on a local GPU — e.g. the LLM
  *  offloaded to NVIDIA's hosted API. Surfaced so the per-GPU allocation view
  *  makes "this model isn't on any card, it runs remote" explicit. */
@@ -190,6 +193,52 @@ export interface RemoteModel {
   name: string;
   /** The remote endpoint host the agent calls (e.g. integrate.api.nvidia.com). */
   endpoint: string;
+  /** The full base URL as configured on the agent (LLM_BASE_URL). Shown so a
+   *  misconfig like a trailing /v1 is visible (the agent appends /v1 → /v1/v1). */
+  baseUrl: string;
+  /** Live health of the endpoint, probed as the agent calls it ({baseUrl}/v1/models). */
+  health: RemoteModelHealth;
+  /** Human-readable status / fix hint for the health state. */
+  detail: string;
+}
+
+// Cache the remote-endpoint probe — collectGpuAllocation runs on the overview's
+// 5s auto-refresh, but the endpoint is external; probe at most once/minute.
+const REMOTE_PROBE_TTL_MS = 60_000;
+const remoteProbeCache = new Map<string, { at: number; health: RemoteModelHealth; detail: string }>();
+
+/** Probe a remote LLM endpoint exactly as the agent reaches it: the config
+ *  appends /v1 to LLM_BASE_URL and the client hits `{base}/v1/models`. So a
+ *  trailing /v1 in LLM_BASE_URL → `…/v1/v1/models` → 404 (the "age not found"
+ *  chat bug) is caught here. Keyed on baseUrl; cached for TTL. Never logs/returns the key. */
+async function probeRemoteLlm(
+  baseUrl: string,
+  apiKey: string | undefined,
+): Promise<{ health: RemoteModelHealth; detail: string }> {
+  const hit = remoteProbeCache.get(baseUrl);
+  if (hit && Date.now() - hit.at < REMOTE_PROBE_TTL_MS) return { health: hit.health, detail: hit.detail };
+
+  const url = `${baseUrl.replace(/\/+$/, "")}/v1/models`;
+  let health: RemoteModelHealth = "unknown";
+  let detail = "";
+  try {
+    const headers: Record<string, string> = {};
+    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(4_000), cache: "no-store" });
+    try { await resp.body?.cancel(); } catch { /* ignore */ }
+    if (resp.status === 200) { health = "ok"; detail = "reachable · model list OK"; }
+    else if (resp.status === 401 || resp.status === 403) {
+      health = apiKey ? "auth-error" : "ok";
+      detail = apiKey ? `auth rejected (HTTP ${resp.status}) — check NVIDIA_API_KEY` : "reachable (auth required)";
+    }
+    else if (resp.status === 404) { health = "bad-url"; detail = "HTTP 404 — wrong path; check for a trailing /v1 in LLM_BASE_URL"; }
+    else { health = "unknown"; detail = `HTTP ${resp.status}`; }
+  } catch (e) {
+    health = "unreachable";
+    detail = e instanceof Error && e.name === "TimeoutError" ? "timed out" : "network error / DNS";
+  }
+  remoteProbeCache.set(baseUrl, { at: Date.now(), health, detail });
+  return { health, detail };
 }
 
 export interface GpuAllocationSnapshot {
@@ -280,13 +329,15 @@ async function resolveRemoteModels(
           if (typeof e.value === "string" && !env.has(e.name)) env.set(e.name, e.value);
         }
       }
+      const apiKey = env.get("NVIDIA_API_KEY") ?? env.get("OPENAI_API_KEY");
       const roles: Array<[string, string, string]> = [
         ["LLM", env.get("LLM_BASE_URL") ?? "", env.get("LLM_NAME") ?? ""],
         ["VLM", env.get("VLM_BASE_URL") ?? "", env.get("VLM_NAME") ?? ""],
       ];
       for (const [role, url, model] of roles) {
         if (url && isRemoteUrl(url)) {
-          out.push({ role, name: model || "(model)", endpoint: urlHost(url) });
+          const { health, detail } = await probeRemoteLlm(url, apiKey);
+          out.push({ role, name: model || "(model)", endpoint: urlHost(url), baseUrl: url, health, detail });
         }
       }
       return out;
