@@ -191,8 +191,10 @@ describe("createSseResponse", () => {
     ctrl.abort();
     await Promise.resolve();
 
-    // The stream should close — read() must eventually return done.
-    const result = await reader.read();
+    // The stream should close — drain any buffered chunks (e.g. the initial
+    // ": connected" comment) until read() returns done.
+    let result = await reader.read();
+    while (!result.done) result = await reader.read();
     expect(result.done).toBe(true);
 
     // clearInterval must have been called (heartbeat cleanup).

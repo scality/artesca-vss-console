@@ -38,7 +38,12 @@ export async function GET(req: NextRequest) {
       try {
         const resp = await fetch(
           `${ALERT_BRIDGE_URL}/api/v1/realtime/incidents?limit=50`,
-          { signal: req.signal, next: { revalidate: 0 } }
+          {
+            // Bound each poll so a slow/unreachable bridge can't stall the
+            // stream open (the initial poll is awaited before the interval).
+            signal: AbortSignal.any([req.signal, AbortSignal.timeout(POLL_MS)]),
+            next: { revalidate: 0 },
+          }
         );
         if (!resp.ok) return;
         const data = await resp.json();
