@@ -364,11 +364,18 @@ function RemoteModelsPanel({ models }: { models: GpuAllocationSnapshot["remoteMo
               {m.role} · Remote
             </span>
             <span className="font-mono text-foreground">{m.name}</span>
-            <span className="font-mono text-muted-foreground">→ {m.baseUrl || m.endpoint}</span>
+            <span className="text-muted-foreground">→ API base</span>
+            <code className="select-all rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+              {m.apiBase || m.baseUrl || m.endpoint}
+            </code>
             <RemoteHealthBadge health={m.health} detail={m.detail} />
           </li>
         ))}
       </ul>
+      <p className="text-[10px] text-muted-foreground">
+        API endpoint, not a web page — the bare host 404s in a browser; the agent calls{" "}
+        <code className="font-mono">{"{base}"}/v1/chat/completions</code>.
+      </p>
     </div>
   );
 }

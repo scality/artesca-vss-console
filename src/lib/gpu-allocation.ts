@@ -196,6 +196,10 @@ export interface RemoteModel {
   /** The full base URL as configured on the agent (LLM_BASE_URL). Shown so a
    *  misconfig like a trailing /v1 is visible (the agent appends /v1 → /v1/v1). */
   baseUrl: string;
+  /** The effective OpenAI-compatible API base the agent actually calls
+   *  (`{baseUrl}/v1`). This is what to test — the bare host has no web page and
+   *  404s in a browser. A misconfig surfaces here as a doubled `/v1/v1`. */
+  apiBase: string;
   /** Live health of the endpoint, probed as the agent calls it ({baseUrl}/v1/models). */
   health: RemoteModelHealth;
   /** Human-readable status / fix hint for the health state. */
@@ -337,7 +341,8 @@ async function resolveRemoteModels(
       for (const [role, url, model] of roles) {
         if (url && isRemoteUrl(url)) {
           const { health, detail } = await probeRemoteLlm(url, apiKey);
-          out.push({ role, name: model || "(model)", endpoint: urlHost(url), baseUrl: url, health, detail });
+          const apiBase = `${url.replace(/\/+$/, "")}/v1`;
+          out.push({ role, name: model || "(model)", endpoint: urlHost(url), baseUrl: url, apiBase, health, detail });
         }
       }
       return out;
