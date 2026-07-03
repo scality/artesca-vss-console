@@ -4,15 +4,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/helpers/vst", () => ({
   vstListSensors: vi.fn(),
   vstAddSensor: vi.fn(),
+  vstStartStream: vi.fn(),
 }));
 
-import { vstListSensors, vstAddSensor } from "@/lib/helpers/vst";
+import { vstListSensors, vstAddSensor, vstStartStream } from "@/lib/helpers/vst";
 import { VstClusterAdapter, ClusterAdapter } from "@/lib/reconcile/cluster-adapter";
 
 describe("VstClusterAdapter", () => {
   beforeEach(() => {
     vi.mocked(vstListSensors).mockReset();
     vi.mocked(vstAddSensor).mockReset();
+    vi.mocked(vstStartStream).mockReset();
+    // addSensor runs a two-step register (add + start-stream); default the
+    // second step to success so tests focused on step 1 don't have to stub it.
+    vi.mocked(vstStartStream).mockResolvedValue({ ok: true });
   });
 
   it("listSensors maps VstSensor fields to the adapter shape", async () => {
