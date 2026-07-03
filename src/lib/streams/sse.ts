@@ -51,6 +51,12 @@ export function createSseResponse<T>(
 
       signal.addEventListener("abort", stop, { once: true });
 
+      // Flush an initial comment immediately so the streamed response reaches
+      // the client and EventSource fires `open` in milliseconds — without
+      // waiting for the producer's first write or the 15 s heartbeat. Next.js
+      // does not send the response until the body emits its first chunk.
+      encode(": connected\n\n");
+
       heartbeat = setInterval(() => {
         if (signal.aborted) {
           stop();
