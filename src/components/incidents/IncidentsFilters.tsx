@@ -1,19 +1,20 @@
 "use client";
 
 import type { Scenario, Incident } from "@/lib/types";
+import { MultiSelectDropdown } from "./MultiSelectDropdown";
 
 export type TimeWindow = "15m" | "1h" | "24h" | "all";
 
 export interface FilterState {
   scenarios: string[]; // scenarioId values; empty = all
-  sensorGlob: string;
+  sensors: string[]; // sensorId values; empty = all
   severities: Array<Incident["severity"]>; // empty = all
   timeWindow: TimeWindow;
 }
 
 export const DEFAULT_FILTERS: FilterState = {
   scenarios: [],
-  sensorGlob: "",
+  sensors: [],
   severities: [],
   timeWindow: "1h",
 };
@@ -22,6 +23,8 @@ interface IncidentsFiltersProps {
   filters: FilterState;
   onChange: (f: FilterState) => void;
   availableScenarios: Pick<Scenario, "id" | "name">[];
+  /** Distinct sensorIds seen in the currently-loaded incidents. */
+  availableSensors: string[];
 }
 
 const TIME_WINDOWS: Array<{ value: TimeWindow; label: string }> = [
@@ -43,20 +46,35 @@ export function IncidentsFilters({
   filters,
   onChange,
   availableScenarios,
+  availableSensors,
 }: IncidentsFiltersProps) {
-  function toggleScenario(id: string) {
-    const next = filters.scenarios.includes(id)
-      ? filters.scenarios.filter((s) => s !== id)
-      : [...filters.scenarios, id];
-    onChange({ ...filters, scenarios: next });
-  }
-
   function toggleSeverity(sev: Incident["severity"]) {
     const next = filters.severities.includes(sev)
       ? filters.severities.filter((s) => s !== sev)
       : [...filters.severities, sev];
     onChange({ ...filters, severities: next });
   }
+
+  // Always include the currently-selected values as options, even if they're
+  // not in the live set (e.g. a persisted selection whose incidents aren't
+  // loaded yet) so the operator can always see and clear them.
+  const scenarioLabelById = new Map(
+    availableScenarios.map((s) => [s.id, s.name])
+  );
+  const scenarioOptions = Array.from(
+    new Set([...availableScenarios.map((s) => s.id), ...filters.scenarios])
+  ).map((id) => ({ value: id, label: scenarioLabelById.get(id) ?? id }));
+
+  const sensorOptions = Array.from(
+    new Set([...availableSensors, ...filters.sensors])
+  )
+    .sort()
+    .map((s) => ({ value: s, label: s }));
+
+  const hasActiveFilters =
+    filters.scenarios.length > 0 ||
+    filters.sensors.length > 0 ||
+    filters.severities.length > 0;
 
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -94,38 +112,26 @@ export function IncidentsFilters({
         ))}
       </div>
 
-      {/* Scenario filter */}
-      {availableScenarios.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {availableScenarios.map((sc) => (
-            <button
-              key={sc.id}
-              onClick={() => toggleScenario(sc.id)}
-              className={`rounded border px-2 py-0.5 text-xs transition-colors ${
-                filters.scenarios.includes(sc.id)
-                  ? "border-primary/60 bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:border-border/80"
-              }`}
-            >
-              {sc.name}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Scenario filter (multi-select dropdown) */}
+      <MultiSelectDropdown
+        label="Scenario"
+        options={scenarioOptions}
+        selected={filters.scenarios}
+        onChange={(next) => onChange({ ...filters, scenarios: next })}
+        emptyHint="No scenarios available"
+      />
 
-      {/* Sensor glob */}
-      <input
-        type="text"
-        placeholder="sensor glob (e.g. checkout-*)"
-        value={filters.sensorGlob}
-        onChange={(e) => onChange({ ...filters, sensorGlob: e.target.value })}
-        className="rounded border border-border bg-background px-2.5 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+      {/* Sensor filter (multi-select dropdown) */}
+      <MultiSelectDropdown
+        label="Sensor"
+        options={sensorOptions}
+        selected={filters.sensors}
+        onChange={(next) => onChange({ ...filters, sensors: next })}
+        emptyHint="No sensors in view"
       />
 
       {/* Clear */}
-      {(filters.scenarios.length > 0 ||
-        filters.severities.length > 0 ||
-        filters.sensorGlob) && (
+      {hasActiveFilters && (
         <button
           onClick={() =>
             onChange({
