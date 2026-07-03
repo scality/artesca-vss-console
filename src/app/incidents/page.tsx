@@ -12,7 +12,6 @@ import {
   type TimeWindow,
 } from "@/components/incidents/IncidentsFilters";
 import { IncidentSchema } from "@/lib/schemas";
-import { glob2regex } from "@/lib/utils";
 import type { Incident, Scenario } from "@/lib/types";
 import { z } from "zod";
 import { useIncidentStream } from "./use-incident-stream";
@@ -41,8 +40,6 @@ const TIME_WINDOW_MS: Record<TimeWindow, number> = {
 function filterIncidents(incidents: Incident[], filters: FilterState): Incident[] {
   const now = Date.now();
   const windowMs = TIME_WINDOW_MS[filters.timeWindow];
-  const sensorRegex =
-    filters.sensorGlob ? glob2regex(filters.sensorGlob) : null;
 
   return incidents.filter((inc) => {
     // Time window
@@ -64,12 +61,43 @@ function filterIncidents(incidents: Incident[], filters: FilterState): Incident[
     ) {
       return false;
     }
-    // Sensor glob
-    if (sensorRegex && !sensorRegex.test(inc.sensorId)) {
+    // Sensor filter
+    if (filters.sensors.length > 0 && !filters.sensors.includes(inc.sensorId)) {
       return false;
     }
     return true;
   });
+}
+
+const FILTERS_LS_KEY = "console:incidents:filters:v1";
+const TIME_WINDOW_VALUES: TimeWindow[] = ["15m", "1h", "24h", "all"];
+const SEVERITY_VALUES: Incident["severity"][] = ["low", "medium", "high"];
+
+/** Read persisted filters from localStorage, coercing each field to a safe value. */
+function loadPersistedFilters(): FilterState {
+  try {
+    const raw = localStorage.getItem(FILTERS_LS_KEY);
+    if (!raw) return DEFAULT_FILTERS;
+    const p = JSON.parse(raw) as Partial<FilterState>;
+    return {
+      scenarios: Array.isArray(p.scenarios)
+        ? p.scenarios.filter((x): x is string => typeof x === "string")
+        : [],
+      sensors: Array.isArray(p.sensors)
+        ? p.sensors.filter((x): x is string => typeof x === "string")
+        : [],
+      severities: Array.isArray(p.severities)
+        ? p.severities.filter((x): x is Incident["severity"] =>
+            SEVERITY_VALUES.includes(x as Incident["severity"])
+          )
+        : [],
+      timeWindow: TIME_WINDOW_VALUES.includes(p.timeWindow as TimeWindow)
+        ? (p.timeWindow as TimeWindow)
+        : DEFAULT_FILTERS.timeWindow,
+    };
+  } catch {
+    return DEFAULT_FILTERS;
+  }
 }
 
 /** Parse the /api/incidents response, which may be a plain array or { incidents: [] } */
@@ -90,6 +118,27 @@ export default function IncidentsPage() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [selected, setSelected] = useState<Incident | null>(null);
+
+  // Hydrate persisted filters after mount (not a lazy initializer) so server
+  // and first client render both start from DEFAULT_FILTERS — no hydration
+  // mismatch. Save on every change so the selection survives reload/reconnect.
+  const filtersHydrated = useRef(false);
+  useEffect(() => {
+    // Read persisted filters only after mount so SSR + first client render both
+    // start from DEFAULT_FILTERS (no hydration mismatch). This is the localStorage
+    // read-after-mount exception, not synchronous derived state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFilters(loadPersistedFilters());
+    filtersHydrated.current = true;
+  }, []);
+  useEffect(() => {
+    if (!filtersHydrated.current) return;
+    try {
+      localStorage.setItem(FILTERS_LS_KEY, JSON.stringify(filters));
+    } catch {
+      /* storage full / unavailable — non-critical */
+    }
+  }, [filters]);
   // 1-second ticker drives the freshness age label without depending on new events.
   const [now, setNow] = useState<number>(() => Date.now());
   const preloadFiredRef = useRef(false);
@@ -164,6 +213,12 @@ export default function IncidentsPage() {
   const filtered = useMemo(
     () => filterIncidents(incidents, filters),
     [incidents, filters]
+  );
+
+  // Distinct sensors seen in the loaded incidents — populates the Sensor dropdown.
+  const availableSensors = useMemo(
+    () => Array.from(new Set(incidents.map((i) => i.sensorId))).sort(),
+    [incidents]
   );
 
   // Client-side preload: fire POST for top 10 incidents once after initial render
@@ -247,6 +302,7 @@ export default function IncidentsPage() {
           filters={filters}
           onChange={setFilters}
           availableScenarios={scenarios}
+          availableSensors={availableSensors}
         />
 
         {/* Table */}
