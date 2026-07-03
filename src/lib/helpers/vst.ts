@@ -125,7 +125,10 @@ export async function vstAddSensor(input: {
     name: input.sensorId,
     username: "",
   };
-  if (input.description) body.description = input.description;
+  // VST's POST /sensor/add takes `location` (a free-text label) — there is no
+  // `description` field, so it must not be renamed (VST silently drops unknown
+  // keys). See refs .../integrate-vios-service.md.
+  if (input.description) body.location = input.description;
 
   try {
     const resp = await fetch(CLUSTER.vst.sensorAddUrl, {
