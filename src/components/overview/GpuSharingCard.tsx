@@ -357,18 +357,47 @@ function RemoteModelsPanel({ models }: { models: GpuAllocationSnapshot["remoteMo
         <Cloud className="h-4 w-4" />
         Remote models — served off-cluster, not on a local GPU
       </div>
-      <ul className="space-y-1">
+      <ul className="space-y-1.5">
         {models.map((m) => (
           <li key={`${m.role}/${m.name}`} className="text-xs flex items-center gap-2 flex-wrap">
             <span className="shrink-0 rounded border border-brand-teal/30 bg-brand-teal-soft px-1.5 py-0.5 text-[10px] font-medium text-brand-teal">
               {m.role} · Remote
             </span>
             <span className="font-mono text-foreground">{m.name}</span>
-            <span className="text-muted-foreground">→ {m.endpoint}</span>
+            <span className="font-mono text-muted-foreground">→ {m.baseUrl || m.endpoint}</span>
+            <RemoteHealthBadge health={m.health} detail={m.detail} />
           </li>
         ))}
       </ul>
     </div>
+  );
+}
+
+/** Live health badge for a remote model endpoint — reflects an actual probe of
+ *  {baseUrl}/v1/models (as the agent calls it), so a misconfigured URL or an
+ *  unreachable/auth-failed endpoint is visible on the Overview at a glance. */
+function RemoteHealthBadge({
+  health,
+  detail,
+}: {
+  health: GpuAllocationSnapshot["remoteModels"][number]["health"];
+  detail: string;
+}) {
+  const map: Record<string, { label: string; cls: string }> = {
+    ok: { label: "● reachable", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+    "bad-url": { label: "✕ URL misconfigured", cls: "bg-red-50 text-red-700 border-red-200" },
+    "auth-error": { label: "✕ auth failed", cls: "bg-red-50 text-red-700 border-red-200" },
+    unreachable: { label: "▲ unreachable", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+    unknown: { label: "? unknown", cls: "bg-muted text-muted-foreground border-border" },
+  };
+  const s = map[health] ?? map.unknown;
+  return (
+    <span
+      title={detail}
+      className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${s.cls}`}
+    >
+      {s.label}
+    </span>
   );
 }
 
