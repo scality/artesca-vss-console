@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Bot, CheckCircle2, Loader2, Send, User, Video, XCircle } from "lucide-react";
 import { Shell } from "@/components/Shell";
 
@@ -61,6 +61,74 @@ function parseReasoning(content: string): { steps: ReasoningStep[]; answer: stri
     steps.push({ title: m[1], body: m[2].trim() });
   }
   return { steps, answer: stripReasoning(content) };
+}
+
+/** Matches markdown images ![alt](url) and links [text](url). */
+const MEDIA_PATTERN = /!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]*)\]\(([^)\s]+)\)/g;
+const VIDEO_URL_PATTERN = /\.(mp4|webm|mov)(\?|$)/i;
+
+/**
+ * Renders an assistant reply as text interleaved with actual media: the agent
+ * emits plain markdown (![alt](url) for snapshots, [text](url) for clips),
+ * but this page has no markdown renderer, so those showed up as inert text.
+ * With /api/chat/route.ts rewriting the agent's browser-unreachable media
+ * host to the console's own /api/media proxy, this turns those links into a
+ * clickable/playable <img>/<video>/<a> — the reply "just works" on click.
+ */
+function renderChatContent(content: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  let key = 0;
+  let match: RegExpExecArray | null;
+  MEDIA_PATTERN.lastIndex = 0;
+  while ((match = MEDIA_PATTERN.exec(content)) !== null) {
+    if (match.index > lastIndex) nodes.push(content.slice(lastIndex, match.index));
+    const isImage = match[1] !== undefined;
+    const url = isImage ? match[2] : match[4];
+    const label = isImage ? match[1] : match[3];
+    // Only http(s) or same-origin relative URLs are safe to render into a
+    // src/href. Chat content is LLM/VLM output (attacker-influenceable via
+    // camera feeds), so a javascript:/data: URL here would be XSS on click.
+    if (!/^(https?:\/\/|\/)/i.test(url.trim())) {
+      nodes.push(label || url);
+      lastIndex = MEDIA_PATTERN.lastIndex;
+      continue;
+    }
+    if (isImage) {
+      nodes.push(
+        <img
+          key={`m-${key++}`}
+          src={url}
+          alt={label || "snapshot"}
+          className="mt-2 max-w-full rounded border border-border"
+        />
+      );
+    } else if (VIDEO_URL_PATTERN.test(url)) {
+      nodes.push(
+        <video
+          key={`m-${key++}`}
+          src={url}
+          controls
+          className="mt-2 max-w-full rounded border border-border"
+        />
+      );
+    } else {
+      nodes.push(
+        <a
+          key={`m-${key++}`}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-brand-teal underline underline-offset-2 hover:text-brand-teal/80"
+        >
+          {label || url}
+        </a>
+      );
+    }
+    lastIndex = MEDIA_PATTERN.lastIndex;
+  }
+  if (lastIndex < content.length) nodes.push(content.slice(lastIndex));
+  return nodes;
 }
 
 function ReasoningBlock({ steps }: { steps: ReasoningStep[] }) {
@@ -398,7 +466,7 @@ export default function ChatPage() {
                   </div>
                   {showReasoning && steps.length > 0 && <ReasoningBlock steps={steps} />}
                   <div className="mt-0.5 whitespace-pre-wrap break-words text-foreground">
-                    {display || (
+                    {display ? renderChatContent(display) : (
                       <span className="italic text-muted-foreground">(empty after stripping reasoning)</span>
                     )}
                   </div>
