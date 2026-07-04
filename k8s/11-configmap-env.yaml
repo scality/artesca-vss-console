@@ -131,3 +131,31 @@ data:
   # Set to "0" to disable the rewrite (falls back to raw, browser-unreachable
   # agent URLs — useful for debugging the agent's own output).
   # VSS_MEDIA_PROXY_ENABLED: "1"
+
+  # ── Recording auto-heal (guarded re-arm on stalled VST recorder) ─────────────
+  # The VST cloud recorder can silently stall — sessions stay alive but stop
+  # producing segments while the source/VLM pipeline is fine. The reconcile
+  # loop's recording-recovery pass probes each online sensor's ground-truth
+  # recording status and re-arms (delete+re-add, same rtspUrl) a sensor stuck
+  # not-recording past the stall threshold, gated by a cooldown + attempt cap
+  # + per-cycle batch cap. See
+  # docs/superpowers/specs/2026-07-04-vss-recording-recovery-design.md.
+  #
+  # RECORDING_AUTOHEAL_ENABLED: set to "0" to disable the recovery pass entirely.
+  # RECORDING_AUTOHEAL_ENABLED: "1"
+  #
+  # RECORDING_STALL_THRESHOLD_MS: how long (ms) a sensor must read not-recording
+  #   before it's eligible for a re-arm. Default 300000 (5 min).
+  # RECORDING_STALL_THRESHOLD_MS: "300000"
+  #
+  # RECORDING_REARM_COOLDOWN_MS: minimum time (ms) between re-arm attempts on
+  #   the same sensor. Default 600000 (10 min).
+  # RECORDING_REARM_COOLDOWN_MS: "600000"
+  #
+  # RECORDING_REARM_MAX_ATTEMPTS: stop re-arming (mark degraded) once this many
+  #   attempts have been made on a sensor. Default 3.
+  # RECORDING_REARM_MAX_ATTEMPTS: "3"
+  #
+  # RECORDING_REARM_MAX_PER_CYCLE: cap on re-arms fired within a single
+  #   reconcile pass (60s tick), across all sensors. Default 1.
+  # RECORDING_REARM_MAX_PER_CYCLE: "1"

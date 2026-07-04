@@ -40,6 +40,41 @@ export async function runReconcileAgentOnce(deps: RunReconcileAgentDeps): Promis
       `${status.errors.length} error(s), ${status.drift.length} drift note(s)`,
     { instance: deps.instance, applied: status.applied },
   );
+
+  // Recording-recovery pass — guarded auto-heal for the VST cloud recorder's
+  // silent-stall failure mode. Fail-soft: never lets a probe/rearm error take
+  // the reconcile tick down. Gated on RECORDING_AUTOHEAL_ENABLED !== "0"
+  // (CLUSTER.recording.enabled). See
+  // docs/superpowers/specs/2026-07-04-vss-recording-recovery-design.md.
+  try {
+    const { CLUSTER } = await import("@/lib/cluster-refs");
+    if (CLUSTER.recording.enabled) {
+      const { vstListSensors } = await import("@/lib/helpers/vst");
+      const { probeRecording } = await import("@/lib/helpers/recording-health");
+      const { rearmRecording } = await import("@/lib/helpers/rearm-recording");
+      const { recoverStalledRecording } = await import("@/lib/reconcile/recording-recovery");
+
+      const [{ sensors }, desired] = await Promise.all([
+        vstListSensors(),
+        deps.store.readCameras(deps.instance),
+      ]);
+      const summary = await recoverStalledRecording({
+        sensors,
+        desired,
+        probe: probeRecording,
+        rearm: rearmRecording,
+        config: CLUSTER.recording,
+        log: deps.log,
+      });
+      deps.log.info(
+        `recording-recovery ${deps.instance}: re-armed: [${summary.reArmed.join(", ")}], ` +
+          `degraded: [${summary.degraded.join(", ")}] (${summary.outcomes.length} sensor(s) checked)`,
+      );
+    }
+  } catch (err) {
+    deps.log.warn("recording-recovery pass failed — continuing", { err });
+  }
+
   return status;
 }
 

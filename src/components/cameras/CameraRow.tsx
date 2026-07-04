@@ -25,9 +25,11 @@ interface CameraRowProps {
 function RecordingBadge({
   vstRecording,
   vstRegistered,
+  vstRecoveryState,
 }: {
   vstRecording: boolean | undefined;
   vstRegistered: boolean;
+  vstRecoveryState?: "recovering" | "degraded";
 }) {
   if (!vstRegistered) return null; // not in VST → recording status N/A
   if (vstRecording === undefined) {
@@ -49,6 +51,32 @@ function RecordingBadge({
         title="VST is actively recording this camera to the objectstore"
       >
         ● REC
+      </Badge>
+    );
+  }
+  // Not recording — the guarded auto-heal reconcile pass may already be
+  // working the stall (recovering) or have given up after exhausting its
+  // re-arm attempts (degraded). Surface that instead of a bare NOT RECORDING
+  // once the recovery pass has recorded activity for this sensor.
+  if (vstRecoveryState === "degraded") {
+    return (
+      <Badge
+        variant="outline"
+        className="text-[10px] px-1.5 py-0 bg-red-100 border-red-300 text-red-800"
+        title="Recording auto-heal exhausted its re-arm attempts — still not recording. Manual restart or investigation needed."
+      >
+        REC DEGRADED
+      </Badge>
+    );
+  }
+  if (vstRecoveryState === "recovering") {
+    return (
+      <Badge
+        variant="outline"
+        className="text-[10px] px-1.5 py-0 bg-amber-50 border-amber-200 text-amber-700"
+        title="Recording stalled — the auto-heal reconcile pass has re-armed this sensor and is watching for recovery"
+      >
+        REC RECOVERING
       </Badge>
     );
   }
@@ -318,6 +346,7 @@ export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
             <RecordingBadge
               vstRecording={camera.feeds[0]?.vstRecording}
               vstRegistered={camera.feeds[0]?.vstRegistered ?? false}
+              vstRecoveryState={camera.feeds[0]?.vstRecoveryState}
             />
             <IngestionBadge vstIngesting={camera.feeds[0]?.vstIngesting} />
           </div>

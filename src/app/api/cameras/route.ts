@@ -63,6 +63,7 @@ export async function GET() {
     const { buildK8sCamerasResponse } = await import("@/lib/cameras/collect-k8s");
     const { listIngestingCameras } = await import("@/lib/helpers/ingestion");
     const { probeRecordingByName } = await import("@/lib/helpers/recording-health");
+    const { getRecoveryStates } = await import("@/lib/reconcile/recording-recovery");
     try {
       const ctx = await makeReconcileContext();
       const [desired, vstResult, mtxResult, status, ingestResult] = await Promise.all([
@@ -86,7 +87,10 @@ export async function GET() {
       // only when the alert-bridge was reachable, so an outage reads "unknown"
       // (undefined) rather than falsely "not ingesting" for every camera.
       const ingestingNames = ingestResult.warning ? undefined : ingestResult.ingesting;
-      const { cameras, reconcile } = buildK8sCamerasResponse(desired, liveNames, mtxReady, status, recordingByName, ingestingNames);
+      // Guarded auto-heal state from the reconcile loop's recording-recovery
+      // pass — pure in-memory read, no I/O.
+      const recoveryByName = getRecoveryStates();
+      const { cameras, reconcile } = buildK8sCamerasResponse(desired, liveNames, mtxReady, status, recordingByName, ingestingNames, recoveryByName);
       return NextResponse.json({ cameras, eip: "", gcs: { available: false }, reconcile, warnings });
     } catch (err) {
       const msg = err instanceof ReconcileContextError ? err.message : String(err);
