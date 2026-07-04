@@ -250,6 +250,18 @@ const ALERT_BRIDGE_REALTIME_URL =
   process.env.ALERT_BRIDGE_REALTIME_URL ??
   `${ALERT_BRIDGE_URL}/api/v1/realtime`;
 
+// ─── VSS Agent (chat) ─────────────────────────────────────────────────────────
+// Helm: vss-agent Deployment/Service in vss-<profile>, OpenAI-compatible
+// /chat endpoint on :8000. Same resolution /api/chat/route.ts already used
+// ad hoc — mirrored here so other agent-facing collectors (e.g. the
+// /capabilities reachability probe) read the canonical value instead of
+// re-deriving it.
+const VSS_AGENT_URL =
+  process.env.VSS_AGENT_URL ??
+  (process.env.CONSOLE_RUNTIME === "docker"
+    ? "http://localhost:8000"
+    : `http://vss-agent.${VSS_NS}.svc.cluster.local:8000`);
+
 // ─── RTVI / VLM ──────────────────────────────────────────────────────────────
 // Helm chart layout verified on live cluster (2026-05-11):
 //   Deployment:  vss-rtvi-vlm   in vss-<profile>
@@ -587,6 +599,10 @@ export const CLUSTER = {
      *  vlm-stream-reconciler converges from. Sampling tuning is written here. */
     rulesConfigMap: process.env.REALTIME_RULES_CM ?? "realtime-alert-rules",
     rulesNamespace: VSS_NS,
+  },
+  agent: {
+    /** vss-agent's OpenAI-compatible base URL — /chat and /health hang off this. */
+    url: VSS_AGENT_URL,
   },
   rtvi: {
     ...RTVI,
