@@ -118,3 +118,16 @@ data:
   # Must be reachable from inside the pod for callbacks.
   NEXTAUTH_URL: "http://console.console.svc.cluster.local:8800"
   CONSOLE_DISABLE_AUTH: "true"
+
+  # ── VSS Chat media proxy ──────────────────────────────────────────────────────
+  # The vss-agent stamps snapshot/clip URLs with a host the browser can't reach
+  # (its own VST_EXTERNAL_URL, "vss-agent:8000"). /api/chat rewrites that prefix
+  # to this console's own /api/media proxy so a snapshot/clip opens with one
+  # click. Auto-derived from VSS_NAMESPACE / VST_STORAGE_URL when unset.
+  #
+  # VSS_AGENT_MEDIA_HOST: "vss-agent:8000"        # host:port the agent stamps
+  # VST_MEDIA_ORIGIN: "http://vss-vios-ingress.vss-base.svc.cluster.local:30888"
+  #
+  # Set to "0" to disable the rewrite (falls back to raw, browser-unreachable
+  # agent URLs — useful for debugging the agent's own output).
+  # VSS_MEDIA_PROXY_ENABLED: "1"

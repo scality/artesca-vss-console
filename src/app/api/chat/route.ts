@@ -15,6 +15,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { withRequestContext } from "@/lib/with-request-context";
+import { CLUSTER } from "@/lib/cluster-refs";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,24 @@ const ChatRequestSchema = z.object({
   })).min(1),
   model: z.string().optional(),
 });
+
+interface ChatCompletionShape {
+  choices?: Array<{ message?: { content?: string } }>;
+}
+
+// Rewrites the agent's browser-unreachable media host (vss-agent:8000) to the
+// console's own same-origin /api/media proxy, so a snapshot/clip URL in the
+// reply opens directly in the browser. Config: CLUSTER.mediaProxyEnabled
+// (env VSS_MEDIA_PROXY_ENABLED). Mutates in place — cheap, response is fresh.
+function rewriteMediaUrls(data: ChatCompletionShape): void {
+  const prefix = `http://${CLUSTER.agent.mediaHost}`;
+  for (const choice of data.choices ?? []) {
+    const content = choice.message?.content;
+    if (choice.message && typeof content === "string" && content.includes(prefix)) {
+      choice.message.content = content.split(prefix).join("/api/media");
+    }
+  }
+}
 
 export const POST = withRequestContext(async function (req: NextRequest) {
   const session = await auth();
@@ -62,6 +81,7 @@ export const POST = withRequestContext(async function (req: NextRequest) {
       );
     }
     const data = await resp.json();
+    if (CLUSTER.mediaProxyEnabled) rewriteMediaUrls(data);
     return NextResponse.json(data);
   } catch (e) {
     return NextResponse.json(

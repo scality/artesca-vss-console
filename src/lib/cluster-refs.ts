@@ -146,6 +146,15 @@ const VST_STORAGE_URL = LEGACY
   : (process.env.VST_STORAGE_URL ??
       `http://vss-vios-ingress.${VSS_NS}.svc.cluster.local:30888/vst/api/v1`);
 
+// Origin (scheme+host+port, no path) of the service above — the /api/media
+// proxy forwards a snapshot/clip's full path (e.g.
+// "/vst/storage/temp_files/<file>.jpg", as stamped by the agent) onto this
+// origin, since VST serves that webroot on the same ingress as the storage
+// API. Derived from VST_STORAGE_URL rather than duplicated so the two never
+// drift; override only if the webroot ever moves to a different service.
+const VST_MEDIA_ORIGIN =
+  process.env.VST_MEDIA_ORIGIN ?? new URL(VST_STORAGE_URL).origin;
+
 const VST = LEGACY
   ? ({
       namespace: "vst",
@@ -261,6 +270,23 @@ const VSS_AGENT_URL =
   (process.env.CONSOLE_RUNTIME === "docker"
     ? "http://localhost:8000"
     : `http://vss-agent.${VSS_NS}.svc.cluster.local:8000`);
+
+// The agent stamps snapshot/clip URLs with this literal host:port (its own
+// VST_EXTERNAL_URL / VSS_AGENT_EXTERNAL_URL env — "vss-agent:8000", the short
+// in-cluster DNS name), which is distinct from VSS_AGENT_URL above (the long
+// form the console itself uses to call the agent) and unreachable from a
+// browser either way. /api/chat/route.ts rewrites this prefix to the
+// console's own same-origin /api/media proxy before a reply reaches the
+// browser, so snapshot images and clip videos render/play with one click
+// instead of showing a dead internal link. Configurable in case a future
+// chart revision changes the agent's stamped host.
+const VSS_AGENT_MEDIA_HOST =
+  process.env.VSS_AGENT_MEDIA_HOST ?? "vss-agent:8000";
+
+// Master switch for the media URL rewrite + /api/media proxy. Set
+// VSS_MEDIA_PROXY_ENABLED="0" to fall back to raw (browser-unreachable, but
+// easier to debug against) agent URLs.
+const MEDIA_PROXY_ENABLED = process.env.VSS_MEDIA_PROXY_ENABLED !== "0";
 
 // ─── RTVI / VLM ──────────────────────────────────────────────────────────────
 // Helm chart layout verified on live cluster (2026-05-11):
@@ -575,8 +601,12 @@ export const CLUSTER = {
     sensorAddUrl: VST_SENSOR_ADD_URL,
     proxyStreamAddUrl: VST_PROXY_STREAM_ADD_URL,
     proxyStreamRemoveUrl: VST_PROXY_STREAM_REMOVE_URL,
+    /** Origin the /api/media proxy forwards snapshot/clip paths onto. */
+    mediaOrigin: VST_MEDIA_ORIGIN,
     ...VST,
   },
+  /** Enables the /api/media proxy + chat media-URL rewrite (config: VSS_MEDIA_PROXY_ENABLED). */
+  mediaProxyEnabled: MEDIA_PROXY_ENABLED,
   mediamtx: {
     apiUrl: MEDIAMTX_API_URL,
   },
@@ -603,6 +633,8 @@ export const CLUSTER = {
   agent: {
     /** vss-agent's OpenAI-compatible base URL — /chat and /health hang off this. */
     url: VSS_AGENT_URL,
+    /** Host:port prefix the agent stamps into snapshot/clip URLs (browser-unreachable as-is). */
+    mediaHost: VSS_AGENT_MEDIA_HOST,
   },
   rtvi: {
     ...RTVI,
