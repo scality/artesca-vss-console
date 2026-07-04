@@ -8,8 +8,9 @@
 // this route's base path before a reply reaches the browser, so a click just
 // works from any browser hitting the console — no laptop tunnel needed.
 //
-// Only forwards paths under /vst/ (the one webroot this proxy exists for) —
-// not a general-purpose open proxy.
+// Locked to the VST media webroot (/vst/storage/) on the fixed VST origin —
+// segment-level traversal guard + post-normalization origin/prefix re-check —
+// so it is not a general-purpose open proxy.
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { CLUSTER } from "@/lib/cluster-refs";
@@ -41,8 +42,44 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   }
 
   const { path } = await params;
+
+  // Reject traversal / separator injection before building the upstream path.
+  // Next.js URL-decodes catch-all segments (so "%2e%2e" arrives as ".."), and
+  // encodeURIComponent leaves "." untouched — so "/vst/../x" would pass a naive
+  // prefix check, then fetch()'s URL parser normalizes the ".." away and
+  // escapes the allowlist. Block the dangerous segments up front; the
+  // post-normalization re-check below is the belt to this suspenders.
+  if (
+    path.some(
+      (seg) =>
+        seg === ".." ||
+        seg === "." ||
+        seg === "" ||
+        seg.includes("/") ||
+        seg.includes("\\") ||
+        seg.includes("\0"),
+    )
+  ) {
+    return NextResponse.json({ error: "Invalid media path" }, { status: 400 });
+  }
+
   const upstreamPath = "/" + path.map(encodeURIComponent).join("/");
-  if (!upstreamPath.startsWith("/vst/")) {
+
+  // Resolve against the FIXED VST origin, then re-verify AFTER normalization:
+  // unchanged origin (no host swap) and still under the media webroot prefix.
+  // This pins the proxy to VST snapshot/clip files even if a bypass slips past
+  // the segment check above.
+  const mediaOrigin = CLUSTER.vst.mediaOrigin;
+  let resolved: URL;
+  try {
+    resolved = new URL(upstreamPath, mediaOrigin);
+  } catch {
+    return NextResponse.json({ error: "Invalid media path" }, { status: 400 });
+  }
+  if (
+    resolved.origin !== new URL(mediaOrigin).origin ||
+    !resolved.pathname.startsWith("/vst/storage/")
+  ) {
     return NextResponse.json({ error: "Not a VST media path" }, { status: 400 });
   }
 
@@ -58,7 +95,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     // (VST's "full available recording" fallback has been observed at
     // 300+ MB) and streaming it can take longer than a fixed budget allows.
     // fetch() still fails fast on connection errors.
-    const resp = await fetch(`${CLUSTER.vst.mediaOrigin}${upstreamPath}`);
+    const resp = await fetch(resolved);
     if (!resp.ok || !resp.body) {
       return NextResponse.json(
         { error: `upstream HTTP ${resp.status}` },
