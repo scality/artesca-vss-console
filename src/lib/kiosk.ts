@@ -13,6 +13,7 @@ export const KIOSK_HIDDEN_ROUTES = [
   "/sizing-studio",
   "/settings",
   "/about",
+  "/capabilities",
 ];
 
 /**

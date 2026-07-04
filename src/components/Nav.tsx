@@ -19,6 +19,7 @@ import {
   Info,
   Bot,
   Calculator,
+  Wrench,
 } from "lucide-react";
 import { useKiosk } from "./KioskProvider";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ const ALL_ROUTES = [
   { href: "/topology", label: "Topology", icon: Network },
   { href: "/incidents", label: "Incidents", icon: AlertTriangle },
   { href: "/chat", label: "VSS Chat", icon: Bot },
+  { href: "/capabilities", label: "Capabilities", icon: Wrench },
   { href: "/cameras", label: "Cameras", icon: Camera },
   { href: "/scenarios", label: "Scenarios", icon: ListChecks },
   { href: "/prompt", label: "VLM Prompt", icon: MessageSquare },
