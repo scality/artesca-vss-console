@@ -2,12 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { withRequestContext } from "@/lib/with-request-context";
 import { auditLog } from "@/lib/helpers/audit";
-import {
-  vstListSensors,
-  vstAddSensor,
-  vstStartStream,
-  vstDeleteSensor,
-} from "@/lib/helpers/vst";
+import { vstListSensors } from "@/lib/helpers/vst";
+import { rearmRecording } from "@/lib/helpers/rearm-recording";
 import {
   camsimListCameras,
   camsimDeleteCamera,
@@ -106,26 +102,18 @@ export const POST = withRequestContext(async function (
     );
   }
 
-  // Primary action: bounce VST ingest (unregister → re-register). Delete by the
-  // UUID sensorId (a name-keyed delete 404s and leaves the old sensor live,
-  // making the re-add collide).
+  // Primary action: bounce VST ingest (unregister → re-register + start the
+  // recording pipeline). Delete by the UUID sensorId (a name-keyed delete
+  // 404s and leaves the old sensor live, making the re-add collide).
   const uuid = active?.streamId != null ? String(active.streamId) : "";
-  const del = await vstDeleteSensor(uuid || id);
-  if (!del.ok && del.warning) warnings.push(del.warning);
-  const add = await vstAddSensor({ sensorId: id, rtspUrl, description: stored?.description });
-  if (!add.ok && add.warning) warnings.push(add.warning);
-  if (!add.ok) {
+  const rearm = await rearmRecording(id, rtspUrl, uuid || id, stored?.description);
+  warnings.push(...rearm.warnings);
+  if (!rearm.ok) {
     return NextResponse.json(
       { error: `VST re-registration failed for '${id}'`, warnings },
       { status: 502 },
     );
   }
-
-  // Step 2: start the recording pipeline (proxy/stream/add). A bare sensor/add
-  // registers the sensor but the recorder never records it — this call is what
-  // actually (re)starts recording. No-op where the proxy endpoint is unset.
-  const stream = await vstStartStream({ sensorId: id, rtspUrl });
-  if (!stream.ok && stream.warning) warnings.push(stream.warning);
 
   // Best-effort: bounce the camera-sim publisher when this camera's source is
   // our simulator and the control-plane is reachable. Failures are warnings.

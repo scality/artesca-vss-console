@@ -51,6 +51,11 @@ export interface Feed {
    *  the VLM is analyzing this stream and emitting incidents. undefined =
    *  unknown (alert-bridge unreachable). */
   vstIngesting?: boolean;
+  /** Guarded auto-heal state from the recording-recovery reconcile pass:
+   *  "recovering" = a re-arm has been attempted and the sensor hasn't yet
+   *  been given up on; "degraded" = re-arm attempts exhausted, still not
+   *  recording. Absent = no recovery activity recorded for this sensor. */
+  vstRecoveryState?: "recovering" | "degraded";
   bitrateMbps?: number;
   fps?: number;
   codec?: "hevc" | "h264";
@@ -138,6 +143,9 @@ export interface OverviewSnapshot {
     // mediamtx path readiness instead of a VST sensor list).
     cameras?: { name: string; live: boolean }[];
   };
+  /** Counts from the recording-recovery reconcile pass (k8s path only).
+   *  Absent when the pass hasn't run / isn't applicable. */
+  recording?: { recovering: number; degraded: number };
 }
 
 export interface SgWhitelistEntry {

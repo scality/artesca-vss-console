@@ -73,8 +73,16 @@ export default async function OverviewPage() {
             <p className="mt-1 text-sm text-muted-foreground">
               ARTESCA × Pyramid × NVIDIA VSS operator view
             </p>
-            <div className="mt-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <ConnectivityStrip />
+              {overview.recording && (overview.recording.recovering > 0 || overview.recording.degraded > 0) && (
+                <span
+                  className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700"
+                  title="Guarded recording auto-heal — cameras currently being re-armed or that exhausted their re-arm attempts"
+                >
+                  Recording recovery: {overview.recording.recovering} recovering, {overview.recording.degraded} degraded
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">

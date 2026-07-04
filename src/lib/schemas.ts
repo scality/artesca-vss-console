@@ -26,6 +26,7 @@ export const FeedSchema = z.object({
   replayReady: z.boolean(),
   vstRecording: z.boolean().optional(),
   vstIngesting: z.boolean().optional(),
+  vstRecoveryState: z.enum(["recovering", "degraded"]).optional(),
   bitrateMbps: z.number().positive().optional(),
   fps: z.number().positive().optional(),
   codec: z.enum(["hevc", "h264"]).optional(),
@@ -152,6 +153,12 @@ export const OverviewSnapshotSchema = z.object({
       .array(z.object({ name: z.string(), live: z.boolean() }))
       .optional(),
   }),
+  recording: z
+    .object({
+      recovering: z.number().int().nonnegative(),
+      degraded: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 
 export const SgWhitelistEntrySchema = z.object({

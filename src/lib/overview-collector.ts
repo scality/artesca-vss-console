@@ -450,6 +450,22 @@ async function collectK8sOverview(
     warnings.push(`VST sensor list failed: ${String(err)}`);
   }
 
+  // Recording-recovery counts — pure in-memory read of the reconcile loop's
+  // guarded auto-heal state, no extra I/O. Best-effort: omit on failure.
+  let recording: OverviewSnapshot["recording"];
+  try {
+    const { getRecoveryStates } = await import("@/lib/reconcile/recording-recovery");
+    let recovering = 0;
+    let degraded = 0;
+    for (const s of getRecoveryStates().values()) {
+      if (s === "recovering") recovering++;
+      else degraded++;
+    }
+    recording = { recovering, degraded };
+  } catch {
+    // Recovery module unavailable — leave `recording` unset rather than fail the snapshot.
+  }
+
   return {
     takenAt,
     namespaces,
@@ -458,6 +474,7 @@ async function collectK8sOverview(
     kafka,
     s3,
     cameraSim,
+    recording,
   };
 }
 

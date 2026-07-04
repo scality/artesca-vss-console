@@ -444,6 +444,27 @@ const S3 = {
   },
 } as const;
 
+// ─── Recording auto-heal (guarded re-arm on stalled VST recorder) ───────────
+// The VST cloud recorder can silently stall — sessions stay alive but stop
+// producing segments while the source/VLM pipeline is fine (root-caused
+// 2026-07-04). Detection: probeRecording (recording-health.ts). Recovery:
+// recoverStalledRecording (reconcile/recording-recovery.ts) re-arms the
+// sensor (delete+re-add, same rtspUrl) after a sustained stall, gated by a
+// cooldown + attempt cap + per-cycle batch cap. See
+// docs/superpowers/specs/2026-07-04-vss-recording-recovery-design.md.
+const RECORDING = {
+  /** Master switch for the reconcile loop's recovery pass. Set "0" to disable. */
+  enabled: process.env.RECORDING_AUTOHEAL_ENABLED !== "0",
+  /** How long a sensor must read not-recording before it's eligible for a re-arm. */
+  stallThresholdMs: Number(process.env.RECORDING_STALL_THRESHOLD_MS) || 300_000,
+  /** Minimum time between re-arm attempts on the same sensor. */
+  rearmCooldownMs: Number(process.env.RECORDING_REARM_COOLDOWN_MS) || 600_000,
+  /** Stop re-arming (mark degraded) once this many attempts have been made. */
+  rearmMaxAttempts: Number(process.env.RECORDING_REARM_MAX_ATTEMPTS) || 3,
+  /** Cap on re-arms fired within a single reconcile pass. */
+  rearmMaxPerCycle: Number(process.env.RECORDING_REARM_MAX_PER_CYCLE) || 1,
+} as const;
+
 // ─── Secrets namespace ────────────────────────────────────────────────────────
 // Helm: all secrets live in vss-<profile>.
 // Legacy: secrets scattered across rtvi / alerts / console namespaces.
@@ -657,4 +678,5 @@ export const CLUSTER = {
    * Helm: same as vssNamespace. Legacy: undefined (per-component namespaces).
    */
   secretsNamespace: SECRETS_NS,
+  recording: RECORDING,
 } as const;
