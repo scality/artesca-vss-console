@@ -159,3 +159,19 @@ data:
   # RECORDING_REARM_MAX_PER_CYCLE: cap on re-arms fired within a single
   #   reconcile pass (60s tick), across all sensors. Default 1.
   # RECORDING_REARM_MAX_PER_CYCLE: "1"
+  #
+  # RECORDING_ESCALATE_ENABLED: pod-restart escalation for pod-global recorder
+  #   stalls (streamprocessing rollout); "0" disables escalation only. Default enabled.
+  # RECORDING_ESCALATE_ENABLED: "1"
+  #
+  # RECORDING_ESCALATE_MIN_STALLED: min recoverable-stalled sensors to trigger a
+  #   streamprocessing restart; keep > count of permanently-offline cams. Default 3.
+  # RECORDING_ESCALATE_MIN_STALLED: "3"
+  #
+  # RECORDING_ESCALATE_COOLDOWN_MS: minimum time (ms) between escalation restarts.
+  #   Default 300000 (5 min).
+  # RECORDING_ESCALATE_COOLDOWN_MS: "300000"
+  #
+  # RECORDING_ESCALATE_MAX_RESTARTS: cap on escalation restarts before giving up
+  #   (then per-sensor degraded stands). Default 2.
+  # RECORDING_ESCALATE_MAX_RESTARTS: "2"
