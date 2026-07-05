@@ -463,6 +463,18 @@ const RECORDING = {
   rearmMaxAttempts: Number(process.env.RECORDING_REARM_MAX_ATTEMPTS) || 3,
   /** Cap on re-arms fired within a single reconcile pass. */
   rearmMaxPerCycle: Number(process.env.RECORDING_REARM_MAX_PER_CYCLE) || 1,
+  /** Master switch for the pod-restart escalation (streamprocessing rollout) when
+   *  many previously-recording sensors stall at once (per-sensor re-arm can't fix a
+   *  pod-global recorder wedge). Set "0" to disable escalation only (per-sensor re-arm stays on). */
+  escalateEnabled: process.env.RECORDING_ESCALATE_ENABLED !== "0",
+  /** Min count of recoverable-stalled sensors (were recording, now not) that triggers a restart.
+   *  Keep this ABOVE the number of permanently-offline cameras in the deployment so their
+   *  perpetual not-recording state never triggers a restart on its own. */
+  escalateMinStalled: Number(process.env.RECORDING_ESCALATE_MIN_STALLED) || 3,
+  /** Min time between escalation restarts. */
+  escalateCooldownMs: Number(process.env.RECORDING_ESCALATE_COOLDOWN_MS) || 300_000,
+  /** Cap on escalation restarts before giving up (then per-sensor degraded stands). */
+  escalateMaxRestarts: Number(process.env.RECORDING_ESCALATE_MAX_RESTARTS) || 2,
 } as const;
 
 // ─── Secrets namespace ────────────────────────────────────────────────────────

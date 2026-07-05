@@ -34,6 +34,11 @@ export interface ClusterAdapter {
   patchConfigMapKey?(ns: string, cm: string, key: string, value: string): Promise<void>;
   /** Rollout-restart a Deployment. Plan 4. */
   restartDeployment?(ns: string, deployment: string): Promise<void>;
+  /** Rollout-restart the VST streamprocessing workload (StatefulSet or Deployment
+   *  per CLUSTER.vst.streamProcessingKind). Escalation path for the pod-global
+   *  recorder stall: a fresh boot re-registers every sensor from always_recording=true,
+   *  which per-sensor delete+re-add can't fix when the whole recorder process is wedged. */
+  restartStreamProcessing?(): Promise<void>;
   /** Ensure a Deployment uses the given update strategy (e.g. "Recreate" for
    *  single-GPU workloads). Returns true if it patched, false if already set. */
   ensureDeploymentStrategy?(ns: string, deployment: string, type: "Recreate" | "RollingUpdate"): Promise<boolean>;
@@ -108,6 +113,15 @@ export class VstClusterAdapter implements ClusterAdapter {
 
   async restartDeployment(ns: string, deployment: string): Promise<void> {
     await rolloutRestart("Deployment", ns, deployment);
+  }
+
+  async restartStreamProcessing(): Promise<void> {
+    const { CLUSTER } = await import("@/lib/cluster-refs");
+    await rolloutRestart(
+      CLUSTER.vst.streamProcessingKind,
+      CLUSTER.vst.namespace,
+      CLUSTER.vst.streamProcessingDeployment,
+    );
   }
 
   async ensureDeploymentStrategy(ns: string, deployment: string, type: "Recreate" | "RollingUpdate"): Promise<boolean> {
