@@ -110,9 +110,9 @@ export function KpiGrid({ data }: KpiGridProps) {
       />
 
       <KpiCard
-        label="GPU Util (avg)"
+        label="GPU Util (2m avg)"
         value={`${gpuAvg}%`}
-        sub={`${data.gpus.length} GPU${data.gpus.length !== 1 ? "s" : ""}`}
+        sub={`${data.gpus.length} GPU${data.gpus.length !== 1 ? "s" : ""} · rolling avg`}
         trend={gpuAvg > 80 ? "up" : gpuAvg < 20 ? "down" : "flat"}
       />
 

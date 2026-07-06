@@ -283,7 +283,11 @@ async function collectK8sOverview(
 
   const gpus: GpuState[] = [];
   const gpuQueries = [
-    "DCGM_FI_DEV_GPU_UTIL",
+    // GPU util is bursty on a frame-sampled VLM pipeline — a single scrape swings
+    // between 0% (idle between frame batches) and ~93% (inference burst). A 2-min
+    // rolling average reads honestly instead of latching onto whatever instant we
+    // sampled. (Range-vector fn in an instant query; preserves per-GPU labels.)
+    "avg_over_time(DCGM_FI_DEV_GPU_UTIL[2m])",
     "DCGM_FI_DEV_FB_USED",
     "DCGM_FI_DEV_FB_TOTAL",
     "DCGM_FI_DEV_GPU_TEMP",
