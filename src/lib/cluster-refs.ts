@@ -668,6 +668,11 @@ export const CLUSTER = {
     url: VSS_AGENT_URL,
     /** Host:port prefix the agent stamps into snapshot/clip URLs (browser-unreachable as-is). */
     mediaHost: VSS_AGENT_MEDIA_HOST,
+    /** ConfigMap holding the agent's runtime config (workflow.prompt, workflow.max_iterations).
+     *  Override via AGENT_CONFIG_MAP env if the Helm chart changes the name. */
+    configMap: process.env.AGENT_CONFIG_MAP ?? "vss-agent-config",
+    /** Key within the ConfigMap that holds the YAML config document. */
+    configKey: process.env.AGENT_CONFIG_KEY ?? "config.yml",
   },
   rtvi: {
     ...RTVI,
