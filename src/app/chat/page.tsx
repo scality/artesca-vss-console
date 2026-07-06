@@ -114,7 +114,7 @@ const markdownComponents: Components = {
     // extracts a real still from the recorded clip frame.
     const imgSrc = VIDEO_URL_PATTERN.test(url) ? mediaThumbUrl(url) : url;
     return (
-      <img src={imgSrc} alt={alt || "snapshot"} className="mt-2 max-w-full rounded border border-border" />
+      <img src={imgSrc} alt={alt || "snapshot"} className="mt-2 block w-full max-w-md rounded border border-border" />
     );
   },
   a({ href, children }) {
@@ -124,8 +124,10 @@ const markdownComponents: Components = {
         <video
           src={href}
           controls
+          playsInline
+          preload="metadata"
           poster={mediaThumbUrl(href)}
-          className="mt-2 max-w-full rounded border border-border"
+          className="mt-2 block w-full max-w-md max-h-80 rounded border border-border bg-black object-contain"
         />
       );
     }
