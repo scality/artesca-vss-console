@@ -450,6 +450,24 @@ async function collectK8sOverview(
     warnings.push(`VST sensor list failed: ${String(err)}`);
   }
 
+  // VLM-ingestion count — cameras with an active realtime alert rule, i.e.
+  // actually feeding the alert pipeline (not just VST-registered/online).
+  // Reuses the same signal /cameras surfaces via helpers/ingestion.ts. Kept
+  // separate from the block above so a broken alert-bridge probe degrades
+  // only this sub-count, never the cameras KPI itself.
+  try {
+    const { listIngestingCameras } = await import("@/lib/helpers/ingestion");
+    const { ingesting, warning } = await listIngestingCameras();
+    if (warning) {
+      warnings.push(warning);
+    } else {
+      const known = cameraSim.cameras ?? [];
+      cameraSim.ingestingCount = known.filter((c) => ingesting.has(c.name)).length;
+    }
+  } catch (err) {
+    warnings.push(`VLM ingestion status failed: ${String(err)}`);
+  }
+
   // Recording-recovery counts — pure in-memory read of the reconcile loop's
   // guarded auto-heal state, no extra I/O. Best-effort: omit on failure.
   let recording: OverviewSnapshot["recording"];

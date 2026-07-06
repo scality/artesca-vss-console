@@ -142,6 +142,13 @@ export interface OverviewSnapshot {
     // online. Empty on the docker overview path (where liveness comes from
     // mediamtx path readiness instead of a VST sensor list).
     cameras?: { name: string; live: boolean }[];
+    /** Cameras with an active realtime alert rule — i.e. actually feeding the
+     *  VLM alert pipeline, not just VST-registered/online. Same signal
+     *  `/cameras` surfaces via helpers/ingestion.ts (listIngestingCameras).
+     *  undefined = signal unavailable (alert-bridge unreachable, or docker
+     *  mode where there's no alert-bridge) — omit the sub-count rather than
+     *  render a false 0. */
+    ingestingCount?: number;
   };
   /** Counts from the recording-recovery reconcile pass (k8s path only).
    *  Absent when the pass hasn't run / isn't applicable. */

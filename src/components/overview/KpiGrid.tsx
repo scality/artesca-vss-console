@@ -71,6 +71,10 @@ export function KpiGrid({ data }: KpiGridProps) {
   const totalSizeSub = `${objectsLabel}${usedLabel}${growthLabel}`;
   const cams = data.cameraSim.cameras ?? [];
   const camsLive = cams.filter((c) => c.live).length;
+  // Cameras actually feeding the VLM alert pipeline (distinct from "VST
+  // online") — undefined when the alert-bridge signal couldn't be read, in
+  // which case the sub-count is omitted rather than showing a false 0.
+  const camsIngesting = data.cameraSim.ingestingCount;
 
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
@@ -135,7 +139,7 @@ export function KpiGrid({ data }: KpiGridProps) {
         }
         sub={
           cams.length > 0
-            ? `${cams.length} cameras · ${camsLive} live`
+            ? `${camsLive} live${camsIngesting !== undefined ? ` · ${camsIngesting} ingesting` : ""}`
             : "camera-sim"
         }
         footer={
