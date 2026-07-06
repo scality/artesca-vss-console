@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { collectAgentReachability } from "@/lib/agent-health";
+import { collectAgentBehavior } from "@/lib/agent-config";
 import { AGENT_CAPABILITY_GROUPS, type ToolKind } from "@/lib/agent-capabilities";
 
 const KIND_STYLES: Record<ToolKind, string> = {
@@ -15,7 +16,10 @@ const KIND_STYLES: Record<ToolKind, string> = {
 };
 
 export default async function CapabilitiesPage() {
-  const { reachable, warnings } = await collectAgentReachability();
+  const [{ reachable, warnings }, behavior] = await Promise.all([
+    collectAgentReachability(),
+    collectAgentBehavior(),
+  ]);
 
   return (
     <Shell>
@@ -46,6 +50,77 @@ export default async function CapabilitiesPage() {
             </ul>
           )}
         </div>
+
+        {/* Agent behavior — live vss-agent-config (prompt + reasoning budget) */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Agent behavior</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Reasoning budget + LLM endpoint row */}
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Reasoning budget</span>
+                {behavior.maxIterations !== null ? (
+                  <Badge variant="secondary" className="font-mono text-xs">
+                    max_iterations&nbsp;=&nbsp;{behavior.maxIterations}
+                  </Badge>
+                ) : (
+                  <span className="italic text-muted-foreground">unknown</span>
+                )}
+              </div>
+              {behavior.llm !== null && (
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">LLM</span>
+                  <code className="font-mono text-xs">
+                    {behavior.llm.modelName || "(model)"}&nbsp;@&nbsp;{behavior.llm.baseUrl}
+                  </code>
+                </div>
+              )}
+            </div>
+
+            {/* System prompt */}
+            {behavior.prompt !== null ? (
+              <div className="overflow-hidden rounded border border-border">
+                <div className="border-b border-border bg-muted/40 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
+                  workflow.prompt — system prompt
+                </div>
+                <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-relaxed">
+                  {behavior.prompt}
+                </pre>
+              </div>
+            ) : (
+              <p className="italic text-sm text-muted-foreground">
+                System prompt unavailable — see warnings below.
+              </p>
+            )}
+
+            {/* Read-only caption */}
+            <p className="text-xs text-muted-foreground">
+              Read-only view of the live ConfigMap. To change the system prompt or
+              reasoning budget, edit the source-controlled patch Job{" "}
+              <code className="font-mono">
+                k8s/nvidia-vss-helm-overlay/60-agent-config-patch-job.yaml
+              </code>{" "}
+              — changes made directly in the ConfigMap are reverted by the next
+              Helm upgrade.
+            </p>
+
+            {/* Collector warnings */}
+            {behavior.warnings.length > 0 && (
+              <ul className="space-y-0.5">
+                {behavior.warnings.map((w) => (
+                  <li
+                    key={w}
+                    className="font-mono text-xs text-amber-600 dark:text-amber-400"
+                  >
+                    {w}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Tool catalog */}
         {AGENT_CAPABILITY_GROUPS.map((group) => (
