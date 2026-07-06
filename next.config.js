@@ -74,5 +74,10 @@ module.exports = {
       { source: "/chat/__upstream/:path*", destination: `${upstream}/:path*` },
     ];
   },
+  // /capabilities was merged into /agent (config editor + tool catalog + health
+  // on one page) — keep any bookmarked/linked URL landing on the unified page.
+  async redirects() {
+    return [{ source: "/capabilities", destination: "/agent", permanent: true }];
+  },
 };
 
