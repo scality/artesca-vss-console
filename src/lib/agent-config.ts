@@ -18,6 +18,13 @@ export interface AgentLlm {
   modelName: string;
 }
 
+/** vss-agent Deployment name — shared with agent-config-write.ts so the
+ *  read and write paths never drift. Matches the Helm chart's object name;
+ *  the legacy pre-Helm layout uses "nvidia-vss-agent" in ns "agent" instead,
+ *  a distinction this collector has always simplified away (see
+ *  CLUSTER.restartable for the legacy-aware mapping). */
+export const AGENT_DEPLOYMENT_NAME = "vss-agent";
+
 export interface AgentBehavior {
   /** workflow.prompt from the vss-agent-config ConfigMap, or null on failure. */
   prompt: string | null;
@@ -74,7 +81,7 @@ export async function collectAgentBehavior(): Promise<AgentBehavior> {
   // Secondary / fail-soft: a missing or inaccessible Deployment is non-fatal.
   try {
     const deployment = await appsV1().readNamespacedDeployment({
-      name: "vss-agent",
+      name: AGENT_DEPLOYMENT_NAME,
       namespace: CLUSTER.vssNamespace,
     });
     const env = new Map<string, string>();
