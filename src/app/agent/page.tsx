@@ -36,7 +36,6 @@ import {
   Wrench,
   Sparkles,
   Link2,
-  Gauge,
   FileText,
 } from "lucide-react";
 import {
@@ -64,12 +63,9 @@ const AgentConfigResponseSchema = z.object({
 
 interface Draft {
   prompt: string;
-  maxIterations: number;
   llmBaseUrl: string;
   llmName: string;
 }
-
-const DEFAULT_MAX_ITERATIONS = 15;
 
 /** The two LLMs worth calling out explicitly — the blueprint's designated
  *  agent LLM vs. the small model that's weak at tool routing. */
@@ -139,7 +135,6 @@ export default function AgentConfigPage() {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- initializing local edit copy from server data
       setDraft({
         prompt: data.prompt,
-        maxIterations: data.maxIterations ?? DEFAULT_MAX_ITERATIONS,
         llmBaseUrl: data.llmBaseUrl,
         llmName: data.llmName,
       });
@@ -150,7 +145,6 @@ export default function AgentConfigPage() {
     draft !== null &&
     data !== undefined &&
     (draft.prompt !== data.prompt ||
-      draft.maxIterations !== (data.maxIterations ?? DEFAULT_MAX_ITERATIONS) ||
       draft.llmBaseUrl !== data.llmBaseUrl ||
       draft.llmName !== data.llmName);
 
@@ -166,9 +160,6 @@ export default function AgentConfigPage() {
     try {
       const body: Record<string, unknown> = {};
       if (draft.prompt !== data.prompt) body.prompt = draft.prompt;
-      if (draft.maxIterations !== (data.maxIterations ?? DEFAULT_MAX_ITERATIONS)) {
-        body.maxIterations = draft.maxIterations;
-      }
       if (draft.llmBaseUrl !== data.llmBaseUrl) body.llmBaseUrl = draft.llmBaseUrl;
       if (draft.llmName !== data.llmName) body.llmName = draft.llmName;
 
@@ -289,7 +280,7 @@ export default function AgentConfigPage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* ── Configuration: editable LLM wiring, reasoning budget, prompt ── */}
+          {/* ── Configuration: editable LLM wiring + prompt ── */}
           <TabsContent value="configuration" className="space-y-6 mt-4">
             {/* Durable-vs-live override note — always shown, per operator caveat. */}
             <div className="flex items-start gap-2 rounded-md border border-brand-teal/30 bg-brand-teal-soft p-3 text-sm text-brand-teal">
@@ -321,7 +312,7 @@ export default function AgentConfigPage() {
 
             {draft && (
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
-                {/* Wiring cluster — model, base URL, reasoning budget */}
+                {/* Wiring cluster — model, base URL */}
                 <div className="space-y-6">
                   <Card>
                     <CardHeader className="pb-3">
@@ -402,38 +393,6 @@ export default function AgentConfigPage() {
                           </span>
                         </div>
                       )}
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="flex items-center gap-2 text-base">
-                        <Gauge className="h-4 w-4 text-brand-teal" />
-                        Reasoning budget
-                      </CardTitle>
-                      <CardDescription>
-                        <code className="font-mono text-xs">workflow.max_iterations</code> in
-                        the <code className="font-mono text-xs">vss-agent-config</code>{" "}
-                        ConfigMap — the cap on tool-call rounds per chat turn.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={100}
-                        value={draft.maxIterations}
-                        onChange={(e) =>
-                          update(
-                            "maxIterations",
-                            Math.max(
-                              1,
-                              Math.min(100, parseInt(e.target.value, 10) || DEFAULT_MAX_ITERATIONS),
-                            ),
-                          )
-                        }
-                        className="w-32"
-                      />
                     </CardContent>
                   </Card>
                 </div>
