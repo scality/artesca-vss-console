@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Bot, CheckCircle2, Loader2, Send, User, Video, XCircle } from "lucide-react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Shell } from "@/components/Shell";
 
 type Role = "user" | "assistant" | "system";
@@ -63,73 +65,108 @@ function parseReasoning(content: string): { steps: ReasoningStep[]; answer: stri
   return { steps, answer: stripReasoning(content) };
 }
 
-/** Matches markdown images ![alt](url) and links [text](url). */
-const MEDIA_PATTERN = /!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]*)\]\(([^)\s]+)\)/g;
+/**
+ * Only http(s) or same-origin relative URLs are safe to render into a
+ * src/href. Chat content is LLM/VLM output (attacker-influenceable via
+ * camera feeds), so a javascript:/data: URL here would be XSS on click.
+ */
+const SAFE_URL_PATTERN = /^(https?:\/\/|\/)/i;
+function isSafeUrl(url: string | undefined): url is string {
+  return typeof url === "string" && SAFE_URL_PATTERN.test(url.trim());
+}
+
+/** Anchors pointing at a clip file render as an inline <video> instead of a link. */
 const VIDEO_URL_PATTERN = /\.(mp4|webm|mov)(\?|$)/i;
 
 /**
- * Renders an assistant reply as text interleaved with actual media: the agent
- * emits plain markdown (![alt](url) for snapshots, [text](url) for clips),
- * but this page has no markdown renderer, so those showed up as inert text.
- * With /api/chat/route.ts rewriting the agent's browser-unreachable media
- * host to the console's own /api/media proxy, this turns those links into a
- * clickable/playable <img>/<video>/<a> — the reply "just works" on click.
+ * Custom react-markdown renderers: the agent's reply is real markdown
+ * (**bold**, lists, headings, tables — plus ![alt](url) for snapshots and
+ * [text](url) for clips). With /api/chat/route.ts rewriting the agent's
+ * browser-unreachable media host to the console's own /api/media proxy, the
+ * img/a overrides below turn those links into a clickable/playable
+ * <img>/<video>/<a> — the reply "just works" on click. Every element carries
+ * theme-matched Tailwind classes since no typography plugin is installed.
  */
-function renderChatContent(content: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  let lastIndex = 0;
-  let key = 0;
-  let match: RegExpExecArray | null;
-  MEDIA_PATTERN.lastIndex = 0;
-  while ((match = MEDIA_PATTERN.exec(content)) !== null) {
-    if (match.index > lastIndex) nodes.push(content.slice(lastIndex, match.index));
-    const isImage = match[1] !== undefined;
-    const url = isImage ? match[2] : match[4];
-    const label = isImage ? match[1] : match[3];
-    // Only http(s) or same-origin relative URLs are safe to render into a
-    // src/href. Chat content is LLM/VLM output (attacker-influenceable via
-    // camera feeds), so a javascript:/data: URL here would be XSS on click.
-    if (!/^(https?:\/\/|\/)/i.test(url.trim())) {
-      nodes.push(label || url);
-      lastIndex = MEDIA_PATTERN.lastIndex;
-      continue;
+const markdownComponents: Components = {
+  img({ src, alt }) {
+    // react-markdown's experimental img typings widen `src` beyond string;
+    // remark/rehype only ever emit a string URL from `![alt](url)`, so
+    // narrow explicitly rather than loosen the shared isSafeUrl guard.
+    const url = typeof src === "string" ? src : undefined;
+    if (!isSafeUrl(url)) return <>{alt || url || ""}</>;
+    return (
+      <img src={url} alt={alt || "snapshot"} className="mt-2 max-w-full rounded border border-border" />
+    );
+  },
+  a({ href, children }) {
+    if (!isSafeUrl(href)) return <>{children}</>;
+    if (VIDEO_URL_PATTERN.test(href)) {
+      return <video src={href} controls className="mt-2 max-w-full rounded border border-border" />;
     }
-    if (isImage) {
-      nodes.push(
-        <img
-          key={`m-${key++}`}
-          src={url}
-          alt={label || "snapshot"}
-          className="mt-2 max-w-full rounded border border-border"
-        />
-      );
-    } else if (VIDEO_URL_PATTERN.test(url)) {
-      nodes.push(
-        <video
-          key={`m-${key++}`}
-          src={url}
-          controls
-          className="mt-2 max-w-full rounded border border-border"
-        />
-      );
-    } else {
-      nodes.push(
-        <a
-          key={`m-${key++}`}
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-brand-teal underline underline-offset-2 hover:text-brand-teal/80"
-        >
-          {label || url}
-        </a>
-      );
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-brand-teal underline underline-offset-2 hover:text-brand-teal/80"
+      >
+        {children}
+      </a>
+    );
+  },
+  p({ children }) {
+    return <p className="mb-2 leading-relaxed last:mb-0">{children}</p>;
+  },
+  strong({ children }) {
+    return <strong className="font-semibold">{children}</strong>;
+  },
+  em({ children }) {
+    return <em className="italic">{children}</em>;
+  },
+  ul({ children }) {
+    return <ul className="mb-2 list-disc space-y-0.5 pl-5 last:mb-0">{children}</ul>;
+  },
+  ol({ children }) {
+    return <ol className="mb-2 list-decimal space-y-0.5 pl-5 last:mb-0">{children}</ol>;
+  },
+  li({ children }) {
+    return <li className="leading-relaxed">{children}</li>;
+  },
+  h1({ children }) {
+    return <h1 className="mb-1.5 mt-2 text-base font-semibold first:mt-0">{children}</h1>;
+  },
+  h2({ children }) {
+    return <h2 className="mb-1.5 mt-2 text-[15px] font-semibold first:mt-0">{children}</h2>;
+  },
+  h3({ children }) {
+    return <h3 className="mb-1 mt-2 text-sm font-semibold first:mt-0">{children}</h3>;
+  },
+  code({ className, children }) {
+    // Fenced code blocks carry a `language-*` className from remark/rehype;
+    // inline `code` spans don't — style each case distinctly so a fenced
+    // block's <code> doesn't fight the wrapping <pre>'s own background.
+    if (/language-/.test(className ?? "")) {
+      return <code className={`${className ?? ""} font-mono text-sm`}>{children}</code>;
     }
-    lastIndex = MEDIA_PATTERN.lastIndex;
-  }
-  if (lastIndex < content.length) nodes.push(content.slice(lastIndex));
-  return nodes;
-}
+    return <code className="rounded bg-muted px-1 font-mono text-sm">{children}</code>;
+  },
+  pre({ children }) {
+    return <pre className="mt-2 overflow-x-auto rounded bg-muted p-2">{children}</pre>;
+  },
+  table({ children }) {
+    return (
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full border-collapse text-left text-sm">{children}</table>
+      </div>
+    );
+  },
+  th({ children }) {
+    return <th className="border border-border bg-muted px-2 py-1 font-semibold">{children}</th>;
+  },
+  td({ children }) {
+    return <td className="border border-border px-2 py-1 align-top">{children}</td>;
+  },
+};
 
 function ReasoningBlock({ steps }: { steps: ReasoningStep[] }) {
   return (
@@ -465,8 +502,12 @@ export default function ChatPage() {
                     {m.role}
                   </div>
                   {showReasoning && steps.length > 0 && <ReasoningBlock steps={steps} />}
-                  <div className="mt-0.5 whitespace-pre-wrap break-words text-foreground">
-                    {display ? renderChatContent(display) : (
+                  <div className="mt-0.5 whitespace-pre-line break-words text-foreground">
+                    {display ? (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                        {display}
+                      </ReactMarkdown>
+                    ) : (
                       <span className="italic text-muted-foreground">(empty after stripping reasoning)</span>
                     )}
                   </div>
