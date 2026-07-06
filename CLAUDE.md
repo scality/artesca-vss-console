@@ -71,6 +71,8 @@ This means: when adding a new server-rendered page, import the collector functio
 
 Routes for `/cameras`, `/prompt`, and `/scenarios` branch on `CONSOLE_RUNTIME`: the k8s path reads/writes Firestore (`instances/<instance>/{cameras,prompt,scenarios}` in GCP project `isv-alliances`) via `makeReconcileContext()` + write-through `reconcile-core`; the docker path uses the legacy GCS/ConfigMap path.
 
+**Chat + media + agent-config routes.** `POST /api/chat` proxies to the vss-agent's OpenAI-compatible `/chat` (`VSS_AGENT_URL`, default derived from `VSS_NAMESPACE` on the k8s path) and rewrites the agent's browser-unreachable media host (`CLUSTER.agent.mediaHost`, e.g. `vss-agent:8000`) to the same-origin `/api/media` proxy so clip/snapshot links in the reply resolve in the browser — gated by `CLUSTER.mediaProxyEnabled` (env `VSS_MEDIA_PROXY_ENABLED`). `GET /api/media/[...path]` is that proxy: it streams VST clip/snapshot bytes from `CLUSTER.vst.mediaOrigin`, restricted to a `Content-Type` allowlist keyed off the file extension, always serving `nosniff` + a `sandbox` CSP + `inline` disposition, with a path-traversal guard plus a post-normalization origin/prefix re-check pinning it to the `/vst/storage/` webroot. `GET`/`PATCH /api/agent-config` backs the `/agent` page — `GET` reads the live prompt / `max_iterations` / LLM wiring plus a live `{LLM_BASE_URL}/v1/models` reachability probe; `PATCH` patches the `vss-agent-config` ConfigMap and/or the `vss-agent` Deployment env and rolls a restart.
+
 ## Persistence layers
 
 | What | k8s path | docker path |
