@@ -2,9 +2,9 @@
  * agent-capabilities.ts — curated, hand-authored catalog of the tools the
  * VSS chat agent (vss-agent) exposes to its LLM tool router.
  *
- * This is reference data for the /capabilities operator page, NOT a live
- * introspection of the agent — it doesn't call the agent to enumerate tools.
- * Keep it in sync by hand when the upstream agent's tool set changes.
+ * This is reference data for the Tools tab of the /agent operator page, NOT a
+ * live introspection of the agent — it doesn't call the agent to enumerate
+ * tools. Keep it in sync by hand when the upstream agent's tool set changes.
  */
 
 /** Badge label shown next to a tool — what shape of thing it returns. */

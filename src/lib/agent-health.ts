@@ -4,7 +4,7 @@ import { CLUSTER } from "@/lib/cluster-refs";
 
 /**
  * agent-health.ts — live reachability probe for vss-agent, backing the
- * /capabilities page's status chip.
+ * /agent page's reachability chip.
  *
  * Split from agent-capabilities.ts (pure static data, no I/O) to match the
  * codebase's existing separation between catalog/schema modules and
