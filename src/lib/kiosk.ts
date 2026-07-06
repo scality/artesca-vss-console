@@ -14,6 +14,7 @@ export const KIOSK_HIDDEN_ROUTES = [
   "/settings",
   "/about",
   "/capabilities",
+  "/agent",
 ];
 
 /**
