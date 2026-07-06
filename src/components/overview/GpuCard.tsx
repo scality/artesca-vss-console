@@ -81,7 +81,7 @@ export function GpuCard({ gpu }: GpuCardProps) {
         <div className="flex justify-between text-xs text-muted-foreground">
           <span>GPU</span>
           <span className="tabular-nums font-medium text-foreground">
-            {gpu.utilGpu}%
+            {Math.round(gpu.utilGpu)}%
           </span>
         </div>
         <ProgressBar
