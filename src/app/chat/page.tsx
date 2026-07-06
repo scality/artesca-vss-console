@@ -79,6 +79,21 @@ function isSafeUrl(url: string | undefined): url is string {
 const VIDEO_URL_PATTERN = /\.(mp4|webm|mov)(\?|$)/i;
 
 /**
+ * Recorded-clip-frame still for a clip URL. The upstream VST still-image
+ * endpoint (vst_snapshot / .../picture/url) is broken cluster-wide ("Failed
+ * to start source producer") and stays bypassed by design — the agent only
+ * ever emits clip links, never snapshot links. Every still shown in chat is
+ * instead extracted server-side from the clip's own recorded frame via
+ * /api/media-thumb (ffmpeg first-frame extraction — the same mechanism
+ * /api/clips/[sensor]/[ts]/thumb uses). Used both as a <video poster> (a real
+ * still shows immediately, before/without playing) and as the <img> src when
+ * the reply is an explicit ![snapshot](...) pointing at a video file.
+ */
+function mediaThumbUrl(clipUrl: string): string {
+  return `/api/media-thumb?src=${encodeURIComponent(clipUrl)}`;
+}
+
+/**
  * Custom react-markdown renderers: the agent's reply is real markdown
  * (**bold**, lists, headings, tables — plus ![alt](url) for snapshots and
  * [text](url) for clips). With /api/chat/route.ts rewriting the agent's
@@ -94,14 +109,25 @@ const markdownComponents: Components = {
     // narrow explicitly rather than loosen the shared isSafeUrl guard.
     const url = typeof src === "string" ? src : undefined;
     if (!isSafeUrl(url)) return <>{alt || url || ""}</>;
+    // An explicit ![snapshot](...) can point at a clip file — no browser
+    // decodes video as an <img>, so reroute through /api/media-thumb, which
+    // extracts a real still from the recorded clip frame.
+    const imgSrc = VIDEO_URL_PATTERN.test(url) ? mediaThumbUrl(url) : url;
     return (
-      <img src={url} alt={alt || "snapshot"} className="mt-2 max-w-full rounded border border-border" />
+      <img src={imgSrc} alt={alt || "snapshot"} className="mt-2 max-w-full rounded border border-border" />
     );
   },
   a({ href, children }) {
     if (!isSafeUrl(href)) return <>{children}</>;
     if (VIDEO_URL_PATTERN.test(href)) {
-      return <video src={href} controls className="mt-2 max-w-full rounded border border-border" />;
+      return (
+        <video
+          src={href}
+          controls
+          poster={mediaThumbUrl(href)}
+          className="mt-2 max-w-full rounded border border-border"
+        />
+      );
     }
     return (
       <a
