@@ -61,6 +61,9 @@ export interface GpuWorkload {
 export interface GpuAllocation {
   index: number;
   name: string;
+  /** 0 when DCGM exposed no FB_TOTAL/FB_FREE series for this GPU index —
+   *  callers must guard divide-by-total math instead of treating 0 as a
+   *  legitimate capacity. */
   memTotalMiB: number;
   memUsedMiB: number;
   utilGpu: number;
@@ -394,21 +397,25 @@ async function resolveRemoteModels(
 export async function collectGpuAllocation(): Promise<GpuAllocationSnapshot> {
   const warnings: string[] = [];
 
-  const [fbUsed, fbTotal, util, temp, power] = await Promise.all([
+  const [fbUsed, fbTotal, util, temp, power, fbFree] = await Promise.all([
     promQuery("DCGM_FI_DEV_FB_USED"),
     promQuery("DCGM_FI_DEV_FB_TOTAL"),
     promQuery("DCGM_FI_DEV_GPU_UTIL"),
     promQuery("DCGM_FI_DEV_GPU_TEMP"),
     promQuery("DCGM_FI_DEV_POWER_USAGE"),
+    // Some DCGM exporter builds emit FB_FREE but not FB_TOTAL — derive total
+    // from used + free in that case (mirrors collectK8sOverview in
+    // overview-collector.ts, which the per-GPU KPI card reads from).
+    promQuery("DCGM_FI_DEV_FB_FREE"),
   ]);
-  for (const r of [fbUsed, fbTotal, util, temp, power]) {
+  for (const r of [fbUsed, fbTotal, util, temp, power, fbFree]) {
     if (r.warning) warnings.push(r.warning);
   }
 
   // Discover GPU indices + model name from any series.
   const gpuIndices = new Set<string>();
   const nameByGpu = new Map<string, string>();
-  for (const r of [fbUsed, fbTotal, util, temp, power]) {
+  for (const r of [fbUsed, fbTotal, util, temp, power, fbFree]) {
     for (const item of r.results) {
       const g = gpuOf(item.metric);
       gpuIndices.add(g);
@@ -438,12 +445,20 @@ export async function collectGpuAllocation(): Promise<GpuAllocationSnapshot> {
     }
     workloads.sort((a, b) => b.memUsedMiB - a.memUsedMiB);
 
-    const memTotalMiB = deviceVal(fbTotal.results, gpuIdx) || 1;
     // Prefer the device-total FB_USED (a series may carry no pod label); fall
     // back to summing the per-pod series.
     const deviceUsed = deviceVal(fbUsed.results, gpuIdx);
     const memUsedMiB =
       deviceUsed || workloads.reduce((s, w) => s + w.memUsedMiB, 0);
+
+    // Prefer FB_TOTAL; fall back to used+free when the exporter omits TOTAL
+    // for this GPU index (label-set mismatch between FB_USED/FB_TOTAL series).
+    // Defaulting to 0 (not 1) here matters: a bogus "1 MiB" total previously
+    // slipped past the UI's `memTotalMiB > 0` guard and produced percentages
+    // like 7356100% instead of a legible "total unknown".
+    const deviceFree = deviceVal(fbFree.results, gpuIdx);
+    const memTotalMiB =
+      deviceVal(fbTotal.results, gpuIdx) || (deviceUsed + deviceFree) || 0;
 
     gpus.push({
       index: parseInt(gpuIdx, 10) || 0,

@@ -202,7 +202,9 @@ function GpuRow({ gpu, perWorkload }: { gpu: GpuAllocation; perWorkload: boolean
         )}
       </div>
       <p className="text-[11px] text-muted-foreground tabular-nums">
-        {fmtGiB(gpu.memUsedMiB)} / {fmtGiB(gpu.memTotalMiB)} VRAM ({Math.round(usedPct)}%)
+        {gpu.memTotalMiB > 0
+          ? `${fmtGiB(gpu.memUsedMiB)} / ${fmtGiB(gpu.memTotalMiB)} VRAM (${Math.round(usedPct)}%)`
+          : `${fmtGiB(gpu.memUsedMiB)} VRAM used (total unknown — DCGM reported no FB_TOTAL/FB_FREE for this GPU)`}
       </p>
 
       {/* Legend: which workloads share this GPU + their VRAM share */}
