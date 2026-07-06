@@ -33,6 +33,7 @@ const {
   mockInspectContainer,
   mockRunOneShotGpuContainer,
   mockS3Bucket,
+  mockListIngestingCameras,
 } = vi.hoisted(() => {
   const mockListAllPodsInNs = vi.fn();
   const mockCoreV1 = vi.fn(() => ({}));
@@ -47,6 +48,7 @@ const {
   const mockInspectContainer = vi.fn();
   const mockRunOneShotGpuContainer = vi.fn();
   const mockS3Bucket = vi.fn(() => "test-bucket");
+  const mockListIngestingCameras = vi.fn();
 
   return {
     mockListAllPodsInNs,
@@ -61,6 +63,7 @@ const {
     mockInspectContainer,
     mockRunOneShotGpuContainer,
     mockS3Bucket,
+    mockListIngestingCameras,
   };
 });
 
@@ -91,6 +94,13 @@ vi.mock("@/lib/helpers/mediamtx", () => ({
 
 vi.mock("@/lib/helpers/vst", () => ({
   vstListSensors: mockVstListSensors,
+}));
+
+// VLM-ingestion signal (cameras with an active realtime alert rule) — the
+// collector reaches this via a dynamic import, but vi.mock intercepts both
+// static and dynamic import forms of the same module path.
+vi.mock("@/lib/helpers/ingestion", () => ({
+  listIngestingCameras: mockListIngestingCameras,
 }));
 
 vi.mock("@/lib/helpers/docker-sock", () => ({
@@ -236,6 +246,12 @@ function setupK8sHappyPath() {
     sensors: [{ sensor_id: "cam1", name: "cam1", status: "online" }],
     warning: undefined,
   });
+
+  // VLM-ingestion signal — alert-bridge reachable, cam1 has an active rule.
+  mockListIngestingCameras.mockResolvedValue({
+    ingesting: new Set(["cam1"]),
+    warning: undefined,
+  });
 }
 
 /** Default happy-path setups for docker-mode probes. */
@@ -308,6 +324,10 @@ describe("collectOverviewSnapshot — happy path (k8s mode)", () => {
     // S3 probe ran and populated the field.
     expect(result.snapshot.s3.objectCount).toBe(42);
     expect(result.snapshot.s3.bytesTotal).toBe(1_000_000);
+
+    // VLM-ingestion count: cam1 is VST-registered AND has an active realtime
+    // alert rule per the mock, so it counts toward ingestingCount.
+    expect(result.snapshot.cameraSim.ingestingCount).toBe(1);
   });
 });
 
@@ -420,6 +440,20 @@ describe("collectOverviewSnapshot — degraded-snapshot contract (k8s mode)", ()
     expect(result.snapshot.cameraSim.instanceState).toBe("unreachable");
     expect(result.snapshot.cameraSim.pathsReady).toBe(0);
     expect(result.snapshot.cameraSim.pathsTotal).toBe(0);
+  });
+
+  it("alert-bridge unreachable → ingestingCount omitted (undefined), not a false 0", async () => {
+    mockListIngestingCameras.mockResolvedValue({
+      ingesting: new Set<string>(),
+      warning: "alert-bridge unreachable: timeout",
+    });
+
+    const result = await collectOverviewSnapshot();
+
+    expect(result).toBeDefined();
+    const ingestWarning = result.warnings.find((w) => w.toLowerCase().includes("alert-bridge"));
+    expect(ingestWarning).toBeDefined();
+    expect(result.snapshot.cameraSim.ingestingCount).toBeUndefined();
   });
 
   it("ALL probes throw → still resolves; warnings has multiple entries; never throws", async () => {
