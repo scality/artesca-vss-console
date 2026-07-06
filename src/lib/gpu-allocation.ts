@@ -206,43 +206,72 @@ export interface RemoteModel {
   detail: string;
 }
 
+/** Result of probing an LLM/VLM's OpenAI-compatible `/v1/models` endpoint. */
+export interface RemoteLlmProbeResult {
+  health: RemoteModelHealth;
+  detail: string;
+  /** Model ids returned by `{base}/v1/models` when reachable ("data[].id");
+   *  [] when unreachable or the body doesn't parse as expected. */
+  models: string[];
+}
+
 // Cache the remote-endpoint probe — collectGpuAllocation runs on the overview's
 // 5s auto-refresh, but the endpoint is external; probe at most once/minute.
 const REMOTE_PROBE_TTL_MS = 60_000;
-const remoteProbeCache = new Map<string, { at: number; health: RemoteModelHealth; detail: string }>();
+const remoteProbeCache = new Map<string, { at: number } & RemoteLlmProbeResult>();
 
-/** Probe a remote LLM endpoint exactly as the agent reaches it: the config
- *  appends /v1 to LLM_BASE_URL and the client hits `{base}/v1/models`. So a
- *  trailing /v1 in LLM_BASE_URL → `…/v1/v1/models` → 404 (the "age not found"
- *  chat bug) is caught here. Keyed on baseUrl; cached for TTL. Never logs/returns the key. */
-async function probeRemoteLlm(
+/** Probe an LLM/VLM endpoint exactly as the agent reaches it: the config
+ *  appends /v1 to the base URL and the client hits `{base}/v1/models`. So a
+ *  trailing /v1 already in the base URL → `…/v1/v1/models` → 404 (the "age
+ *  not found" chat bug) is caught here. Keyed on baseUrl; cached for TTL.
+ *  Exported so callers outside this module (e.g. the /agent config editor's
+ *  model dropdown) reuse the same cached probe instead of re-implementing
+ *  it. Never logs/returns the API key. */
+export async function probeRemoteLlmEndpoint(
   baseUrl: string,
   apiKey: string | undefined,
-): Promise<{ health: RemoteModelHealth; detail: string }> {
+): Promise<RemoteLlmProbeResult> {
   const hit = remoteProbeCache.get(baseUrl);
-  if (hit && Date.now() - hit.at < REMOTE_PROBE_TTL_MS) return { health: hit.health, detail: hit.detail };
+  if (hit && Date.now() - hit.at < REMOTE_PROBE_TTL_MS) {
+    return { health: hit.health, detail: hit.detail, models: hit.models };
+  }
 
   const url = `${baseUrl.replace(/\/+$/, "")}/v1/models`;
   let health: RemoteModelHealth = "unknown";
   let detail = "";
+  let models: string[] = [];
   try {
     const headers: Record<string, string> = {};
     if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
     const resp = await fetch(url, { headers, signal: AbortSignal.timeout(4_000), cache: "no-store" });
-    try { await resp.body?.cancel(); } catch { /* ignore */ }
-    if (resp.status === 200) { health = "ok"; detail = "reachable · model list OK"; }
-    else if (resp.status === 401 || resp.status === 403) {
-      health = apiKey ? "auth-error" : "ok";
-      detail = apiKey ? `auth rejected (HTTP ${resp.status}) — check NVIDIA_API_KEY` : "reachable (auth required)";
+    if (resp.status === 200) {
+      health = "ok";
+      detail = "reachable · model list OK";
+      try {
+        const body = (await resp.json()) as { data?: Array<{ id?: string }> };
+        models = (body.data ?? []).map((m) => m.id).filter((id): id is string => !!id);
+      } catch {
+        // Unexpected body shape — health stays "ok", models stays [].
+      }
+    } else {
+      try { await resp.body?.cancel(); } catch { /* ignore */ }
+      if (resp.status === 401 || resp.status === 403) {
+        health = apiKey ? "auth-error" : "ok";
+        detail = apiKey ? `auth rejected (HTTP ${resp.status}) — check NVIDIA_API_KEY` : "reachable (auth required)";
+      } else if (resp.status === 404) {
+        health = "bad-url";
+        detail = "HTTP 404 — wrong path; check for a trailing /v1 in LLM_BASE_URL";
+      } else {
+        health = "unknown";
+        detail = `HTTP ${resp.status}`;
+      }
     }
-    else if (resp.status === 404) { health = "bad-url"; detail = "HTTP 404 — wrong path; check for a trailing /v1 in LLM_BASE_URL"; }
-    else { health = "unknown"; detail = `HTTP ${resp.status}`; }
   } catch (e) {
     health = "unreachable";
     detail = e instanceof Error && e.name === "TimeoutError" ? "timed out" : "network error / DNS";
   }
-  remoteProbeCache.set(baseUrl, { at: Date.now(), health, detail });
-  return { health, detail };
+  remoteProbeCache.set(baseUrl, { at: Date.now(), health, detail, models });
+  return { health, detail, models };
 }
 
 export interface GpuAllocationSnapshot {
@@ -340,7 +369,7 @@ async function resolveRemoteModels(
       ];
       for (const [role, url, model] of roles) {
         if (url && isRemoteUrl(url)) {
-          const { health, detail } = await probeRemoteLlm(url, apiKey);
+          const { health, detail } = await probeRemoteLlmEndpoint(url, apiKey);
           const apiBase = `${url.replace(/\/+$/, "")}/v1`;
           out.push({ role, name: model || "(model)", endpoint: urlHost(url), baseUrl: url, apiBase, health, detail });
         }
