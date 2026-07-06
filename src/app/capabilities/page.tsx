@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { Shell } from "@/components/Shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { collectAgentReachability } from "@/lib/agent-health";
 import { collectAgentBehavior } from "@/lib/agent-config";
@@ -53,8 +55,11 @@ export default async function CapabilitiesPage() {
 
         {/* Agent behavior — live vss-agent-config (prompt + reasoning budget) */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base">Agent behavior</CardTitle>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/agent">Edit</Link>
+            </Button>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Reasoning budget + LLM endpoint row */}
@@ -95,15 +100,19 @@ export default async function CapabilitiesPage() {
               </p>
             )}
 
-            {/* Read-only caption */}
+            {/* Editing pointer + durability caveat */}
             <p className="text-xs text-muted-foreground">
-              Read-only view of the live ConfigMap. To change the system prompt or
-              reasoning budget, edit the source-controlled patch Job{" "}
+              This is a live view. Edit the prompt, reasoning budget, or LLM wiring on the{" "}
+              <Link href="/agent" className="underline">
+                Agent
+              </Link>{" "}
+              page — those edits are live overrides that persist until the next Helm
+              upgrade, which re-asserts the durable defaults via the source-controlled
+              patch Job{" "}
               <code className="font-mono">
                 k8s/nvidia-vss-helm-overlay/60-agent-config-patch-job.yaml
-              </code>{" "}
-              — changes made directly in the ConfigMap are reverted by the next
-              Helm upgrade.
+              </code>
+              .
             </p>
 
             {/* Collector warnings */}
