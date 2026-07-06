@@ -5,8 +5,7 @@ import { appsV1 } from "@/lib/k8s";
 
 /**
  * agent-config.ts — reads the live vss-agent-config ConfigMap and (optionally)
- * the vss-agent Deployment env to surface agent behaviour on the /capabilities
- * page.
+ * the vss-agent Deployment env to surface agent behaviour on the /agent page.
  *
  * Always resolves — any failure degrades to nulls + warnings[] rather than
  * throwing, matching the fail-soft contract of other console collectors

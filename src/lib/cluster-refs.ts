@@ -262,8 +262,8 @@ const ALERT_BRIDGE_REALTIME_URL =
 // ─── VSS Agent (chat) ─────────────────────────────────────────────────────────
 // Helm: vss-agent Deployment/Service in vss-<profile>, OpenAI-compatible
 // /chat endpoint on :8000. Same resolution /api/chat/route.ts already used
-// ad hoc — mirrored here so other agent-facing collectors (e.g. the
-// /capabilities reachability probe) read the canonical value instead of
+// ad hoc — mirrored here so other agent-facing collectors (e.g. the /agent
+// page's reachability probe) read the canonical value instead of
 // re-deriving it.
 const VSS_AGENT_URL =
   process.env.VSS_AGENT_URL ??

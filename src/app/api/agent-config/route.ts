@@ -14,6 +14,7 @@ import {
   restartAgentDeployment,
 } from "@/lib/agent-config-write";
 import { probeRemoteLlmEndpoint } from "@/lib/gpu-allocation";
+import { collectAgentReachability } from "@/lib/agent-health";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +22,14 @@ export const dynamic = "force-dynamic";
  * /api/agent-config — read + edit the VSS agent's workflow config
  * (workflow.prompt, workflow.max_iterations from the vss-agent-config
  * ConfigMap) and its LLM wiring (LLM_BASE_URL / LLM_NAME env on the
- * vss-agent Deployment). Backs the /agent editor page.
+ * vss-agent Deployment). Backs the unified /agent page (config editor +
+ * tool catalog + health).
  *
  * Thin auth + JSON wrapper around collectAgentBehavior() (GET) and
  * agent-config-write.ts (PATCH) — same split as the /api/tuning/* routes.
+ * GET also folds in collectAgentReachability() (the vss-agent /health probe,
+ * distinct from the LLM-endpoint probe below) so the page's agent-reachability
+ * chip doesn't need a second round-trip.
  */
 
 /** Read NVIDIA_API_KEY / OPENAI_API_KEY off the vss-agent Deployment env so
@@ -53,7 +58,10 @@ export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const behavior = await collectAgentBehavior();
+  const [behavior, reachability] = await Promise.all([
+    collectAgentBehavior(),
+    collectAgentReachability(),
+  ]);
 
   let health: string = "unknown";
   let healthDetail = "";
@@ -76,6 +84,8 @@ export async function GET() {
     healthDetail,
     models,
     warnings: behavior.warnings,
+    agentReachable: reachability.reachable,
+    agentReachabilityWarnings: reachability.warnings,
   });
 }
 
