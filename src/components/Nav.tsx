@@ -19,7 +19,6 @@ import {
   Info,
   Bot,
   Calculator,
-  Wrench,
   Cog,
 } from "lucide-react";
 import { useKiosk } from "./KioskProvider";
@@ -31,7 +30,6 @@ const ALL_ROUTES = [
   { href: "/topology", label: "Topology", icon: Network },
   { href: "/incidents", label: "Incidents", icon: AlertTriangle },
   { href: "/chat", label: "VSS Chat", icon: Bot },
-  { href: "/capabilities", label: "Capabilities", icon: Wrench },
   { href: "/agent", label: "Agent", icon: Cog },
   { href: "/cameras", label: "Cameras", icon: Camera },
   { href: "/scenarios", label: "Scenarios", icon: ListChecks },
