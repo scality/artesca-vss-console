@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, CheckCircle2, Loader2, Send, User, Video, XCircle } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, Play, Send, User, Video, XCircle } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Shell } from "@/components/Shell";
@@ -94,12 +94,57 @@ function mediaThumbUrl(clipUrl: string): string {
 }
 
 /**
+ * Picture-first clip renderer: shows the recorded-frame still by default
+ * (via /api/media-thumb) with a play affordance overlaid, and only mounts a
+ * <video> — loading/playing the actual clip — once the operator clicks.
+ * Without this, every clip link renders as a <video controls poster=…> up
+ * front, which operators read as "a video clip" rather than "a picture".
+ */
+function ClipStill({ clipUrl, alt }: { clipUrl: string; alt?: string }) {
+  const [play, setPlay] = useState(false);
+
+  if (play) {
+    return (
+      <video
+        src={clipUrl}
+        controls
+        autoPlay
+        playsInline
+        preload="metadata"
+        poster={mediaThumbUrl(clipUrl)}
+        className="mt-2 block w-full max-w-md max-h-80 rounded border border-border bg-black object-contain"
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setPlay(true)}
+      className="group relative mt-2 block w-full max-w-md text-left"
+      aria-label="Play clip"
+    >
+      <img
+        src={mediaThumbUrl(clipUrl)}
+        alt={alt || "snapshot"}
+        className="block w-full max-w-md rounded border border-border"
+      />
+      <span className="absolute inset-0 flex items-center justify-center rounded transition-colors group-hover:bg-black/10">
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white transition-transform group-hover:scale-110 group-hover:bg-black/70">
+          <Play className="h-5 w-5 fill-white" />
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/**
  * Custom react-markdown renderers: the agent's reply is real markdown
  * (**bold**, lists, headings, tables — plus ![alt](url) for snapshots and
  * [text](url) for clips). With /api/chat/route.ts rewriting the agent's
  * browser-unreachable media host to the console's own /api/media proxy, the
- * img/a overrides below turn those links into a clickable/playable
- * <img>/<video>/<a> — the reply "just works" on click. Every element carries
+ * img/a overrides below turn those links into a clickable image/still or a
+ * real <img> — the reply "just works" on click. Every element carries
  * theme-matched Tailwind classes since no typography plugin is installed.
  */
 const markdownComponents: Components = {
@@ -110,26 +155,19 @@ const markdownComponents: Components = {
     const url = typeof src === "string" ? src : undefined;
     if (!isSafeUrl(url)) return <>{alt || url || ""}</>;
     // An explicit ![snapshot](...) can point at a clip file — no browser
-    // decodes video as an <img>, so reroute through /api/media-thumb, which
-    // extracts a real still from the recorded clip frame.
-    const imgSrc = VIDEO_URL_PATTERN.test(url) ? mediaThumbUrl(url) : url;
+    // decodes video as an <img>, so route it through the same picture-first
+    // still + click-to-play control as a clip link.
+    if (VIDEO_URL_PATTERN.test(url)) {
+      return <ClipStill clipUrl={url} alt={alt} />;
+    }
     return (
-      <img src={imgSrc} alt={alt || "snapshot"} className="mt-2 block w-full max-w-md rounded border border-border" />
+      <img src={url} alt={alt || "snapshot"} className="mt-2 block w-full max-w-md rounded border border-border" />
     );
   },
   a({ href, children }) {
     if (!isSafeUrl(href)) return <>{children}</>;
     if (VIDEO_URL_PATTERN.test(href)) {
-      return (
-        <video
-          src={href}
-          controls
-          playsInline
-          preload="metadata"
-          poster={mediaThumbUrl(href)}
-          className="mt-2 block w-full max-w-md max-h-80 rounded border border-border bg-black object-contain"
-        />
-      );
+      return <ClipStill clipUrl={href} />;
     }
     return (
       <a
