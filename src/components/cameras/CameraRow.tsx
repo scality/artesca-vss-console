@@ -257,9 +257,13 @@ export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
     },
   });
 
-  // Current recording state — default ON when the camera carries no explicit
-  // recording override (matches the stack default).
-  const recordingEnabled = camera.recording?.enabled ?? true;
+  // Recording state shown on the toggle — observed VST state (ground-truth
+  // clip probe, see probeRecordingByName) takes priority over stored intent.
+  // The stored enabled flag can flip without the VST recording pipeline
+  // actually stopping, which left the icon permanently wrong; fall back to
+  // intent only when VST hasn't reported a value yet.
+  const vstRecording = camera.feeds[0]?.vstRecording;
+  const recordingEnabled = vstRecording ?? (camera.recording?.enabled ?? true);
   const recordingPolicy = camera.recording?.policy ?? "always";
   const recordingRetentionDays = camera.recording?.retentionDays ?? 7;
 

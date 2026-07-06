@@ -158,4 +158,28 @@ describe("CameraRow recording toggle", () => {
     const [, opts] = fetchMock.mock.calls[0];
     expect(JSON.parse(opts.body).recording.enabled).toBe(true);
   });
+
+  it("shows 'Recording ON' when VST is observed recording even though stored intent says disabled", () => {
+    // Regression: the stored recording.enabled flag can be toggled off without
+    // VST's recording pipeline actually stopping (auto-armed by sensor
+    // presence on some deploys). The toggle must trust the observed VST state
+    // over stale stored intent.
+    renderRow({
+      ...BASE_CAMERA,
+      recording: { enabled: false, policy: "off", retentionDays: 7 },
+      feeds: [{ ...BASE_CAMERA.feeds[0], vstRecording: true }],
+    });
+    expect(findButtonByTitle("Recording ON")).toBeDefined();
+    expect(findButtonByTitle("Recording OFF")).toBeUndefined();
+  });
+
+  it("shows 'Recording OFF' when VST is observed not-recording even though stored intent says enabled", () => {
+    renderRow({
+      ...BASE_CAMERA,
+      recording: { enabled: true, policy: "always", retentionDays: 7 },
+      feeds: [{ ...BASE_CAMERA.feeds[0], vstRecording: false }],
+    });
+    expect(findButtonByTitle("Recording OFF")).toBeDefined();
+    expect(findButtonByTitle("Recording ON")).toBeUndefined();
+  });
 });
