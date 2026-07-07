@@ -80,6 +80,7 @@ export async function GET() {
     maxIterations: behavior.maxIterations,
     llmBaseUrl: behavior.llm?.baseUrl ?? "",
     llmName: behavior.llm?.modelName ?? "",
+    llmModelType: behavior.llm?.modelType ?? "nim",
     health,
     healthDetail,
     models,
@@ -95,6 +96,7 @@ const AgentConfigPatchSchema = z
     prompt: z.string().min(1).optional(),
     llmBaseUrl: z.string().min(1).optional(),
     llmName: z.string().min(1).optional(),
+    llmModelType: z.enum(["nim", "openai"]).optional(),
   })
   .refine((d) => Object.values(d).some((v) => v !== undefined), {
     message: "At least one field is required",
@@ -112,7 +114,7 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
   if (!parsed.success) {
     return NextResponse.json({ error: "Validation failed", issues: parsed.error.issues }, { status: 400 });
   }
-  const { maxIterations, prompt, llmBaseUrl, llmName } = parsed.data;
+  const { maxIterations, prompt, llmBaseUrl, llmName, llmModelType } = parsed.data;
 
   // The agent appends /v1 itself — a trailing /v1 already in the base URL
   // doubles to /v1/v1 and 404s on every chat turn ("age not found" bug).
@@ -130,7 +132,7 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
   }
 
   try {
-    await patchAgentDeploymentEnv({ llmBaseUrl, llmName });
+    await patchAgentDeploymentEnv({ llmBaseUrl, llmName, llmModelType });
   } catch (err) {
     const { status, message } = extractK8sError(err);
     return NextResponse.json(
@@ -154,6 +156,7 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
     promptLength: prompt?.length,
     llmBaseUrl,
     llmName,
+    llmModelType,
   });
 
   return NextResponse.json({

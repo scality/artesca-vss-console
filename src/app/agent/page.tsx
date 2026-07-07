@@ -53,6 +53,7 @@ const AgentConfigResponseSchema = z.object({
   maxIterations: z.number().nullable(),
   llmBaseUrl: z.string(),
   llmName: z.string(),
+  llmModelType: z.enum(["nim", "openai"]).default("nim"),
   health: z.string(),
   healthDetail: z.string(),
   models: z.array(z.string()),
@@ -65,6 +66,7 @@ interface Draft {
   prompt: string;
   llmBaseUrl: string;
   llmName: string;
+  llmModelType: "nim" | "openai";
 }
 
 /** The two LLMs worth calling out explicitly — the blueprint's designated
@@ -79,6 +81,90 @@ const RECOMMENDED_MODELS = [
     label: "nemotron-nano-9b-v2 — small / weak at tool routing",
   },
 ] as const;
+
+/** Model presets — switch the reasoning LLM (including to Claude) without
+ *  hand-typing base URLs. Picking a Claude preset sends llmModelType:
+ *  "openai"; the server wires the Anthropic API key itself via a K8s
+ *  secretKeyRef — the UI never asks for or sends a key. */
+const MODEL_PRESETS = [
+  {
+    id: "nemotron-super-49b",
+    label: "Nemotron Super 49B",
+    provider: "NVIDIA",
+    modelType: "nim",
+    baseUrl: "https://integrate.api.nvidia.com",
+    name: "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+  },
+  {
+    id: "claude-opus-4-8",
+    label: "Claude Opus 4.8",
+    provider: "Anthropic",
+    modelType: "openai",
+    baseUrl: "https://api.anthropic.com",
+    name: "claude-opus-4-8",
+  },
+  {
+    id: "claude-sonnet-5",
+    label: "Claude Sonnet 5",
+    provider: "Anthropic",
+    modelType: "openai",
+    baseUrl: "https://api.anthropic.com",
+    name: "claude-sonnet-5",
+  },
+] as const;
+
+function normalizeBaseUrl(url: string): string {
+  return url.trim().toLowerCase().replace(/\/+$/, "");
+}
+
+/** Preselect the preset whose modelType+baseUrl+name match the live config
+ *  (case-insensitive, trailing-slash-insensitive on baseUrl). Returns
+ *  undefined when nothing matches — the caller falls back to "custom". */
+function findMatchingPreset(
+  modelType: string,
+  baseUrl: string,
+  name: string,
+): (typeof MODEL_PRESETS)[number] | undefined {
+  const normBase = normalizeBaseUrl(baseUrl);
+  const normName = name.trim().toLowerCase();
+  return MODEL_PRESETS.find(
+    (p) =>
+      p.modelType === modelType &&
+      normalizeBaseUrl(p.baseUrl) === normBase &&
+      p.name.toLowerCase() === normName,
+  );
+}
+
+/** Provider label for the active model, derived from modelType (+ baseUrl
+ *  host for "openai" — api.anthropic.com reads as "Anthropic", anything
+ *  else as "OpenAI-compatible"). */
+function providerLabel(modelType: string, baseUrl: string): string {
+  if (modelType === "openai") {
+    try {
+      if (new URL(baseUrl).host === "api.anthropic.com") return "Anthropic";
+    } catch {
+      // not a parseable URL — fall through to the generic label
+    }
+    return "OpenAI-compatible";
+  }
+  return "NVIDIA";
+}
+
+const PROVIDER_STYLES: Record<string, string> = {
+  NVIDIA: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  Anthropic: "bg-violet-50 text-violet-700 border-violet-200",
+  "OpenAI-compatible": "bg-sky-50 text-sky-700 border-sky-200",
+};
+
+function ProviderBadge({ modelType, baseUrl }: { modelType: string; baseUrl: string }) {
+  const label = providerLabel(modelType, baseUrl);
+  const cls = PROVIDER_STYLES[label] ?? "bg-muted text-muted-foreground border-border";
+  return (
+    <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>
+      {label}
+    </span>
+  );
+}
 
 const HEALTH_STYLES: Record<string, { label: string; cls: string }> = {
   ok: { label: "● reachable", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
@@ -116,6 +202,7 @@ export default function AgentConfigPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [draft, setDraft] = React.useState<Draft | null>(null);
+  const [selectedPresetId, setSelectedPresetId] = React.useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
 
@@ -137,7 +224,11 @@ export default function AgentConfigPage() {
         prompt: data.prompt,
         llmBaseUrl: data.llmBaseUrl,
         llmName: data.llmName,
+        llmModelType: data.llmModelType,
       });
+      const matched = findMatchingPreset(data.llmModelType, data.llmBaseUrl, data.llmName);
+       
+      setSelectedPresetId(matched ? matched.id : "custom");
     }
   }, [data, draft]);
 
@@ -146,12 +237,34 @@ export default function AgentConfigPage() {
     data !== undefined &&
     (draft.prompt !== data.prompt ||
       draft.llmBaseUrl !== data.llmBaseUrl ||
-      draft.llmName !== data.llmName);
+      draft.llmName !== data.llmName ||
+      draft.llmModelType !== data.llmModelType);
 
   const trailingV1 = draft !== null && /\/v1\/?$/.test(draft.llmBaseUrl.trim());
+  const isCustomPreset = selectedPresetId === "custom";
 
   const update = <K extends keyof Draft>(key: K, val: Draft[K]) => {
     setDraft((prev) => (prev ? { ...prev, [key]: val } : prev));
+  };
+
+  /** Selecting a preset sets the effective llmModelType/llmBaseUrl/llmName
+   *  that Save+Restart will send. Selecting "custom" leaves the draft as-is
+   *  and just reveals the raw editable inputs. */
+  const selectPreset = (presetId: string) => {
+    setSelectedPresetId(presetId);
+    if (presetId === "custom") return;
+    const preset = MODEL_PRESETS.find((p) => p.id === presetId);
+    if (!preset) return;
+    setDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            llmModelType: preset.modelType,
+            llmBaseUrl: preset.baseUrl,
+            llmName: preset.name,
+          }
+        : prev,
+    );
   };
 
   const doSave = async () => {
@@ -162,6 +275,7 @@ export default function AgentConfigPage() {
       if (draft.prompt !== data.prompt) body.prompt = draft.prompt;
       if (draft.llmBaseUrl !== data.llmBaseUrl) body.llmBaseUrl = draft.llmBaseUrl;
       if (draft.llmName !== data.llmName) body.llmName = draft.llmName;
+      if (draft.llmModelType !== data.llmModelType) body.llmModelType = draft.llmModelType;
 
       const res = await fetch("/api/agent-config", {
         method: "PATCH",
@@ -239,6 +353,13 @@ export default function AgentConfigPage() {
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {data && (
               <>
+                <span
+                  title={data.llmBaseUrl}
+                  className="shrink-0 rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                >
+                  {data.llmName}
+                </span>
+                <ProviderBadge modelType={data.llmModelType} baseUrl={data.llmBaseUrl} />
                 <HealthBadge health={data.health} detail={data.healthDetail} />
                 <StatusBadge
                   health={data.agentReachable ? "ok" : "fail"}
@@ -321,45 +442,97 @@ export default function AgentConfigPage() {
                         LLM model
                       </CardTitle>
                       <CardDescription>
-                        <code className="font-mono text-xs">LLM_NAME</code> env on the{" "}
-                        <code className="font-mono text-xs">vss-agent</code> Deployment. Pick
-                        from the live model list at{" "}
-                        <code className="font-mono text-xs">{"{LLM_BASE_URL}"}/v1/models</code>,
-                        or type any model id directly below.
+                        Pick a preset to switch the reasoning LLM — including to Claude, where
+                        the server wires the Anthropic API key itself. Choose{" "}
+                        <strong>Custom</strong> to point at any NIM or OpenAI-compatible
+                        endpoint by hand.
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
                       <div className="space-y-1.5">
-                        <Label>Quick pick</Label>
-                        <Select
-                          value={
-                            modelOptions.some((o) => o.id === draft.llmName)
-                              ? draft.llmName
-                              : undefined
-                          }
-                          onValueChange={(v) => update("llmName", v)}
-                        >
+                        <Label>Preset</Label>
+                        <Select value={selectedPresetId ?? undefined} onValueChange={selectPreset}>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select a model..." />
+                            <SelectValue placeholder="Select a preset..." />
                           </SelectTrigger>
                           <SelectContent>
-                            {modelOptions.map((o) => (
-                              <SelectItem key={o.id} value={o.id}>
-                                {o.label}
+                            {MODEL_PRESETS.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.label} — {p.provider}
                               </SelectItem>
                             ))}
+                            <SelectItem value="custom">Custom</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="llm-name">Model id (free text)</Label>
-                        <Input
-                          id="llm-name"
-                          value={draft.llmName}
-                          onChange={(e) => update("llmName", e.target.value.trim())}
-                          className="font-mono text-xs"
-                        />
-                      </div>
+
+                      {isCustomPreset ? (
+                        <>
+                          <div className="space-y-1.5">
+                            <Label>Provider type</Label>
+                            <Select
+                              value={draft.llmModelType}
+                              onValueChange={(v) =>
+                                update("llmModelType", v as "nim" | "openai")
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="nim">nim</SelectItem>
+                                <SelectItem value="openai">openai</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label>Quick pick</Label>
+                            <Select
+                              value={
+                                modelOptions.some((o) => o.id === draft.llmName)
+                                  ? draft.llmName
+                                  : undefined
+                              }
+                              onValueChange={(v) => update("llmName", v)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select a model..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {modelOptions.map((o) => (
+                                  <SelectItem key={o.id} value={o.id}>
+                                    {o.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="llm-name">Model id (free text)</Label>
+                            <Input
+                              id="llm-name"
+                              value={draft.llmName}
+                              onChange={(e) => update("llmName", e.target.value.trim())}
+                              className="font-mono text-xs"
+                            />
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="space-y-1.5">
+                            <Label>Model id</Label>
+                            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs">
+                              {draft.llmName}
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label>Provider type</Label>
+                            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+                              {draft.llmModelType}
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </CardContent>
                   </Card>
 
@@ -376,21 +549,29 @@ export default function AgentConfigPage() {
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      <Input
-                        value={draft.llmBaseUrl}
-                        onChange={(e) => update("llmBaseUrl", e.target.value.trim())}
-                        className="font-mono text-xs"
-                      />
-                      {trailingV1 && (
-                        <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2.5 text-xs text-red-700">
-                          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                          <span>
-                            Ends in <code className="font-mono">/v1</code> — the agent appends{" "}
-                            <code className="font-mono">/v1</code> itself, so this doubles to{" "}
-                            <code className="font-mono">/v1/v1</code> and 404s on every query
-                            (&quot;age not found&quot;). Remove the trailing{" "}
-                            <code className="font-mono">/v1</code>.
-                          </span>
+                      {isCustomPreset ? (
+                        <>
+                          <Input
+                            value={draft.llmBaseUrl}
+                            onChange={(e) => update("llmBaseUrl", e.target.value.trim())}
+                            className="font-mono text-xs"
+                          />
+                          {trailingV1 && (
+                            <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2.5 text-xs text-red-700">
+                              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                              <span>
+                                Ends in <code className="font-mono">/v1</code> — the agent
+                                appends <code className="font-mono">/v1</code> itself, so this
+                                doubles to <code className="font-mono">/v1/v1</code> and 404s on
+                                every query (&quot;age not found&quot;). Remove the trailing{" "}
+                                <code className="font-mono">/v1</code>.
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs">
+                          {draft.llmBaseUrl}
                         </div>
                       )}
                     </CardContent>
