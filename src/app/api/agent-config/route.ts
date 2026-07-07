@@ -121,8 +121,14 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
   // Warn but don't block the save; the operator may be mid-edit.
   const trailingV1 = llmBaseUrl !== undefined && /\/v1\/?$/.test(llmBaseUrl);
 
+  // Anthropic's 4.6+ models reject `temperature` on the OpenAI-compatible
+  // endpoint; the agent's openai_llm profile hardcodes it, so strip it from
+  // config.yml when routing to an Anthropic endpoint or the chat 400s at runtime.
+  const stripOpenaiLlmTemperature =
+    llmModelType === "openai" && (llmBaseUrl ?? "").includes("anthropic.com");
+
   try {
-    await patchAgentWorkflowConfig({ maxIterations, prompt });
+    await patchAgentWorkflowConfig({ maxIterations, prompt, stripOpenaiLlmTemperature });
   } catch (err) {
     const { status, message } = extractK8sError(err);
     return NextResponse.json(

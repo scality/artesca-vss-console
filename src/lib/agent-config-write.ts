@@ -1,8 +1,8 @@
 import "server-only";
-import { type V1EnvVar } from "@kubernetes/client-node";
+import { type V1Deployment, type V1EnvVar } from "@kubernetes/client-node";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { readConfigMapKey, patchConfigMapKey } from "@/lib/helpers/configmaps";
-import { appsV1, rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
+import { appsV1, rolloutRestart, JSON_PATCH_OPTS } from "@/lib/k8s";
 import { extractK8sError } from "@/lib/errors";
 import { AGENT_DEPLOYMENT_NAME } from "@/lib/agent-config";
 
@@ -38,6 +38,12 @@ interface AgentConfigDoc {
 export interface AgentConfigPatch {
   maxIterations?: number;
   prompt?: string;
+  /** Remove `temperature` from the openai LLM profile(s) in config.yml.
+   *  Anthropic's 4.6+ models reject `temperature` on the OpenAI-compatible
+   *  endpoint (HTTP 400 "temperature is deprecated for this model"), so it must
+   *  be absent for the agent to route to Claude. Targets `openai_llm` / `llm`
+   *  only — the `*_vlm` profiles point at the local VLM NIM and keep theirs. */
+  stripOpenaiLlmTemperature?: boolean;
 }
 
 /**
@@ -48,7 +54,13 @@ export interface AgentConfigPatch {
  * doesn't exist yet (patchConfigMapKey's 404 fallback).
  */
 export async function patchAgentWorkflowConfig(patch: AgentConfigPatch): Promise<void> {
-  if (patch.maxIterations === undefined && patch.prompt === undefined) return;
+  if (
+    patch.maxIterations === undefined &&
+    patch.prompt === undefined &&
+    !patch.stripOpenaiLlmTemperature
+  ) {
+    return;
+  }
 
   let doc: AgentConfigDoc = {};
   let resourceVersion: string | undefined;
@@ -70,6 +82,18 @@ export async function patchAgentWorkflowConfig(patch: AgentConfigPatch): Promise
   if (patch.maxIterations !== undefined) workflow.max_iterations = patch.maxIterations;
   if (patch.prompt !== undefined) workflow.prompt = patch.prompt;
   doc.workflow = workflow;
+
+  if (patch.stripOpenaiLlmTemperature) {
+    const llms = doc.llms;
+    if (llms && typeof llms === "object") {
+      for (const key of ["openai_llm", "llm"]) {
+        const profile = (llms as Record<string, unknown>)[key];
+        if (profile && typeof profile === "object" && "temperature" in profile) {
+          delete (profile as Record<string, unknown>).temperature;
+        }
+      }
+    }
+  }
 
   await patchConfigMapKey(
     CLUSTER.vssNamespace,
@@ -112,7 +136,6 @@ export async function patchAgentDeploymentEnv(patch: AgentEnvPatch): Promise<voi
 
   const deployment = await appsV1().readNamespacedDeployment({ name, namespace: ns });
   const currentEnv = deployment.spec?.template?.spec?.containers?.[0]?.env ?? [];
-  const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
 
   const envMap = new Map<string, string>();
   for (const ev of currentEnv) {
@@ -145,25 +168,20 @@ export async function patchAgentDeploymentEnv(patch: AgentEnvPatch): Promise<voi
   }
 
   const plainEntries = Array.from(envMap.entries()).map(([n, v]) => ({ name: n, value: v }));
+  const newEnv = [...valueFromEntries.values(), ...plainEntries];
 
-  const patchBody = {
-    spec: {
-      template: {
-        spec: {
-          containers: [
-            {
-              name: containerName,
-              env: [...valueFromEntries.values(), ...plainEntries],
-            },
-          ],
-        },
-      },
-    },
-  };
+  // Replace the whole env array via JSON Patch rather than a strategic merge.
+  // A strategic merge patches each env entry by name, which would keep the old
+  // plaintext `value` on OPENAI_API_KEY when we swap it to a secretKeyRef — the
+  // apiserver then rejects the Deployment ("may not specify valueFrom when
+  // value is not empty"). Replacing the array wholesale drops the stale field.
+  const jsonPatch = [
+    { op: "replace", path: "/spec/template/spec/containers/0/env", value: newEnv },
+  ];
 
   await appsV1().patchNamespacedDeployment(
-    { name, namespace: ns, body: patchBody },
-    MERGE_PATCH_OPTS,
+    { name, namespace: ns, body: jsonPatch as unknown as V1Deployment },
+    JSON_PATCH_OPTS,
   );
 }
 

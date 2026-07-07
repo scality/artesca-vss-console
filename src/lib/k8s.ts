@@ -47,6 +47,15 @@ export function batchV1(): BatchV1Api {
  */
 export const MERGE_PATCH_OPTS = setHeaderOptions("Content-Type", PatchStrategy.StrategicMergePatch);
 
+/**
+ * Options to set Content-Type: application/json-patch+json for RFC 6902 JSON
+ * Patch bodies (an ops array). Use this when replacing a list wholesale — a
+ * strategic merge patch would merge list entries by key, which can leave stale
+ * sibling fields behind (e.g. an env var's old `value` when swapping it to a
+ * `valueFrom`).
+ */
+export const JSON_PATCH_OPTS = setHeaderOptions("Content-Type", PatchStrategy.JsonPatch);
+
 export function watchedNamespaces(): string[] {
   const legacy = process.env.CONSOLE_LEGACY_NAMESPACES === "1";
   const vssNs = process.env.VSS_NAMESPACE ?? "vss-base";
