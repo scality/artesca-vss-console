@@ -6,7 +6,7 @@ import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { auditLog } from "@/lib/helpers/audit";
 import { extractK8sError } from "@/lib/errors";
 import { CLUSTER } from "@/lib/cluster-refs";
-import { appsV1 } from "@/lib/k8s";
+import { appsV1, resolveEnvValue } from "@/lib/k8s";
 import { collectAgentBehavior, AGENT_DEPLOYMENT_NAME } from "@/lib/agent-config";
 import {
   patchAgentWorkflowConfig,
@@ -36,19 +36,25 @@ export const dynamic = "force-dynamic";
  *  the models probe below can authenticate exactly as the agent does.
  *  Never returned to the client. Fail-soft: an unreadable Deployment just
  *  means the probe runs unauthenticated. */
-async function readAgentApiKey(): Promise<string | undefined> {
+async function readAgentApiKey(baseUrl: string): Promise<string | undefined> {
   try {
     const deployment = await appsV1().readNamespacedDeployment({
       name: AGENT_DEPLOYMENT_NAME,
       namespace: CLUSTER.vssNamespace,
     });
-    const env = new Map<string, string>();
-    for (const c of deployment.spec?.template?.spec?.containers ?? []) {
-      for (const e of c.env ?? []) {
-        if (typeof e.value === "string" && !env.has(e.name)) env.set(e.name, e.value);
-      }
-    }
-    return env.get("NVIDIA_API_KEY") ?? env.get("OPENAI_API_KEY");
+    const env = deployment.spec?.template?.spec?.containers?.[0]?.env ?? [];
+    const ns = CLUSTER.vssNamespace;
+    // Anthropic's compat endpoint authenticates with OPENAI_API_KEY (wired here
+    // as a secretKeyRef); NVIDIA/NIM endpoints use NVIDIA_API_KEY. Resolve the
+    // right one — following a secretKeyRef — so the probe doesn't send an
+    // unrelated plaintext key to Anthropic and report a false auth failure.
+    const anthropic = baseUrl.includes("anthropic.com");
+    const primary = anthropic ? "OPENAI_API_KEY" : "NVIDIA_API_KEY";
+    const secondary = anthropic ? "NVIDIA_API_KEY" : "OPENAI_API_KEY";
+    return (
+      (await resolveEnvValue(env, primary, ns)) ??
+      (await resolveEnvValue(env, secondary, ns))
+    );
   } catch {
     return undefined;
   }
@@ -68,7 +74,7 @@ export async function GET() {
   let models: string[] = [];
 
   if (behavior.llm?.baseUrl) {
-    const apiKey = await readAgentApiKey();
+    const apiKey = await readAgentApiKey(behavior.llm.baseUrl);
     const probe = await probeRemoteLlmEndpoint(behavior.llm.baseUrl, apiKey);
     health = probe.health;
     healthDetail = probe.detail;

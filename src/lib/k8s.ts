@@ -1,4 +1,4 @@
-import { KubeConfig, CoreV1Api, AppsV1Api, BatchV1Api, Exec, type V1Pod, setHeaderOptions, PatchStrategy } from "@kubernetes/client-node";
+import { KubeConfig, CoreV1Api, AppsV1Api, BatchV1Api, Exec, type V1Pod, type V1EnvVar, setHeaderOptions, PatchStrategy } from "@kubernetes/client-node";
 import { Writable } from "node:stream";
 import { existsSync } from "node:fs";
 import { createLogger } from "@/lib/logger";
@@ -55,6 +55,34 @@ export const MERGE_PATCH_OPTS = setHeaderOptions("Content-Type", PatchStrategy.S
  * `valueFrom`).
  */
 export const JSON_PATCH_OPTS = setHeaderOptions("Content-Type", PatchStrategy.JsonPatch);
+
+/**
+ * Resolve a container env var's effective value from an env list, following a
+ * `secretKeyRef` to the K8s Secret when the value isn't a plain literal. Used
+ * by the LLM health probe so a secret-backed key (e.g. OPENAI_API_KEY wired to
+ * the vss-agent-anthropic secret) is read correctly instead of falling back to
+ * an unrelated plaintext key. Fail-soft: returns undefined if absent/unreadable.
+ */
+export async function resolveEnvValue(
+  env: V1EnvVar[],
+  name: string,
+  namespace: string,
+): Promise<string | undefined> {
+  const e = env.find((ev) => ev.name === name);
+  if (!e) return undefined;
+  if (typeof e.value === "string" && e.value !== "") return e.value;
+  const ref = e.valueFrom?.secretKeyRef;
+  if (ref?.name && ref?.key) {
+    try {
+      const sec = await coreV1().readNamespacedSecret({ name: ref.name, namespace });
+      const b64 = sec.data?.[ref.key];
+      if (b64) return Buffer.from(b64, "base64").toString("utf-8");
+    } catch {
+      // fail-soft — unreadable secret just means the probe runs unauthenticated
+    }
+  }
+  return undefined;
+}
 
 export function watchedNamespaces(): string[] {
   const legacy = process.env.CONSOLE_LEGACY_NAMESPACES === "1";
