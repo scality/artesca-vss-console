@@ -1,9 +1,15 @@
 import "server-only";
+import { type V1EnvVar } from "@kubernetes/client-node";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { readConfigMapKey, patchConfigMapKey } from "@/lib/helpers/configmaps";
 import { appsV1, rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
 import { extractK8sError } from "@/lib/errors";
 import { AGENT_DEPLOYMENT_NAME } from "@/lib/agent-config";
+
+/** K8s secret (ns = CLUSTER.vssNamespace) holding the Anthropic API key,
+ *  seeded out-of-band from Secret Manager. Referenced via secretKeyRef so the
+ *  key is never a plaintext env value or exposed to the browser. */
+export const ANTHROPIC_KEY_SECRET = { name: "vss-agent-anthropic", key: "OPENAI_API_KEY" } as const;
 
 /**
  * agent-config-write.ts — Save+Restart path for the /agent editor page.
@@ -77,19 +83,29 @@ export async function patchAgentWorkflowConfig(patch: AgentConfigPatch): Promise
 export interface AgentEnvPatch {
   llmBaseUrl?: string;
   llmName?: string;
+  llmModelType?: "nim" | "openai";
 }
 
 /**
- * Patch LLM_BASE_URL / LLM_NAME on the vss-agent Deployment's first
- * container env, preserving every other env var (including valueFrom
+ * Patch LLM_BASE_URL / LLM_NAME / LLM_MODEL_TYPE on the vss-agent Deployment's
+ * first container env, preserving every other env var (including valueFrom
  * entries). Same merge-by-name strategic-merge-patch approach as
  * /api/tuning/rtvi's patchVlmDeploymentEnv.
+ *
+ * `llmModelType: "openai"` additionally wires OPENAI_API_KEY as a
+ * secretKeyRef onto ANTHROPIC_KEY_SECRET — the agent's single `llm` profile
+ * has no explicit `api_key` in config.yml, so `_type: openai` falls back to
+ * that env var. Any plaintext OPENAI_API_KEY value is dropped so the two
+ * representations never collide on the same env name.
  */
 export async function patchAgentDeploymentEnv(patch: AgentEnvPatch): Promise<void> {
   const envPatches: Record<string, string> = {};
   if (patch.llmBaseUrl !== undefined) envPatches.LLM_BASE_URL = patch.llmBaseUrl;
   if (patch.llmName !== undefined) envPatches.LLM_NAME = patch.llmName;
-  if (Object.keys(envPatches).length === 0) return;
+  if (patch.llmModelType !== undefined) envPatches.LLM_MODEL_TYPE = patch.llmModelType;
+
+  const wireOpenaiKey = patch.llmModelType === "openai";
+  if (Object.keys(envPatches).length === 0 && !wireOpenaiKey) return;
 
   const ns = CLUSTER.vssNamespace;
   const name = AGENT_DEPLOYMENT_NAME;
@@ -108,8 +124,26 @@ export async function patchAgentDeploymentEnv(patch: AgentEnvPatch): Promise<voi
     envMap.set(key, value);
   }
 
-  // Preserve valueFrom entries (secretKeyRef, configMapKeyRef) untouched.
-  const valueFromEntries = currentEnv.filter((ev) => ev.valueFrom !== undefined);
+  // Preserve valueFrom entries (secretKeyRef, configMapKeyRef) untouched,
+  // deduped by name so the OPENAI_API_KEY secretKeyRef below can be upserted
+  // in place instead of appended as a duplicate env entry.
+  const valueFromEntries = new Map<string, V1EnvVar>();
+  for (const ev of currentEnv) {
+    if (ev.name && ev.valueFrom !== undefined) valueFromEntries.set(ev.name, ev);
+  }
+
+  if (wireOpenaiKey) {
+    // OPENAI_API_KEY must come from the secret, never a plaintext value —
+    // remove any plain-value copy so the two don't collide.
+    envMap.delete(ANTHROPIC_KEY_SECRET.key);
+    valueFromEntries.set(ANTHROPIC_KEY_SECRET.key, {
+      name: ANTHROPIC_KEY_SECRET.key,
+      valueFrom: {
+        secretKeyRef: { name: ANTHROPIC_KEY_SECRET.name, key: ANTHROPIC_KEY_SECRET.key },
+      },
+    });
+  }
+
   const plainEntries = Array.from(envMap.entries()).map(([n, v]) => ({ name: n, value: v }));
 
   const patchBody = {
@@ -119,7 +153,7 @@ export async function patchAgentDeploymentEnv(patch: AgentEnvPatch): Promise<voi
           containers: [
             {
               name: containerName,
-              env: [...valueFromEntries, ...plainEntries],
+              env: [...valueFromEntries.values(), ...plainEntries],
             },
           ],
         },

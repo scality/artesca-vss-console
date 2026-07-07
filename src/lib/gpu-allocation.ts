@@ -244,8 +244,17 @@ export async function probeRemoteLlmEndpoint(
   let detail = "";
   let models: string[] = [];
   try {
-    const headers: Record<string, string> = {};
-    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+    // Anthropic's native API (api.anthropic.com) rejects `Authorization: Bearer`
+    // on /v1/models with 401 — it needs `x-api-key` + `anthropic-version`
+    // instead. The agent's own chat path hits Anthropic's OpenAI-compatible
+    // surface with Bearer, which works fine; only this health probe needs the
+    // native auth style.
+    const isAnthropic = urlHost(baseUrl).endsWith(".anthropic.com");
+    const headers: Record<string, string> = isAnthropic
+      ? { ...(apiKey ? { "x-api-key": apiKey } : {}), "anthropic-version": "2023-06-01" }
+      : apiKey
+        ? { Authorization: `Bearer ${apiKey}` }
+        : {};
     const resp = await fetch(url, { headers, signal: AbortSignal.timeout(4_000), cache: "no-store" });
     if (resp.status === 200) {
       health = "ok";
@@ -260,7 +269,7 @@ export async function probeRemoteLlmEndpoint(
       try { await resp.body?.cancel(); } catch { /* ignore */ }
       if (resp.status === 401 || resp.status === 403) {
         health = apiKey ? "auth-error" : "ok";
-        detail = apiKey ? `auth rejected (HTTP ${resp.status}) — check NVIDIA_API_KEY` : "reachable (auth required)";
+        detail = apiKey ? `auth rejected (HTTP ${resp.status}) — check the LLM API key` : "reachable (auth required)";
       } else if (resp.status === 404) {
         health = "bad-url";
         detail = "HTTP 404 — wrong path; check for a trailing /v1 in LLM_BASE_URL";

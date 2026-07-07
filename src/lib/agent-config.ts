@@ -15,6 +15,11 @@ import { appsV1 } from "@/lib/k8s";
 export interface AgentLlm {
   baseUrl: string;
   modelName: string;
+  /** LLM_MODEL_TYPE on the vss-agent Deployment env — flips the agent's
+   *  single `llm` profile between `_type: nim` and `_type: openai`
+   *  (the latter is how a Claude-via-Anthropic's-OpenAI-compatible-endpoint
+   *  switch is wired). Defaults to "nim" when the env var is unset. */
+  modelType: "nim" | "openai";
 }
 
 /** vss-agent Deployment name — shared with agent-config-write.ts so the
@@ -93,8 +98,9 @@ export async function collectAgentBehavior(): Promise<AgentBehavior> {
     }
     const baseUrl = env.get("LLM_BASE_URL") ?? "";
     const modelName = env.get("LLM_NAME") ?? "";
+    const modelType = env.get("LLM_MODEL_TYPE") === "openai" ? "openai" : "nim";
     if (baseUrl) {
-      llm = { baseUrl, modelName };
+      llm = { baseUrl, modelName, modelType };
     }
   } catch (err) {
     // LLM resolution is secondary; a missing Deployment is non-fatal.
