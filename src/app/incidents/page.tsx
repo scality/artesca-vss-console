@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo, useCallback, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useKiosk } from "@/components/KioskProvider";
 import { useQuery } from "@tanstack/react-query";
 import { LayoutList, LayoutGrid } from "lucide-react";
 import { Shell } from "@/components/Shell";
@@ -110,8 +110,10 @@ function parseIncidentsResponse(data: unknown): Incident[] {
 }
 
 function IncidentsPageContent() {
-  const searchParams = useSearchParams();
-  const isKiosk = searchParams.get("mode") === "kiosk";
+  // Kiosk is a cookie-driven global mode (proxy.ts turns ?mode=kiosk into the
+  // kiosk cookie and strips the param, then KioskProvider exposes it) — read
+  // that context, NOT the query param, which is gone before this renders.
+  const { kiosk: isKiosk } = useKiosk();
 
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -279,10 +281,11 @@ function IncidentsPageContent() {
     setSelected(inc);
   }, []);
 
-  // Kiosk mode: full-bleed video-wall, no Shell/header/filters/nav chrome.
+  // Kiosk mode: full-bleed video-wall. Shell already hides the nav/header when
+  // the kiosk cookie is set (useKiosk), so the wall renders chrome-less inside it.
   if (isKiosk) {
     return (
-      <>
+      <Shell>
         <KioskWall
           incidents={filtered}
           now={now}
@@ -290,7 +293,7 @@ function IncidentsPageContent() {
           lastEventAt={lastEventAt}
         />
         <HighSeverityToast triggerIncident={latestHighIncident} />
-      </>
+      </Shell>
     );
   }
 
@@ -454,9 +457,5 @@ function IncidentsPageContent() {
 }
 
 export default function IncidentsPage() {
-  return (
-    <Suspense>
-      <IncidentsPageContent />
-    </Suspense>
-  );
+  return <IncidentsPageContent />;
 }
