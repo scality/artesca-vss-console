@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, CheckCircle2, Loader2, Play, Send, User, Video, XCircle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bot, CheckCircle2, Loader2, Mic, MicOff, Play, Send, User, Video, Volume2, XCircle } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Shell } from "@/components/Shell";
+import { useVoice, stripMarkdownForSpeech } from "@/lib/use-voice";
 
 type Role = "user" | "assistant" | "system";
 type Message = { role: Role; content: string; ts: string };
@@ -313,7 +314,15 @@ export default function ChatPage() {
     }
   });
   const [g4a, setG4a] = useState<G4aState>({ phase: "idle" });
+  const [conversationMode, setConversationMode] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Voice — STT + TTS via browser Web Speech API (zero infra, Chrome secure-context).
+  const voice = useVoice();
+  // Tracks whether the last send() originated from a voice input so the reply is spoken.
+  const voiceOriginatedRef = useRef(false);
+  // Stable ref to always call the latest send() from async TTS/STT callbacks.
+  const sendRef = useRef<((textOverride?: string) => Promise<void>) | null>(null);
 
   // Load cameras list — refresh every 30s so newly-registered streams show up.
   useEffect(() => {
@@ -405,8 +414,18 @@ export default function ChatPage() {
     }
   }
 
-  async function send() {
-    const text = input.trim();
+  // Build a stable handler for kiosk conversation mode: after TTS ends, start
+  // listening again. Uses sendRef to avoid capturing a stale send() closure.
+  const handleVoiceInput = useCallback(() => {
+    voice.startListening((t) => {
+      setInput(t);
+      voiceOriginatedRef.current = true;
+      void sendRef.current?.(t);
+    });
+  }, [voice]);
+
+  async function send(textOverride?: string) {
+    const text = (textOverride ?? input).trim();
     if (!text || loading) return;
     const userMsg: Message = { role: "user", content: text, ts: new Date().toISOString() };
     const next = [...messages, userMsg];
@@ -414,6 +433,8 @@ export default function ChatPage() {
     setInput("");
     setLoading(true);
     setError(null);
+    const wasVoice = voiceOriginatedRef.current;
+    voiceOriginatedRef.current = false;
     try {
       // Build the request payload. When scoped to a specific camera, inject
       // the sensor name directly into the last user message so the agent's
@@ -450,12 +471,29 @@ export default function ChatPage() {
         ...prev,
         { role: "assistant", content: reply, ts: new Date().toISOString() },
       ]);
+      // Speak the reply when the query came from voice input. If conversation
+      // mode is on, re-start listening once the utterance finishes (hands-free
+      // kiosk loop: speak → listen → speak → …).
+      if (wasVoice) {
+        const speakableReply = stripMarkdownForSpeech(reply);
+        voice.speak(
+          speakableReply,
+          conversationMode ? handleVoiceInput : undefined,
+        );
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
   }
+
+  // Keep sendRef pointing at the latest send() so the conversation-mode loop
+  // (TTS onEnd → startListening → sendRef.current) always calls the most-current
+  // closure. useEffect fires after render, well before TTS onEnd triggers.
+  useEffect(() => {
+    sendRef.current = send;
+  });
 
   function clear() {
     setMessages([]);
@@ -494,6 +532,21 @@ export default function ChatPage() {
               />
               show reasoning
             </label>
+            {voice.supported && (
+              <label
+                className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground"
+                title="Conversation mode: automatically listen again after the agent replies (hands-free kiosk)"
+              >
+                <input
+                  type="checkbox"
+                  checked={conversationMode}
+                  onChange={(e) => setConversationMode(e.target.checked)}
+                  className="accent-brand-teal"
+                />
+                <Volume2 className="h-3 w-3" />
+                conversation mode
+              </label>
+            )}
             <button
               onClick={() => void runG4aProbe()}
               disabled={loading || g4a.phase === "running"}
@@ -684,6 +737,20 @@ export default function ChatPage() {
           )}
         </div>
 
+        {voice.listening && (
+          <div className="flex items-center gap-2 rounded border border-red-200 bg-red-50 px-3 py-1.5 text-[11px] font-mono text-red-600">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
+            Listening… speak now, then pause.
+            <button
+              type="button"
+              onClick={() => voice.stopListening()}
+              className="ml-auto text-red-500 hover:text-red-700 underline"
+            >
+              cancel
+            </button>
+          </div>
+        )}
+
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -705,6 +772,35 @@ export default function ChatPage() {
             className="flex-1 resize-y rounded border border-input bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand-teal focus:outline-none"
             disabled={loading}
           />
+          {voice.supported && (
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => {
+                if (voice.listening) {
+                  voice.stopListening();
+                } else {
+                  voice.startListening((t) => {
+                    setInput(t);
+                    voiceOriginatedRef.current = true;
+                    void send(t);
+                  });
+                }
+              }}
+              title={voice.listening ? "Stop listening" : "Speak your question (mic)"}
+              className={`flex shrink-0 items-center gap-1.5 self-stretch rounded border px-3 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                voice.listening
+                  ? "border-red-300 bg-red-50 text-red-600 hover:bg-red-100"
+                  : "border-input bg-card text-muted-foreground hover:text-foreground hover:border-border"
+              }`}
+            >
+              {voice.listening ? (
+                <MicOff className="h-4 w-4" />
+              ) : (
+                <Mic className="h-4 w-4" />
+              )}
+            </button>
+          )}
           <button
             type="submit"
             disabled={loading || !input.trim()}
