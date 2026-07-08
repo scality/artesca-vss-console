@@ -14,7 +14,29 @@ type Camera = { id: string; description?: string; feeds?: CameraFeed[] };
 
 const STORAGE_KEY = "nvidia-vss-chat-history";
 const SCOPE_KEY = "nvidia-vss-chat-scope";
+const CONVERSATION_KEY = "nvidia-vss-chat-conversation-id";
 const SCOPE_ALL = "__all__";
+
+// Stable per-conversation id sent as the `conversation-id` header (via /api/chat)
+// so the agent threads follow-up references ("it", "the clip", "yes") across
+// turns — the agent keys its server-side history by this, not the client
+// message array. Persisted so a reload continues the same conversation; cleared
+// (→ new id) when the operator clears the chat.
+function ensureConversationId(): string {
+  try {
+    let id = localStorage.getItem(CONVERSATION_KEY);
+    if (!id) {
+      id =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `conv-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem(CONVERSATION_KEY, id);
+    }
+    return id;
+  } catch {
+    return "console-chat";
+  }
+}
 
 const G4A_PROBE_QUERY =
   "What activity has been recorded most recently? Give a brief summary.";
@@ -348,7 +370,10 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: [{ role: "user", content: G4A_PROBE_QUERY }] }),
+        body: JSON.stringify({
+          messages: [{ role: "user", content: G4A_PROBE_QUERY }],
+          conversationId: ensureConversationId(),
+        }),
       });
       const j = await res.json();
       if (!res.ok || j.error) throw new Error(j.error ?? `HTTP ${res.status}`);
@@ -406,7 +431,7 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: wirePayload }),
+        body: JSON.stringify({ messages: wirePayload, conversationId: ensureConversationId() }),
       });
       const j = await res.json();
       if (!res.ok || j.error) {
@@ -432,6 +457,9 @@ export default function ChatPage() {
     setError(null);
     try {
       localStorage.removeItem(STORAGE_KEY);
+      // Start a fresh agent-side conversation thread on the next message so the
+      // cleared transcript can't leak context into it.
+      localStorage.removeItem(CONVERSATION_KEY);
     } catch {
       /* ignore */
     }
