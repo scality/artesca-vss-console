@@ -5,9 +5,16 @@
  * In the Helm layout, vss-agent is a Deployment in the vss-<profile> namespace.
  * Override VSS_AGENT_URL when the upstream placement differs.
  *
- * Body: { messages: [{ role: "user" | "assistant" | "system", content: string }] }
+ * Body: { messages: [...], conversationId?: string }
  * Returns the vss-agent's OpenAI ChatCompletion shape verbatim — the
  * console's /chat page reads `choices[0].message.content` and renders it.
+ *
+ * Multi-turn memory: the agent (nat top_agent) resolves follow-up references
+ * ("it", "the clip", "yes") from server-side conversation history keyed by the
+ * `conversation-id` request header — it does NOT thread the client `messages`
+ * array beyond the last entry. Without the header every turn is a fresh thread,
+ * so a pronoun follow-up gets "I don't have the prior context". The page sends a
+ * stable per-conversation id; we forward it as that header.
  *
  * Auth: gated by the same NextAuth session as the rest of the console.
  */
@@ -36,6 +43,7 @@ const ChatRequestSchema = z.object({
     content: z.string(),
   })).min(1),
   model: z.string().optional(),
+  conversationId: z.string().min(1).max(200).optional(),
 });
 
 interface ChatCompletionShape {
@@ -66,10 +74,15 @@ export const POST = withRequestContext(async function (req: NextRequest) {
   }
   const body = parsed.data;
 
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  // Keys the agent's server-side conversation history so follow-ups resolve
+  // references across turns (nat runtime/session reads `conversation-id`).
+  if (body.conversationId) headers["conversation-id"] = body.conversationId;
+
   try {
     const resp = await fetch(`${VSS_AGENT_URL}/chat`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify({ messages: body.messages, model: body.model }),
       signal: AbortSignal.timeout(300_000),
     });
