@@ -176,14 +176,19 @@ const markdownComponents: Components = {
     // narrow explicitly rather than loosen the shared isSafeUrl guard.
     const url = typeof src === "string" ? src : undefined;
     if (!isSafeUrl(url)) return <>{alt || url || ""}</>;
-    // An explicit ![snapshot](...) can point at a clip file — no browser
-    // decodes video as an <img>, so route it through the same picture-first
-    // still + click-to-play control as a clip link.
-    if (VIDEO_URL_PATTERN.test(url)) {
-      return <ClipStill clipUrl={url} alt={alt} />;
-    }
+    // An explicit ![snapshot](url) is a STILL — render a plain image with NO
+    // play control, so it reads as a picture, distinct from a [clip](url) link
+    // (which renders as a picture-first still WITH a play affordance). When the
+    // snapshot points at a clip file, show its extracted recorded frame via
+    // /api/media-thumb (no browser decodes an mp4 as an <img>).
+    const stillSrc = VIDEO_URL_PATTERN.test(url) ? mediaThumbUrl(url) : url;
     return (
-      <img src={url} alt={alt || "snapshot"} className="mt-2 block w-full max-w-md rounded border border-border" />
+      <img
+        src={stillSrc}
+        alt={alt || "snapshot"}
+        loading="lazy"
+        className="mt-2 block w-full max-w-md rounded border border-border"
+      />
     );
   },
   a({ href, children }) {
