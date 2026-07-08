@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { LayoutList, LayoutGrid } from "lucide-react";
 import { Shell } from "@/components/Shell";
 import { IncidentRow } from "@/components/incidents/IncidentRow";
 import { IncidentDetail } from "@/components/incidents/IncidentDetail";
+import { IncidentGrid } from "@/components/incidents/IncidentGrid";
 import {
   IncidentsFilters,
   DEFAULT_FILTERS,
@@ -12,23 +14,10 @@ import {
   type TimeWindow,
 } from "@/components/incidents/IncidentsFilters";
 import { IncidentSchema } from "@/lib/schemas";
+import { formatAge } from "@/lib/format-age";
 import type { Incident, Scenario } from "@/lib/types";
 import { z } from "zod";
 import { useIncidentStream } from "./use-incident-stream";
-
-/**
- * Format elapsed seconds as a compact human-readable age string.
- * E.g. 3 → "3s", 75 → "1m 15s", 3725 → "1h 2m".
- */
-export function formatAge(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`;
-  const h = Math.floor(m / 60);
-  const rm = m % 60;
-  return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
-}
 
 const TIME_WINDOW_MS: Record<TimeWindow, number> = {
   "15m": 15 * 60 * 1000,
@@ -70,8 +59,11 @@ function filterIncidents(incidents: Incident[], filters: FilterState): Incident[
 }
 
 const FILTERS_LS_KEY = "console:incidents:filters:v1";
+const VIEW_LS_KEY = "console:incidents:view:v1";
 const TIME_WINDOW_VALUES: TimeWindow[] = ["15m", "1h", "24h", "all"];
 const SEVERITY_VALUES: Incident["severity"][] = ["low", "medium", "high"];
+
+type ViewMode = "timeline" | "grid";
 
 /** Read persisted filters from localStorage, coercing each field to a safe value. */
 function loadPersistedFilters(): FilterState {
@@ -118,6 +110,7 @@ export default function IncidentsPage() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [selected, setSelected] = useState<Incident | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("timeline");
 
   // Hydrate persisted filters after mount (not a lazy initializer) so server
   // and first client render both start from DEFAULT_FILTERS — no hydration
@@ -139,6 +132,26 @@ export default function IncidentsPage() {
       /* storage full / unavailable — non-critical */
     }
   }, [filters]);
+
+  // Hydrate view mode from localStorage after mount (same pattern as filters).
+  const viewHydrated = useRef(false);
+  useEffect(() => {
+    const saved = localStorage.getItem(VIEW_LS_KEY);
+    if (saved === "grid" || saved === "timeline") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setViewMode(saved as ViewMode);
+    }
+    viewHydrated.current = true;
+  }, []);
+  useEffect(() => {
+    if (!viewHydrated.current) return;
+    try {
+      localStorage.setItem(VIEW_LS_KEY, viewMode);
+    } catch {
+      /* storage full / unavailable — non-critical */
+    }
+  }, [viewMode]);
+
   // 1-second ticker drives the freshness age label without depending on new events.
   const [now, setNow] = useState<number>(() => Date.now());
   const preloadFiredRef = useRef(false);
@@ -297,58 +310,103 @@ export default function IncidentsPage() {
           </div>
         )}
 
-        {/* Filters */}
-        <IncidentsFilters
-          filters={filters}
-          onChange={setFilters}
-          availableScenarios={scenarios}
-          availableSensors={availableSensors}
-        />
+        {/* Filters + view toggle on the same row */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <IncidentsFilters
+            filters={filters}
+            onChange={setFilters}
+            availableScenarios={scenarios}
+            availableSensors={availableSensors}
+          />
 
-        {/* Table */}
-        <div className="rounded-lg border border-border overflow-hidden">
-          {filtered.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">
-              No incidents match the current filters.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border bg-muted/30">
-                    <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
-                      Time
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
-                      Severity
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
-                      Scenario
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
-                      Sensor
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
-                      Summary
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((inc) => (
-                    <IncidentRow
-                      key={`${inc.ts}::${inc.sensorId}`}
-                      incident={inc}
-                      onClick={() => handleRowClick(inc)}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {/* Timeline / Grid toggle */}
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/30 p-0.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setViewMode("timeline")}
+              title="Timeline view"
+              aria-pressed={viewMode === "timeline"}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                viewMode === "timeline"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <LayoutList className="h-3.5 w-3.5" />
+              Timeline
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("grid")}
+              title="Grid view"
+              aria-pressed={viewMode === "grid"}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                viewMode === "grid"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              Grid
+            </button>
+          </div>
         </div>
+
+        {/* Timeline view */}
+        {viewMode === "timeline" && (
+          <div className="rounded-lg border border-border overflow-hidden">
+            {filtered.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                No incidents match the current filters.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
+                        Time
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
+                        Severity
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
+                        Scenario
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
+                        Sensor
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
+                        Summary
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((inc) => (
+                      <IncidentRow
+                        key={`${inc.ts}::${inc.sensorId}`}
+                        incident={inc}
+                        onClick={() => handleRowClick(inc)}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Grid view */}
+        {viewMode === "grid" && (
+          <IncidentGrid
+            incidents={filtered}
+            now={now}
+            onCardClick={handleRowClick}
+          />
+        )}
       </div>
 
-      {/* Detail dialog */}
+      {/* Detail dialog — shared between timeline and grid */}
       <IncidentDetail incident={selected} onClose={() => setSelected(null)} />
     </Shell>
   );
