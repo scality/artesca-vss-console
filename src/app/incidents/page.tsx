@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { LayoutList, LayoutGrid } from "lucide-react";
 import { Shell } from "@/components/Shell";
 import { IncidentRow } from "@/components/incidents/IncidentRow";
 import { IncidentDetail } from "@/components/incidents/IncidentDetail";
 import { IncidentGrid } from "@/components/incidents/IncidentGrid";
+import { KioskWall } from "@/components/incidents/KioskWall";
+import { HighSeverityToast } from "@/components/incidents/HighSeverityToast";
 import {
   IncidentsFilters,
   DEFAULT_FILTERS,
@@ -106,7 +109,10 @@ function parseIncidentsResponse(data: unknown): Incident[] {
     .filter(Boolean) as Incident[];
 }
 
-export default function IncidentsPage() {
+function IncidentsPageContent() {
+  const searchParams = useSearchParams();
+  const isKiosk = searchParams.get("mode") === "kiosk";
+
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [selected, setSelected] = useState<Incident | null>(null);
@@ -165,8 +171,28 @@ export default function IncidentsPage() {
     });
   }, []);
 
+  /**
+   * Kiosk-mode high-severity toast trigger.
+   * Updated only from the live SSE stream (not from the initial load or polling
+   * fallback) so old incidents don't pop toasts on page load or reconnect.
+   */
+  const [latestHighIncident, setLatestHighIncident] = useState<Incident | null>(null);
+
+  /**
+   * SSE incident handler: merges the incident into state AND fires the
+   * high-severity toast trigger when applicable.  Passed to useIncidentStream
+   * (the polling fallback uses mergeIncident directly — no toast from catch-up).
+   */
+  const handleSseIncident = useCallback(
+    (inc: Incident) => {
+      mergeIncident(inc);
+      if (inc.severity === "high") setLatestHighIncident(inc);
+    },
+    [mergeIncident]
+  );
+
   // SSE subscription with exponential back-off reconnect (topology-mirrored pattern).
-  const { streamStatus, sseFailed, lastEventAt } = useIncidentStream({ onIncident: mergeIncident });
+  const { streamStatus, sseFailed, lastEventAt } = useIncidentStream({ onIncident: handleSseIncident });
 
   // 1-second ticker so the freshness label stays accurate between events.
   useEffect(() => {
@@ -252,6 +278,21 @@ export default function IncidentsPage() {
   const handleRowClick = useCallback((inc: Incident) => {
     setSelected(inc);
   }, []);
+
+  // Kiosk mode: full-bleed video-wall, no Shell/header/filters/nav chrome.
+  if (isKiosk) {
+    return (
+      <>
+        <KioskWall
+          incidents={filtered}
+          now={now}
+          streamStatus={streamStatus}
+          lastEventAt={lastEventAt}
+        />
+        <HighSeverityToast triggerIncident={latestHighIncident} />
+      </>
+    );
+  }
 
   return (
     <Shell>
@@ -409,5 +450,13 @@ export default function IncidentsPage() {
       {/* Detail dialog — shared between timeline and grid */}
       <IncidentDetail incident={selected} onClose={() => setSelected(null)} />
     </Shell>
+  );
+}
+
+export default function IncidentsPage() {
+  return (
+    <Suspense>
+      <IncidentsPageContent />
+    </Suspense>
   );
 }
