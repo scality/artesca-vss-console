@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { formatAge } from "@/app/incidents/page";
+import { formatAge } from "@/lib/format-age";
 
 describe("formatAge", () => {
   it("shows seconds under 60", () => {
