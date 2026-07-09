@@ -23,6 +23,7 @@ import {
   Search,
   HardDrive,
   BarChart3,
+  ShieldCheck,
 } from "lucide-react";
 import { useKiosk } from "./KioskProvider";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,7 @@ const ALL_ROUTES = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/topology", label: "Topology", icon: Network },
   { href: "/incidents", label: "Incidents", icon: AlertTriangle },
+  { href: "/evidence", label: "Evidence", icon: ShieldCheck },
   { href: "/search", label: "Search", icon: Search },
   { href: "/storage", label: "Storage", icon: HardDrive },
   { href: "/analytics", label: "Ask the Store", icon: BarChart3 },

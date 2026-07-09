@@ -90,7 +90,7 @@ export function ScenarioRow({
         </Select>
       </TableCell>
       <TableCell>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {CHANNELS.map((ch) => (
             <label key={ch} className="flex items-center gap-1 cursor-pointer">
               <input
@@ -102,6 +102,41 @@ export function ScenarioRow({
               <span className="text-xs">{ch}</span>
             </label>
           ))}
+          <label
+            className="flex items-center gap-1 cursor-pointer"
+            title="Seal this scenario's incident clips into ARTESCA Object Lock (WORM / immutable evidence)"
+          >
+            <input
+              type="checkbox"
+              className="accent-primary"
+              checked={!!scenario.immutable?.enabled}
+              onChange={(e) =>
+                update("immutable", {
+                  enabled: e.target.checked,
+                  retentionDays: scenario.immutable?.retentionDays ?? 365,
+                  mode: scenario.immutable?.mode ?? "COMPLIANCE",
+                })
+              }
+            />
+            <span className="text-xs">🔒 lock</span>
+          </label>
+          {scenario.immutable?.enabled && (
+            <input
+              type="number"
+              min={1}
+              max={3650}
+              className="h-6 w-16 rounded border border-input bg-background px-1 text-xs"
+              value={scenario.immutable.retentionDays}
+              onChange={(e) =>
+                update("immutable", {
+                  enabled: true,
+                  retentionDays: Number(e.target.value) || 365,
+                  mode: scenario.immutable?.mode ?? "COMPLIANCE",
+                })
+              }
+              title="Retention (days)"
+            />
+          )}
         </div>
       </TableCell>
       <TableCell>
