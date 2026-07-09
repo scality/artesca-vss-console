@@ -1027,10 +1027,18 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
   // ── Cache node ────────────────────────────────────────────────────────────
 
   if (cacheState) {
+    // Health tracks fill relative to the evict threshold: the cache is designed
+    // to bounce off `thresholdPct` (already-offloaded segments evict there), so
+    // sitting near it is normal — only EXCEEDING it means offload isn't keeping
+    // up. A null fill (df returned nothing) is unknown, not healthy-green.
+    const { fillPct, thresholdPct } = cacheState;
+    const warnAt = Math.max(0, thresholdPct - 15); // 75 when evict = 90
     const cacheHealth: PipelineHealth =
-      cacheState.fillPct !== null && cacheState.fillPct > 90
+      fillPct === null
+        ? "unknown"
+        : fillPct > thresholdPct
         ? "fail"
-        : cacheState.fillPct !== null && cacheState.fillPct > 70
+        : fillPct >= warnAt
         ? "warn"
         : "ok";
     nodeMap["vst-local-cache"] = { health: cacheHealth, cache: cacheState };
