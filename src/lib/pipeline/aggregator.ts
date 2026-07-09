@@ -59,6 +59,21 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
+// The K8s exec / API client rejects with plain objects (HTTP-error shapes, not
+// Error instances), so `String(err)` collapses them to "[object Object]" and
+// hides the real cause. Prefer the message, then a JSON dump, then String().
+function errText(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    const s = JSON.stringify(err);
+    if (s && s !== "{}") return s;
+  } catch {
+    /* circular / non-serializable */
+  }
+  return String(err);
+}
+
 function podPhaseToHealth(
   phase?: string,
   ready?: boolean
@@ -229,7 +244,7 @@ async function collectGpus(warnings: string[]): Promise<GpuEntry[]> {
 
     return entries;
   } catch (err) {
-    warnings.push(`GPU metrics failed: ${String(err)}`);
+    warnings.push(`GPU metrics failed: ${errText(err)}`);
     return [];
   }
 }
@@ -294,7 +309,7 @@ async function collectS3(warnings: string[]): Promise<S3State | null> {
       bucketScanStaleSecs: 0,
     };
   } catch (err) {
-    warnings.push(`S3 scan failed: ${String(err)}`);
+    warnings.push(`S3 scan failed: ${errText(err)}`);
     return null;
   }
 }
@@ -358,7 +373,7 @@ async function collectCache(warnings: string[]): Promise<CacheState | null> {
         rawRate !== null && !isNaN(rawRate) ? rawRate * 60 : null,
     };
   } catch (err) {
-    warnings.push(`Cache stats unavailable: ${String(err)}`);
+    warnings.push(`Cache stats unavailable: ${errText(err)}`);
     return null;
   }
 }
@@ -453,7 +468,7 @@ async function collectFeeds(
       };
     });
   } catch (err) {
-    warnings.push(`VST feed list failed: ${String(err)}`);
+    warnings.push(`VST feed list failed: ${errText(err)}`);
     return [];
   }
 }
@@ -508,7 +523,7 @@ async function collectKafka(
       return { name, msgRatePerSec, lagMsgs: null };
     });
   } catch (err) {
-    warnings.push(`Kafka admin failed: ${String(err)}`);
+    warnings.push(`Kafka admin failed: ${errText(err)}`);
     return KAFKA_TOPICS.map((name) => ({ name, msgRatePerSec: null, lagMsgs: null }));
   } finally {
     if (connected) await admin.disconnect().catch(() => undefined);
@@ -585,7 +600,7 @@ async function collectNim(warnings: string[]): Promise<NimState | null> {
       queueDepth: null, // no Prometheus metric for queue depth at time of writing
     };
   } catch (err) {
-    warnings.push(`NIM metrics failed: ${String(err)}`);
+    warnings.push(`NIM metrics failed: ${errText(err)}`);
     return null;
   }
 }
@@ -655,7 +670,7 @@ async function collectPostgres(warnings: string[]): Promise<DbState | null> {
 
     return { up, connections, sizeMiB };
   } catch (err) {
-    warnings.push(`Postgres probe failed: ${String(err)}`);
+    warnings.push(`Postgres probe failed: ${errText(err)}`);
     return { up: false, connections: null, sizeMiB: null };
   }
 }
@@ -712,7 +727,7 @@ async function collectRedis(
 
     return { up, connectedClients, memUsedMiB };
   } catch (err) {
-    warnings.push(`${warnPrefix} Redis probe failed: ${String(err)}`);
+    warnings.push(`${warnPrefix} Redis probe failed: ${errText(err)}`);
     return { up: false, connectedClients: null, memUsedMiB: null };
   }
 }
@@ -781,7 +796,7 @@ async function collectMediamtx(
       byName,
     };
   } catch (err) {
-    warnings.push(`mediamtx probe failed: ${String(err)}`);
+    warnings.push(`mediamtx probe failed: ${errText(err)}`);
     return { state: null, byName };
   }
 }
