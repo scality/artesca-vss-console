@@ -21,6 +21,13 @@ const LEADING_FILLER: RegExp[] = [
   /^(?:based on|from) (?:the )?(?:scene|image|frame|footage|video|description)[,.\s]*/i,
   /^here'?s (?:what|a)[^.]*[.\s]+/i,
   /^in (?:this|the) (?:scene|image|frame|footage|clip)[,.\s]*/i,
+  // VLM meta-narration: some reasoning captions restate the task instead of
+  // describing the scene ("The user provided a detailed description of …").
+  // Peel the opener to surface the actual scene text.
+  /^the user (?:provided|gave|shared|supplied)(?:\s+\w+){0,3}\s+description of\s+/i,
+  // Drop a whole leading "The user asked/provided … ." sentence, but only when
+  // a following sentence exists (trailing \s+) so a bare meta caption is kept.
+  /^the user\b[^.]*\.\s+/i,
 ];
 
 export function cleanCaption(raw: string, maxLen = 200): string {
