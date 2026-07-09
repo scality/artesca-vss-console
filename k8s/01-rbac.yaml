@@ -8,7 +8,8 @@ metadata:
 
 ---
 # ClusterRole — cluster-scoped, read-only.
-# Includes pods/exec (create) for nvidia-smi and nodes/metrics for GPU fallback.
+# Includes pods/exec for nvidia-smi + the VST cache `df` probe, and nodes/metrics
+# for GPU fallback.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -20,9 +21,12 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments", "statefulsets"]
   verbs: ["get", "list", "watch"]
+# `get` authorizes the WebSocket exec upgrade (an HTTP GET) — required since
+# k8s 1.31 dropped SPDY, so client-node streams exec over WebSocket. `create`
+# stays for the legacy SPDY/POST path and non-WS tooling.
 - apiGroups: [""]
   resources: ["pods/exec"]
-  verbs: ["create"]
+  verbs: ["get", "create"]
 - apiGroups: ["metrics.k8s.io"]
   resources: ["nodes"]
   verbs: ["get", "list"]
