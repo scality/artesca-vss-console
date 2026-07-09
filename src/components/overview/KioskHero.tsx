@@ -108,12 +108,21 @@ export function KioskHero({
       ? `${ingesting} feeding the AI now`
       : `${cameras?.length ?? pathsTotal} registered`;
 
+  // Only show the 24h delta when it's a genuine subset of the archive — if it
+  // equals the all-time total (fresh archive) it just duplicates the headline.
   const incidentsSub =
-    extras.last24h && extras.last24h > 0
+    extras.last24h !== null &&
+    extras.archiveTotal !== null &&
+    extras.last24h > 0 &&
+    extras.last24h < extras.archiveTotal
       ? `+${num(extras.last24h)} in the last 24h`
       : extras.archiveTotal !== null
         ? "since deployment"
         : "archive unavailable";
+
+  // GPU util is bursty (frame-sampled VLM reads 0% between batches), so lead the
+  // compute tile with the stable "model resident in VRAM" signal, not util.
+  const vramPct = gpu ? Math.round((gpu.memoryUsedMiB / gpu.memoryTotalMiB) * 100) : 0;
 
   const storageSub =
     overview.s3.growth24h > 0
@@ -180,11 +189,11 @@ export function KioskHero({
         <HeroTile
           icon={Cpu}
           eyebrow="NVIDIA compute"
-          value={gpu ? `${Math.round(gpu.utilGpu)}%` : "—"}
+          value={gpu ? `${vramPct}%` : "—"}
           label={gpu ? shortGpuName(gpu.name) : "GPU"}
           sub={
             gpu
-              ? `${Math.round((gpu.memoryUsedMiB / gpu.memoryTotalMiB) * 100)}% VRAM · ${Math.round(gpu.tempC)}°C`
+              ? `VRAM resident · ${Math.round(gpu.utilGpu)}% compute · ${Math.round(gpu.tempC)}°C`
               : "no GPU detected"
           }
           href="/topology"
