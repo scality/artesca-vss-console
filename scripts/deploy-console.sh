@@ -224,6 +224,7 @@ type: Opaque
 stringData:
   CONSOLE_PASSWORD: "$CONSOLE_PASSWORD_VAL"
   NEXTAUTH_SECRET: "$NEXTAUTH_SECRET_VAL"
+  AUTH_SECRET: "$NEXTAUTH_SECRET_VAL"
 ---
 apiVersion: v1
 kind: Secret
