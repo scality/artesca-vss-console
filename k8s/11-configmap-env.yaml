@@ -118,6 +118,8 @@ data:
   # Must be reachable from inside the pod for callbacks.
   NEXTAUTH_URL: "http://console.console.svc.cluster.local:8800"
   CONSOLE_DISABLE_AUTH: "true"
+  # Auth.js v5 behind the tunnel/ingress: trust the incoming host (no UntrustedHost 500)
+  AUTH_TRUST_HOST: "true"
 
   # ── VSS Chat media proxy ──────────────────────────────────────────────────────
   # The vss-agent stamps snapshot/clip URLs with a host the browser can't reach
