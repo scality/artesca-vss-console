@@ -6,7 +6,7 @@ For the platform substrate, see the top-level [`CLAUDE.md`](../CLAUDE.md). Desig
 
 ## Page tree
 
-21 pages, all server components by default; client components are scoped to interactive bits (forms, auto-refresh).
+21 pages, all server components by default; client components are scoped to interactive bits (forms, auto-refresh). The sidebar ([`Nav.tsx`](src/components/Nav.tsx)) groups them into four labeled sections — **Live** (Overview / Topology / Incidents / Cameras), **AI & Storage** (Search / Ask the Store / VSS Chat / Evidence / Storage), **Configure** (Scenarios / VLM Prompt / Tuning / Agent / Demo Data / Profiles), **System** (Secrets / Logs / Diagnostics / Sizing Studio / Settings / About); section headers are hidden in kiosk mode.
 
 | Page | Purpose |
 | ---- | ------- |
