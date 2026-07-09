@@ -70,8 +70,10 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
     endpoint && (process.env.OBJECTSTORE_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID),
   );
 
+  const evidenceBucket = process.env.OBJECTSTORE_EVIDENCE_BUCKET ?? "nvidia-vss-evidence";
   const defs = [
     { key: "recordings", label: "Recordings", bucket: s3BucketForRecordings() },
+    { key: "evidence", label: "Immutable evidence", bucket: evidenceBucket },
     { key: "alertClips", label: "Incident clips", bucket: s3BucketForAlertClips() },
     { key: "agentCorpus", label: "Agent corpus", bucket: CLUSTER.s3.buckets.agentCorpus },
   ];
@@ -102,15 +104,18 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
     }),
   );
 
-  const buckets: BucketSubstrate[] = results.map(({ d, s }) => ({
-    key: d.key,
-    label: d.label,
-    bucket: d.bucket,
-    objectCount: s?.objectCount ?? 0,
-    bytesTotal: s?.bytesTotal ?? 0,
-    bytesLast24h: s?.bytesLast24h ?? 0,
-    ...(s?.truncated ? { truncated: true } : {}),
-  }));
+  const buckets: BucketSubstrate[] = results
+    .map(({ d, s }) => ({
+      key: d.key,
+      label: d.label,
+      bucket: d.bucket,
+      objectCount: s?.objectCount ?? 0,
+      bytesTotal: s?.bytesTotal ?? 0,
+      bytesLast24h: s?.bytesLast24h ?? 0,
+      ...(s?.truncated ? { truncated: true } : {}),
+    }))
+    // Lead with the buckets that actually hold data; empty ones sink to the end.
+    .sort((a, b) => b.bytesTotal - a.bytesTotal || b.objectCount - a.objectCount);
 
   const recent: RecentObject[] = results
     .flatMap(({ d, s }) =>
