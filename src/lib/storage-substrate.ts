@@ -21,7 +21,6 @@ import {
   s3BucketForAlertClips,
   s3Endpoint,
   s3Region,
-  describeS3Error,
 } from "@/lib/s3";
 
 const CACHE_TTL_MS = 30_000;
@@ -43,6 +42,8 @@ export interface BucketSubstrate {
   bytesTotal: number;
   bytesLast24h: number;
   truncated?: boolean;
+  /** false when the bucket couldn't be listed (not provisioned / no access) — hidden in the UI. */
+  available: boolean;
 }
 
 export interface RecentObject extends S3RecentObject {
@@ -85,7 +86,7 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
       endpoint,
       region,
       capacityBytes,
-      buckets: defs.map((d) => ({ ...d, objectCount: 0, bytesTotal: 0, bytesLast24h: 0 })),
+      buckets: defs.map((d) => ({ ...d, objectCount: 0, bytesTotal: 0, bytesLast24h: 0, available: false })),
       recent: [],
       totals: { objectCount: 0, bytesTotal: 0, bytesLast24h: 0 },
       warnings: ["S3 not configured (set OBJECTSTORE_ENDPOINT + OBJECTSTORE_ACCESS_KEY_ID)"],
@@ -97,8 +98,10 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
     defs.map(async (d) => {
       try {
         return { d, s: await cachedStats(d.bucket) };
-      } catch (e) {
-        warnings.push(`${d.label} (${d.bucket}): ${describeS3Error(e)}`);
+      } catch {
+        // Bucket not provisioned / no access on this deploy — flag unavailable
+        // (hidden in the UI). No warning: it would leak the raw endpoint and is
+        // expected on deploys that don't use every bucket.
         return { d, s: null };
       }
     }),
@@ -112,6 +115,7 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
       objectCount: s?.objectCount ?? 0,
       bytesTotal: s?.bytesTotal ?? 0,
       bytesLast24h: s?.bytesLast24h ?? 0,
+      available: s !== null,
       ...(s?.truncated ? { truncated: true } : {}),
     }))
     // Lead with the buckets that actually hold data; empty ones sink to the end.
