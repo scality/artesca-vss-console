@@ -20,6 +20,7 @@ import {
   Bot,
   Calculator,
   Cog,
+  Search,
 } from "lucide-react";
 import { useKiosk } from "./KioskProvider";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ const ALL_ROUTES = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/topology", label: "Topology", icon: Network },
   { href: "/incidents", label: "Incidents", icon: AlertTriangle },
+  { href: "/search", label: "Search", icon: Search },
   { href: "/chat", label: "VSS Chat", icon: Bot },
   { href: "/agent", label: "Agent", icon: Cog },
   { href: "/cameras", label: "Cameras", icon: Camera },

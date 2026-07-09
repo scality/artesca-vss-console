@@ -505,6 +505,16 @@ const RTVI_CV = {
   embeddingsPath: "/api/v1/generate_text_embeddings",
 } as const;
 
+// ─── Caption-indexer (semantic search) ───────────────────────────────────────
+// Python worker that indexes VLM incident captions into Qdrant and serves
+// POST /search. The console is a thin proxy over it — Qdrant is never
+// addressed directly from the console.
+// Service: vss-caption-indexer.<vss-ns>.svc.cluster.local:8080
+// Override: VSS_SEARCH_URL
+const SEARCH_URL =
+  process.env.VSS_SEARCH_URL ??
+  `http://vss-caption-indexer.${VSS_NS}.svc.cluster.local:8080`;
+
 // ─── Restartable components ───────────────────────────────────────────────────
 // Maps console component IDs → { namespace, kind, name }.
 // Helm: all VSS components in VSS_NS; NIM is a Deployment (not StatefulSet).
@@ -690,6 +700,10 @@ export const CLUSTER = {
   demoData: DEMO_DATA,
   s3: S3,
   restartable: RESTARTABLE,
+  search: {
+    /** POST /search endpoint on the vss-caption-indexer worker. */
+    url: SEARCH_URL,
+  },
   /**
    * Namespace for VSS-related K8s Secrets (ngc-secret, objectstore-creds).
    * Helm: same as vssNamespace. Legacy: undefined (per-component namespaces).
