@@ -609,11 +609,15 @@ async function collectNim(warnings: string[]): Promise<NimState | null> {
 
 async function collectPostgres(warnings: string[]): Promise<DbState | null> {
   try {
+    // Explicit -h/-p/-U: the Helm postgres runs as a uid with no /etc/passwd
+    // entry, so bare `pg_isready` can't resolve a default user and returns
+    // exit 3 ("no attempt") even though the server is up. pg_isready doesn't
+    // authenticate, so any user string works — accepting-connections → exit 0.
     const result = await withTimeout(
       runInPod(
         CLUSTER.vst.namespace,
         CLUSTER.postgres.podLabel,
-        ["pg_isready", "-q"],
+        ["pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", CLUSTER.postgres.user, "-q"],
         CALL_TIMEOUT_MS
       ),
       CALL_TIMEOUT_MS + 500
@@ -625,18 +629,20 @@ async function collectPostgres(warnings: string[]): Promise<DbState | null> {
     let sizeMiB: number | null = null;
 
     if (up) {
+      // Authenticated metadata — best-effort. Runs via `sh -c` so it picks up
+      // the pod's own POSTGRES_{PASSWORD,USER,DB} env (TCP md5 auth); a bare
+      // socket connect fails on the passwd-less uid.
+      const psql = (sql: string) => [
+        "sh",
+        "-c",
+        `PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "${sql}"`,
+      ];
       try {
         const connResult = await withTimeout(
           runInPod(
             CLUSTER.vst.namespace,
             CLUSTER.postgres.podLabel,
-            [
-              "psql",
-              "-U",
-              CLUSTER.postgres.user,
-              "-tAc",
-              "SELECT count(*) FROM pg_stat_activity;",
-            ],
+            psql("SELECT count(*) FROM pg_stat_activity;"),
             CALL_TIMEOUT_MS
           ),
           CALL_TIMEOUT_MS + 500
@@ -651,13 +657,7 @@ async function collectPostgres(warnings: string[]): Promise<DbState | null> {
           runInPod(
             CLUSTER.vst.namespace,
             CLUSTER.postgres.podLabel,
-            [
-              "psql",
-              "-U",
-              CLUSTER.postgres.user,
-              "-tAc",
-              "SELECT pg_database_size(current_database()) / 1024 / 1024;",
-            ],
+            psql("SELECT pg_database_size(current_database()) / 1024 / 1024;"),
             CALL_TIMEOUT_MS
           ),
           CALL_TIMEOUT_MS + 500
