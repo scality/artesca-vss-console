@@ -612,7 +612,7 @@ async function collectPostgres(warnings: string[]): Promise<DbState | null> {
     const result = await withTimeout(
       runInPod(
         CLUSTER.vst.namespace,
-        "app=postgres", // label used by k8s/nvidia-vss/vst postgres Deployment
+        CLUSTER.postgres.podLabel,
         ["pg_isready", "-q"],
         CALL_TIMEOUT_MS
       ),
@@ -629,11 +629,11 @@ async function collectPostgres(warnings: string[]): Promise<DbState | null> {
         const connResult = await withTimeout(
           runInPod(
             CLUSTER.vst.namespace,
-            "app=postgres",
+            CLUSTER.postgres.podLabel,
             [
               "psql",
               "-U",
-              process.env.POSTGRES_USER ?? "vst",
+              CLUSTER.postgres.user,
               "-tAc",
               "SELECT count(*) FROM pg_stat_activity;",
             ],
@@ -650,11 +650,11 @@ async function collectPostgres(warnings: string[]): Promise<DbState | null> {
         const sizeResult = await withTimeout(
           runInPod(
             CLUSTER.vst.namespace,
-            "app=postgres",
+            CLUSTER.postgres.podLabel,
             [
               "psql",
               "-U",
-              process.env.POSTGRES_USER ?? "vst",
+              CLUSTER.postgres.user,
               "-tAc",
               "SELECT pg_database_size(current_database()) / 1024 / 1024;",
             ],
@@ -756,6 +756,11 @@ async function collectMediamtx(
   warnings: string[]
 ): Promise<{ state: MediamtxState | null; byName: Map<string, MediamtxPathDetail> }> {
   const byName = new Map<string, MediamtxPathDetail>();
+  // Real-camera deployments (e.g. Pyramid) have no camera-sim host — skip the
+  // probe silently rather than failing on an unparseable placeholder URL.
+  if (!CLUSTER.mediamtx.configured) {
+    return { state: null, byName };
+  }
   try {
     const { paths, warning } = await withTimeout(
       mediamtxListPaths(),
@@ -972,7 +977,7 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
     // Single Redis — alerts reuses the VST Redis for cooldown state
     // (k8s/nvidia-vss/alerts/README.md § "Known gaps"), so there is no separate Redis
     // in the alerts namespace to probe.
-    collectRedis(CLUSTER.vst.namespace, "app=redis", warnings, "VST"),
+    collectRedis(CLUSTER.vst.namespace, CLUSTER.redis.podLabel, warnings, "VST"),
     collectMediamtx(warnings),
   ]);
 
