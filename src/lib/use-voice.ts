@@ -39,6 +39,59 @@ export function stripMarkdownForSpeech(text: string): string {
     .trim();
 }
 
+/**
+ * Choose the best available English text-to-speech voice.
+ *
+ * The browser's default voice is whatever the OS picks — on a non-US machine
+ * that is frequently a foreign-locale or low-quality "compact" voice, which
+ * mangles English. Prefer a known high-quality English voice, then any en-US
+ * non-compact voice, then any English voice, and only fall back to the default.
+ */
+/**
+ * Prime the speech-synthesis voice list. In Chrome getVoices() is empty until
+ * the engine fires `voiceschanged` once; calling it early (at module load)
+ * warms the cache so the first spoken reply already gets a good English voice
+ * instead of the raw system default.
+ */
+function warmVoices(): void {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  try {
+    window.speechSynthesis.getVoices();
+    window.speechSynthesis.addEventListener?.("voiceschanged", () => {
+      window.speechSynthesis.getVoices();
+    });
+  } catch {
+    // best-effort
+  }
+}
+warmVoices();
+
+export function pickEnglishVoice(): SpeechSynthesisVoice | null {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices.length) return null;
+
+  const english = voices.filter((v) => /^en([-_]|$)/i.test(v.lang));
+  const pool = english.length ? english : voices;
+
+  const preferred = [
+    "Google US English",
+    "Samantha",
+    "Microsoft Aria",
+    "Microsoft Jenny",
+    "Google UK English Female",
+    "Google UK English Male",
+    "Daniel",
+  ];
+  for (const name of preferred) {
+    const match = pool.find((v) => v.name === name || v.name.includes(name));
+    if (match) return match;
+  }
+
+  const usNatural = pool.find((v) => /en[-_]US/i.test(v.lang) && !/compact/i.test(v.name));
+  return usNatural || pool.find((v) => !/compact/i.test(v.name)) || pool[0];
+}
+
 // ── Web Speech API type declarations ─────────────────────────────────────────
 //
 // SpeechRecognition (STT) and SpeechRecognitionEvent are experimental APIs
@@ -172,7 +225,19 @@ export function useVoice(): UseVoiceResult {
     const plain = stripMarkdownForSpeech(text);
     if (!plain) return;
     const utterance = new SpeechSynthesisUtterance(plain);
+    // Pin English + a good voice. Without this the engine uses the SYSTEM
+    // DEFAULT voice, which on a non-US machine is often a foreign-locale or
+    // low-quality "compact" voice reading English aloud → garbled/robotic
+    // output. lang alone fixes the language; pickEnglishVoice upgrades quality
+    // once the voice list is cached (warmVoices below primes it at load).
+    utterance.lang = "en-US";
+    const voice = pickEnglishVoice();
+    if (voice) utterance.voice = voice;
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
     if (onEnd) utterance.onend = onEnd;
+    // Clear any stuck/queued utterance first (Chrome can wedge otherwise).
+    window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   }, []);
 
