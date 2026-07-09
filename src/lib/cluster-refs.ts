@@ -69,6 +69,19 @@ const KAFKA_TOPICS = LEGACY
 const REDIS_URL = LEGACY
   ? (process.env.REDIS_URL ?? "redis://redis.vst.svc.cluster.local:6379")
   : (process.env.REDIS_URL ?? `redis://redis.${VSS_NS}.svc.cluster.local:6379`);
+// Pod label the redis probe execs `redis-cli` into.
+// Helm: the redis StatefulSet pods carry app.kubernetes.io/name=redis. Legacy: app=redis.
+const REDIS_POD_LABEL = LEGACY
+  ? (process.env.REDIS_POD_LABEL ?? "app=redis")
+  : (process.env.REDIS_POD_LABEL ?? "app.kubernetes.io/name=redis");
+
+// ─── Postgres (VST metadata DB) ───────────────────────────────────────────────
+// Pod label the postgres probe execs `pg_isready`/`psql` into.
+// Helm: vss-vios-postgres StatefulSet → app.kubernetes.io/name=vss-vios-postgres. Legacy: app=postgres.
+const POSTGRES_POD_LABEL = LEGACY
+  ? (process.env.POSTGRES_POD_LABEL ?? "app=postgres")
+  : (process.env.POSTGRES_POD_LABEL ?? "app.kubernetes.io/name=vss-vios-postgres");
+const POSTGRES_USER = process.env.POSTGRES_USER ?? "vst";
 
 // ─── VIOS / sensor + streamprocessing ────────────────────────────────────────
 // Helm service names verified on live cluster (2026-05-11):
@@ -194,9 +207,19 @@ const VST = LEGACY
     } as const);
 
 // ─── mediamtx ────────────────────────────────────────────────────────────────
+const CAMERA_SIM_HOST_RAW = process.env.CAMERA_SIM_HOST ?? "";
 const MEDIAMTX_API_URL =
   process.env.MEDIAMTX_API_URL ??
-  `http://${process.env.CAMERA_SIM_HOST ?? "camera-sim-host"}:9997`;
+  `http://${CAMERA_SIM_HOST_RAW || "camera-sim-host"}:9997`;
+// mediamtx is an OPTIONAL camera-sim RTSP source — deployments using real IP
+// cameras (e.g. Pyramid) leave CAMERA_SIM_HOST unset or a `<...>` placeholder.
+// Treat those as "not configured" so the probe is skipped instead of failing on
+// an unparseable URL.
+const MEDIAMTX_CONFIGURED =
+  !!process.env.MEDIAMTX_API_URL ||
+  (CAMERA_SIM_HOST_RAW !== "" &&
+    CAMERA_SIM_HOST_RAW !== "camera-sim-host" &&
+    !CAMERA_SIM_HOST_RAW.includes("<"));
 
 // ─── Prometheus ───────────────────────────────────────────────────────────────
 // Point at metalk8s-monitoring, NOT artesca-monitoring. ARTESCA ships two
@@ -649,6 +672,11 @@ export const CLUSTER = {
   },
   redis: {
     url: REDIS_URL,
+    podLabel: REDIS_POD_LABEL,
+  },
+  postgres: {
+    podLabel: POSTGRES_POD_LABEL,
+    user: POSTGRES_USER,
   },
   vst: {
     sensorUrl: VST_SENSOR_URL,
@@ -663,6 +691,8 @@ export const CLUSTER = {
   mediaProxyEnabled: MEDIA_PROXY_ENABLED,
   mediamtx: {
     apiUrl: MEDIAMTX_API_URL,
+    /** False when no camera-sim host is set (real-camera deployments) — skip the probe. */
+    configured: MEDIAMTX_CONFIGURED,
   },
   prometheus: {
     url: PROMETHEUS_URL,
