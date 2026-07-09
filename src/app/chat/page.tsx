@@ -630,6 +630,10 @@ export default function ChatPage() {
                 <div className="mt-1 text-xs">
                   e.g. <span className="font-mono text-brand-slate">how many cameras are streaming?</span>
                 </div>
+                <div className="mt-0.5 text-xs">
+                  or search the archive:{" "}
+                  <span className="font-mono text-brand-slate">find every forklift incident</span>
+                </div>
               </div>
             </div>
           )}

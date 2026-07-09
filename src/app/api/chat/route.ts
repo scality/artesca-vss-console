@@ -23,8 +23,20 @@ import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { withRequestContext } from "@/lib/with-request-context";
 import { CLUSTER } from "@/lib/cluster-refs";
+import {
+  detectSearchIntent,
+  buildSearchReplyMarkdown,
+  type SearchHit,
+  type SearchIntent,
+} from "@/lib/chat-search-routing";
 
 export const dynamic = "force-dynamic";
+
+// Archive-search chat routing. The closed vss-agent has no video_search tool,
+// so "find every forklift incident"-style asks are answered from the
+// caption-indexer (/search) directly instead of the agent. Set
+// VSS_CHAT_SEARCH_ROUTING="0" to disable and send everything to the agent.
+const CHAT_SEARCH_ROUTING = process.env.VSS_CHAT_SEARCH_ROUTING !== "0";
 
 // Default to the in-cluster agent service derived from VSS_NAMESPACE (same
 // convention as cluster-refs.ts) so the k8s path works without an explicit
@@ -50,6 +62,36 @@ interface ChatCompletionShape {
   choices?: Array<{ message?: { content?: string } }>;
 }
 
+// Calls the caption-indexer /search and renders the hits as a chat reply.
+// Fail-soft: a worker outage returns an honest inline message (with a Search
+// page link), never a throw, so a search ask never 500s the chat.
+async function answerFromSearch(intent: SearchIntent): Promise<string> {
+  const reqBody: Record<string, unknown> = { query: intent.query, limit: 8 };
+  if (intent.sensor) reqBody.sensor = intent.sensor;
+  try {
+    const resp = await fetch(`${CLUSTER.search.url}/search`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(reqBody),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!resp.ok) {
+      return `⚠ Semantic search is temporarily unavailable (caption-indexer HTTP ${resp.status}). You can try the [Search page](/search).`;
+    }
+    const data = (await resp.json()) as { hits?: SearchHit[] };
+    return buildSearchReplyMarkdown(intent.query, data.hits ?? []);
+  } catch (e) {
+    return `⚠ Semantic search is temporarily unavailable (${(e as Error).message}). You can try the [Search page](/search).`;
+  }
+}
+
+// Wraps assistant markdown in the OpenAI ChatCompletion shape the /chat page
+// reads (choices[0].message.content), so a search-routed reply is
+// indistinguishable to the client from an agent reply.
+function asChatCompletion(content: string): ChatCompletionShape {
+  return { choices: [{ message: { content } }] };
+}
+
 // Rewrites the agent's browser-unreachable media host (vss-agent:8000) to the
 // console's own same-origin /api/media proxy, so a snapshot/clip URL in the
 // reply opens directly in the browser. Config: CLUSTER.mediaProxyEnabled
@@ -73,6 +115,17 @@ export const POST = withRequestContext(async function (req: NextRequest) {
     return NextResponse.json({ error: parsed.error.message }, { status: 400 });
   }
   const body = parsed.data;
+
+  // Archive-search shortcut: answer "find every …"-style asks from the
+  // caption-indexer instead of the agent (which has no video_search tool).
+  if (CHAT_SEARCH_ROUTING) {
+    const lastUser = [...body.messages].reverse().find((m) => m.role === "user");
+    const intent = lastUser ? detectSearchIntent(lastUser.content) : null;
+    if (intent) {
+      const reply = await answerFromSearch(intent);
+      return NextResponse.json(asChatCompletion(reply));
+    }
+  }
 
   const headers: Record<string, string> = { "content-type": "application/json" };
   // Keys the agent's server-side conversation history so follow-ups resolve
