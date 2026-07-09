@@ -50,7 +50,7 @@ able to run the demo from one browser tab, not four tabs plus a terminal.
 | # | Decision | Impact |
 | --- | --- | --- |
 | 1 | **Access**: Scality engineers (Stéphane, Andres, Rahul, …) from their laptops via SG-whitelisted NodePort. Cluster-internal HTTP. No public TLS in scope. | No cert-manager / ingress rewrite. SG allows `:8800` from a curated IP list (Scality office + VPN + per-engineer home IPs). |
-| 2 | **Kiosk mode**: Required for the Pyramid showroom. `?mode=kiosk` query-param (persisted in cookie) hides `/cameras`, `/scenarios`, `/prompt`, `/logs`, `/diagnostics`, `/settings`. Only `/`, `/topology`, `/incidents` remain visible. | Kiosk is a Phase 0 feature, not deferred. Login page also has a "Kiosk mode" checkbox. |
+| 2 | **Kiosk mode**: Required for the Pyramid showroom. `?mode=kiosk` query-param (persisted in cookie) hides operator pages and the nav-section headers; only `/` (which switches to the story hero), `/topology`, `/incidents`, and `/chat` remain visible (`KIOSK_ALLOWED_ROUTES`). | Kiosk is a Phase 0 feature, not deferred. Login page also has a "Kiosk mode" checkbox. |
 | 3 | **Auth**: Single shared password in K8s Secret (`console-auth`). `next-auth@5` credentials provider. | No user model, no reset flow, no email. Rotation via `/settings` regenerates the Secret via K8s API. |
 | 4 | **AWS launch/teardown**: Out of scope (owned by `web/:5002` and the menubar). | Removes one whole page set (provisioning, instance lifecycle) and simplifies RBAC to in-cluster only. |
 | 5 | **EC2 stop/start**: Out of scope (menubar owns it). | — |
@@ -165,12 +165,16 @@ others are hidden in kiosk mode.
 
 | Route | Kiosk | Purpose |
 | --- | --- | --- |
-| `/` | [kiosk] | **Overview** — big cards: pod counts per namespace (traffic light per pod), NIM warmup state + token/sec, Kafka topic depth per topic (messages retained — not consumer lag), GPU util per card, S3 object count + growth rate, camera-sim instance state |
+| `/` | [kiosk] | **Overview — two views.** Operator (normal) mode: big cards — pod counts per namespace (traffic light per pod), NIM warmup, Kafka topic depth per topic (messages retained — not consumer lag), GPU util per card, S3 object count + growth rate, camera-sim state. **Kiosk mode (`?mode=kiosk`)** renders a story-first showroom hero instead (`KioskHero`): Cameras watched → Incidents detected → Stored on ARTESCA (on-prem) → NVIDIA compute, a clean health verdict, and a latest-incidents peek — no cluster plumbing. Hero incident totals + newest incidents come from `collectHeroExtras()` (caption `/stats` + alert-bridge backlog). |
 | `/topology` | [kiosk] | Interactive **React Flow** diagram — nodes = services, edges = connections (RTSP, gRPC, Kafka, HTTP). Live-colored by health. Click a node for its detail panel. |
 | `/incidents` | [kiosk] | Live feed (replaces the standalone alert dashboard for console users). Filter by scenario / sensor / severity / time-window. Click an incident → **play the source clip** (HLS via `hls.js`, server-side ffmpeg proxy from ARTESCA S3) + raw Kafka payload + thumbnail. |
-| `/chat` | — | Conversational operator chat with the VSS agent (`POST /api/chat` proxied to `vss-agent`'s `/chat`). Replies render as markdown (`react-markdown` + `remark-gfm`); incident **clips** returned by the agent play inline as `<video>`, proxied same-origin via `GET /api/media`. VST's still-snapshot endpoint is unavailable on this deployment (its decode producer can't start), so all chat visual media is delivered as clips, not snapshots. Lets an operator interrogate incidents in natural language during a demo without kubectl or Grafana. |
-| `/capabilities` | — | The agent's tool catalog — what tools exist (`get_incidents`, `vst_video_clip`, `video_understanding_iso`, etc.) — with a live reachability chip, plus a read-only **Agent behavior** card showing the live `vss-agent-config` system prompt + `max_iterations` + LLM endpoint, linking to `/agent`. Makes the agent's abilities and configuration legible instead of hidden in a ConfigMap. |
-| `/agent` | — | View **and edit** the live vss-agent routing config (system prompt, `max_iterations`, LLM name/base URL) via `GET`/`PATCH /api/agent-config` against the `vss-agent-config` ConfigMap and the `vss-agent` Deployment env. Operators tune agent response behavior in-UI; an edit is a **live override** — the next Helm upgrade re-applies the patch Job's durable defaults. |
+| `/search` | — | **Semantic search** over the VLM caption archive. `POST /api/search` proxies the `vss-caption-indexer` worker (embeds captions into Qdrant); results are clip-thumbnail cards (score, camera, category, age, one-line summary) with a clip-playback dialog. `?q=` deep-links pre-fill + auto-run (used by the chat thumbnails). |
+| `/analytics` | — | **"Ask the store"** analytics over the incident archive: a plain-English question box (rule-based `parseStoreQuestion` → category/camera/window) + a dashboard (total, by-category / by-camera bars, by-day trend). `GET /api/analytics?hours=` → the caption-indexer worker `/stats` (Qdrant scroll). |
+| `/chat` | [kiosk] | Conversational operator chat with the VSS agent (`POST /api/chat` proxied to `vss-agent`'s `/chat`). Replies render as markdown (`react-markdown` + `remark-gfm`); incident **clips** returned by the agent play inline as `<video>`, proxied same-origin via `GET /api/media`. **Archive-search routing:** search-intent queries ("find every…", `search:` prefix) are answered from the caption-indexer (`/search`) instead of the agent (the closed agent has no `video_search` tool), returning the same ChatCompletion shape so thumbnails render inline. **Voice:** STT + TTS with a selectable engine — browser Web Speech voices (default "auto" pins en-US) **or** on-box **NVIDIA Magpie TTS NIM** (`/api/tts`), any NIM failure falls back to the browser voice. |
+| `/evidence` | — | **Immutable evidence via ARTESCA S3 Object Lock (WORM).** Seal an incident's clip into an Object-Lock bucket with retention, then **prove immutability** (attempt version-delete → ARTESCA denies with AccessDenied) + play the clip. `lib/evidence.ts` (ensure lock bucket / seal / list / verify) + `POST /api/evidence`, `POST /api/evidence/verify`, `GET /api/evidence`. Prefills retention/mode from the picked incident's scenario `immutable` option. Verified on ARTESCA 4.3. |
+| `/storage` | — | Live **"ARTESCA S3 — the AI's on-prem memory"** substrate panel: per-bucket object counts + bytes + 24h-written + a "latest objects landing" stream, a capacity bar, and a "since you opened this view" growth counter; unavailable/unprovisioned buckets are hidden. `GET /api/storage/substrate` → `collectStorageSubstrate()` (30s cache, fail-soft). Auto-refreshes. |
+| `/capabilities` | — | **Redirects to `/agent`** (permanent, `next.config.js`). The agent tool catalog now lives on the `/agent` **Tools** tab. |
+| `/agent` | — | View **and edit** the live vss-agent routing config (system prompt, LLM name/base URL, **and provider** via a Model preset selector — Nemotron / Claude Opus / Claude Sonnet / Custom, switching `LLM_MODEL_TYPE` `nim`↔`openai`) via `GET`/`PATCH /api/agent-config` against the `vss-agent-config` ConfigMap and the `vss-agent` Deployment env. A **Tools** tab shows the agent's tool catalog + reachability. `max_iterations` is a backend-managed default (Helm overlay patch job), not operator-editable here. An edit is a **live override** — the next Helm upgrade re-applies the patch Job's durable defaults. |
 | `/cameras` | — | Table of cameras, each with N feeds (default 2 per Pyramid rail). Per-camera actions: edit / remove / restart. Per-feed actions: swap `.ts` file / disable / re-register. "Add camera" dialog uploads one or more `.ts` files → SCP to camera-sim → patch ConfigMap + restart replay + re-run register Job. |
 | `/scenarios` | — | Table of scenario rules (from `k8s/nvidia-vss/alerts/12-configmap-scenarios.yaml`). Inline edit per row: keywords (chips), sensor_filter (glob input with live match preview against current camera feeds), severity, channels, **per-scenario cooldown override**, enabled. Save issues `kubectl patch configmap` + rollout-restart of the alert-worker. |
 | `/prompt` | — | **VLM prompt editor** (Monaco). Current prompt in one pane; diff vs proposed in the other. "Preview" button sends a test message to the NIM and shows the response. Inline **NIM model swap** selector (cosmos-reason2 ↔ cosmos-reason1) rewrites the rtvi-vlm + NIM ConfigMaps and rollout-restarts both Deployments. "Save + restart" writes the ConfigMap + rollout-restart of rtvi-vlm. |
@@ -180,6 +184,7 @@ others are hidden in kiosk mode.
 | `/secrets` | — | **Secret rotation UI** — NGC key, NVIDIA API key, HuggingFace token, Slack webhook, console auth password. Paste a new value, confirm, and the console patches the target K8s Secret + rolls the consuming Deployment. |
 | `/logs` | — | Log streamer — pick a pod + container → live tail via SSE. Filter regex, pause/resume, download last N lines. Camera-sim `journalctl -fu camera-sim` available via an SSH tail. |
 | `/diagnostics` | — | On-demand runs of `scripts/validate-manifests.sh`, smoke tests per phase, `kubectl get events -A`, `nvidia-smi`, `kubectl top`. **VST Storage panel**: live S3 PUT rate + bytes/sec to `nvidia-vss-video`, local `vst-video` emptyDir fill % against its 500 GiB limit, segment size distribution (last 200 objects), recorder frame-drop counter, last 20 objects in the bucket with sensor_id / timestamp / size. Results rendered inline. |
+| `/sizing-studio` | — | Embeds the standalone `sizing-studio.html` static tool (served from `public/`) in an iframe — sizes cameras, light-rails, AKHET® servers, GPUs/AI systems, and ARTESCA storage for a store by surface area and use case. "Open full screen" opens the same page directly, outside the iframe. |
 | `/settings` | — | Console-level config: **Network access** sub-panel — CIDR allow-list for `:8800` with add/remove (writes to the EC2 SG via `console-aws` creds + audit log). Kiosk-mode toggle persistence, feature flags, SSH key rotation for camera-sim, inspect current ServiceAccount permissions. |
 | `/about` | — | Build info (git SHA, Next.js / Node versions), links to all docs, list of underlying service URLs, cross-link to the pre-install [`web/`](../deployer/) dashboard at `:5002`. |
 
@@ -202,6 +207,11 @@ All under `src/app/api/*`. JSON in + out except SSE streams.
 | GET | `/api/topology` | Nodes + edges for React Flow, with live health |
 | GET | `/api/tuning/vst` | Current subset of `vst-config` ConfigMap (recording mode, GoP, codecs, storage thresholds, file expiry) + per-camera observed bitrate / GoP from `:30000/api/v1/sensor/list` |
 | GET | `/api/storage/vst` | `nvidia-vss-video` object count + bytes + recent-object listing (S3 `ListObjectsV2` limit=20 sorted by LastModified), local `vst-video` emptyDir fill % (`kubectl exec sensor-ms -- df`), segment-size histogram from last 200 S3 objects, frame-drop counter from `sensor-ms` Prometheus at `:8080/metrics` |
+| GET | `/api/storage/substrate` | Per-bucket substrate stats (object counts + bytes + 24h-written + recent objects) across recordings / evidence / clips / corpus; unavailable buckets flagged, 30 s cache, fail-soft |
+| GET | `/api/analytics?hours=<N>` | Incident-archive aggregations (total + by-category + by-camera + by-day) — proxies the caption-indexer worker `/stats` (Qdrant scroll) |
+| GET | `/api/evidence` | Sealed evidence objects in the Object-Lock bucket, with retention/mode metadata |
+| GET | `/api/agent-config` | Live vss-agent prompt + LLM wiring + active provider + a `{LLM_BASE_URL}/v1/models` reachability probe |
+| GET | `/api/tts/voices` | On-box Magpie TTS availability + EN-US voice list (`{available:false}` when the NIM is down) |
 
 ### Write
 
@@ -215,6 +225,12 @@ All under `src/app/api/*`. JSON in + out except SSE streams.
 | POST | `/api/restart/:component` | Rollout restart a Deployment or StatefulSet — whitelisted set |
 | POST | `/api/prompt/preview` | Send a one-shot prompt to the NIM, return the VLM response (dry-run) |
 | PATCH | `/api/tuning/vst` | Patch the `vst-config` ConfigMap (guarded subset only — recording mode, GoP, codecs, thresholds, expiry) + rollout-restart `sensor-ms` + `streamprocessing-ms`. Rejects changes that flip `cloud_storage_*` fields — those rotate through `/secrets`, not `/tuning`. |
+| POST | `/api/chat` | Proxy the vss-agent OpenAI-compatible `/chat`, rewriting media hosts to `/api/media`; **search-intent queries are answered from the caption-indexer `/search`** instead (same ChatCompletion shape) |
+| POST | `/api/search` | Semantic search over the VLM caption archive (proxies the `vss-caption-indexer` worker `/search`) |
+| POST | `/api/evidence` | Seal an incident clip into the Object-Lock bucket with retention (GOVERNANCE/COMPLIANCE) |
+| POST | `/api/evidence/verify` | Prove immutability — attempt a version-delete, expect ARTESCA `AccessDenied` |
+| POST | `/api/tts` | Synthesize speech via the on-box Magpie TTS NIM (multipart → `audio/wav`); fail-soft so the client falls back to the browser voice |
+| PATCH | `/api/agent-config` | Patch the `vss-agent-config` ConfigMap + `vss-agent` Deployment env (prompt, LLM name/base URL/provider, `OPENAI_API_KEY` via secretKeyRef for Anthropic) + rollout-restart |
 
 ### Live streams (SSE)
 
@@ -573,9 +589,12 @@ Read-only diagnostic surface on `/diagnostics`. All numbers update every 5 s via
 | Recent objects | Last 20 S3 objects with sensor_id / ts / size / age | 10 s |
 | Storage ceiling alert | When `vst-video` fill > 90 % OR S3 PUT error-rate > 1 % | computed |
 
-### Why not a standalone `/storage` page
+### Storage lives in two distinct places
 
-Discoverability. Operators looking for "why aren't recordings landing?" check `/diagnostics` — putting the storage panel there means one place to debug ingest. Putting it behind a standalone `/storage` route buries it. The `/tuning` page already bundles three subsystems (rtvi, alerts, VST) on one route; that's the right shape for this console.
+Two storage surfaces serve two audiences, so they're deliberately separate:
+
+- The **operator ingest-debug panel** lives on `/diagnostics` (the VST Storage panel above) — an operator chasing "why aren't recordings landing?" finds S3 PUT rate, local cache fill, and the last objects there, alongside the rest of the debug tooling.
+- The standalone **`/storage`** page is a demo-facing **substrate storytelling** view ("ARTESCA S3 — the AI's on-prem memory"): per-bucket totals + growth + latest-objects stream, framed for a non-engineer audience. Different job from the ingest-debug panel, hence its own route (and its own place in the sidebar's "AI & Storage" group).
 
 ### Why not editable cloud storage fields in `/tuning`
 
