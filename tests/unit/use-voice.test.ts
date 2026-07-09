@@ -16,7 +16,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createRoot } from "react-dom/client";
 import React, { act, useEffect } from "react";
-import { useVoice, stripMarkdownForSpeech, type UseVoiceResult } from "@/lib/use-voice";
+import { useVoice, stripMarkdownForSpeech, pickEnglishVoice, type UseVoiceResult } from "@/lib/use-voice";
 
 // ── Mock SpeechRecognition ────────────────────────────────────────────────────
 //
@@ -124,6 +124,49 @@ function buildFakeSpeechEvent(transcript: string): FakeRecognitionEvent {
 }
 
 // ── Suite setup / teardown ────────────────────────────────────────────────────
+
+describe("pickEnglishVoice", () => {
+  const setVoices = (voices: Array<{ name: string; lang: string }>) => {
+    Object.defineProperty(window, "speechSynthesis", {
+      configurable: true,
+      writable: true,
+      value: { getVoices: () => voices },
+    });
+  };
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).speechSynthesis;
+  });
+
+  it("returns null when no voices are available", () => {
+    setVoices([]);
+    expect(pickEnglishVoice()).toBeNull();
+  });
+
+  it("prefers a known high-quality English voice over a foreign default", () => {
+    setVoices([
+      { name: "Thomas", lang: "fr-FR" },
+      { name: "Albert", lang: "en-US" },
+      { name: "Google US English", lang: "en-US" },
+    ]);
+    expect(pickEnglishVoice()?.name).toBe("Google US English");
+  });
+
+  it("avoids compact voices, preferring a natural en-US voice", () => {
+    setVoices([
+      { name: "Eddy (English (US)) compact", lang: "en-US" },
+      { name: "Samantha", lang: "en-US" },
+    ]);
+    expect(pickEnglishVoice()?.name).toBe("Samantha");
+  });
+
+  it("picks an English voice over a foreign-locale one", () => {
+    setVoices([
+      { name: "Amelie", lang: "fr-CA" },
+      { name: "Aria English", lang: "en-GB" },
+    ]);
+    expect(pickEnglishVoice()?.name).toBe("Aria English");
+  });
+});
 
 describe("stripMarkdownForSpeech", () => {
   it("removes bold markers", () => {
