@@ -14,6 +14,7 @@ interface BucketSubstrate {
   bytesTotal: number;
   bytesLast24h: number;
   truncated?: boolean;
+  available?: boolean;
 }
 interface RecentObject {
   key: string;
@@ -173,7 +174,7 @@ export default function StoragePage() {
 
             {/* Per-bucket */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              {data.buckets.map((b) => {
+              {data.buckets.filter((b) => b.available !== false).map((b) => {
                 const Icon = BUCKET_ICON[b.key] ?? Layers;
                 const empty = b.objectCount === 0;
                 return (
