@@ -515,6 +515,17 @@ const SEARCH_URL =
   process.env.VSS_SEARCH_URL ??
   `http://vss-caption-indexer.${VSS_NS}.svc.cluster.local:8080`;
 
+// ─── TTS (on-box NVIDIA Magpie NIM) ───────────────────────────────────────────
+// On-box, sovereign text-to-speech for the chat's spoken replies. HTTP API:
+// POST /v1/audio/synthesize (multipart language/text/voice -> WAV),
+// GET /v1/audio/list_voices. The console /api/tts proxies it; the /chat voice
+// selector offers it alongside the browser voices. Override: VSS_TTS_URL.
+const TTS_URL =
+  process.env.VSS_TTS_URL ?? `http://magpie-tts.${VSS_NS}.svc.cluster.local:9000`;
+const TTS_ENABLED = process.env.VSS_TTS_ENABLED !== "0";
+const TTS_VOICE = process.env.VSS_TTS_VOICE ?? "Magpie-Multilingual.EN-US.Aria";
+const TTS_LANGUAGE = process.env.VSS_TTS_LANGUAGE ?? "en-US";
+
 // ─── Restartable components ───────────────────────────────────────────────────
 // Maps console component IDs → { namespace, kind, name }.
 // Helm: all VSS components in VSS_NS; NIM is a Deployment (not StatefulSet).
@@ -703,6 +714,16 @@ export const CLUSTER = {
   search: {
     /** POST /search endpoint on the vss-caption-indexer worker. */
     url: SEARCH_URL,
+  },
+  tts: {
+    /** On-box Magpie TTS NIM base URL (/v1/audio/synthesize, /v1/audio/list_voices). */
+    url: TTS_URL,
+    /** Master switch for the /api/tts proxy (env VSS_TTS_ENABLED="0" to disable). */
+    enabled: TTS_ENABLED,
+    /** Default on-box voice name. */
+    voice: TTS_VOICE,
+    /** Synthesis language code. */
+    language: TTS_LANGUAGE,
   },
   /**
    * Namespace for VSS-related K8s Secrets (ngc-secret, objectstore-creds).

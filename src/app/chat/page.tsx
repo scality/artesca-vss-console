@@ -16,7 +16,25 @@ type Camera = { id: string; description?: string; feeds?: CameraFeed[] };
 const STORAGE_KEY = "nvidia-vss-chat-history";
 const SCOPE_KEY = "nvidia-vss-chat-scope";
 const CONVERSATION_KEY = "nvidia-vss-chat-conversation-id";
+const VOICE_KEY = "nvidia-vss-chat-voice";
 const SCOPE_ALL = "__all__";
+
+/** Parse a voice-selector value ("browser:<uri>" | "nim:<name>") into speak() opts. */
+function parseVoiceChoice(choice: string): {
+  engine: "browser" | "nim";
+  browserVoiceURI?: string;
+  nimVoice?: string;
+} {
+  if (choice.startsWith("nim:")) return { engine: "nim", nimVoice: choice.slice(4) };
+  const uri = choice.startsWith("browser:") ? choice.slice(8) : "";
+  return { engine: "browser", browserVoiceURI: uri || undefined };
+}
+
+/** "Magpie-Multilingual.EN-US.Aria" → "Aria" for a compact dropdown label. */
+function shortVoiceName(name: string): string {
+  const parts = name.split(".");
+  return parts[parts.length - 1] || name;
+}
 
 // Stable per-conversation id sent as the `conversation-id` header (via /api/chat)
 // so the agent threads follow-up references ("it", "the clip", "yes") across
@@ -317,8 +335,23 @@ export default function ChatPage() {
   const [conversationMode, setConversationMode] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Voice — STT + TTS via browser Web Speech API (zero infra, Chrome secure-context).
+  // Voice — STT + TTS. TTS engine is operator-selectable: browser Web Speech
+  // voices or the on-box NVIDIA Magpie NIM (via /api/tts), with browser fallback.
   const voice = useVoice();
+  const { listBrowserVoices, supported: voiceSupported } = voice;
+  const [voiceChoice, setVoiceChoice] = useState<string>(() => {
+    if (typeof window === "undefined") return "browser:";
+    try {
+      return localStorage.getItem(VOICE_KEY) ?? "browser:";
+    } catch {
+      return "browser:";
+    }
+  });
+  const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [onboxTts, setOnboxTts] = useState<{ available: boolean; voices: string[] }>({
+    available: false,
+    voices: [],
+  });
   // Tracks whether the last send() originated from a voice input so the reply is spoken.
   const voiceOriginatedRef = useRef(false);
   // Stable ref to always call the latest send() from async TTS/STT callbacks.
@@ -353,6 +386,44 @@ export default function ChatPage() {
       /* quota */
     }
   }, [scope]);
+
+  // Persist the selected TTS voice.
+  useEffect(() => {
+    try {
+      localStorage.setItem(VOICE_KEY, voiceChoice);
+    } catch {
+      /* quota */
+    }
+  }, [voiceChoice]);
+
+  // Load the browser's English voices (refresh on voiceschanged — Chrome loads async).
+  useEffect(() => {
+    if (!voiceSupported) return;
+    const load = () =>
+      setBrowserVoices(listBrowserVoices().filter((v) => /^en/i.test(v.lang)));
+    load();
+    const synth = window.speechSynthesis;
+    synth?.addEventListener?.("voiceschanged", load);
+    return () => synth?.removeEventListener?.("voiceschanged", load);
+  }, [voiceSupported, listBrowserVoices]);
+
+  // Probe on-box TTS (Magpie NIM) availability + voices; omit the option if down.
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/tts/voices", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (alive && j?.available) {
+          setOnboxTts({ available: true, voices: Array.isArray(j.voices) ? j.voices : [] });
+        }
+      })
+      .catch(() => {
+        /* on-box TTS simply won't be offered */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Resolve scope → camera record for hint rendering + system-message context.
   const scopedCamera = useMemo(
@@ -476,10 +547,10 @@ export default function ChatPage() {
       // kiosk loop: speak → listen → speak → …).
       if (wasVoice) {
         const speakableReply = stripMarkdownForSpeech(reply);
-        voice.speak(
-          speakableReply,
-          conversationMode ? handleVoiceInput : undefined,
-        );
+        voice.speak(speakableReply, {
+          ...parseVoiceChoice(voiceChoice),
+          onEnd: conversationMode ? handleVoiceInput : undefined,
+        });
       }
     } catch (e) {
       setError((e as Error).message);
@@ -725,6 +796,30 @@ export default function ChatPage() {
               })}
             </select>
           </label>
+          {(voiceSupported || onboxTts.available) && (
+            <label className="flex items-center gap-1.5" title="Which voice speaks the agent's replies">
+              <Volume2 className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="uppercase tracking-wide text-[10px]">Voice</span>
+              <select
+                value={voiceChoice}
+                onChange={(e) => setVoiceChoice(e.target.value)}
+                className="rounded border border-input bg-card px-2 py-1 font-mono text-[11px] text-foreground hover:border-border focus:border-brand-teal focus:outline-none"
+              >
+                <option value="browser:">Browser — auto</option>
+                {browserVoices.map((v) => (
+                  <option key={v.voiceURI} value={`browser:${v.voiceURI}`}>
+                    Browser — {v.name}
+                  </option>
+                ))}
+                {onboxTts.available &&
+                  onboxTts.voices.map((n) => (
+                    <option key={n} value={`nim:${n}`}>
+                      NVIDIA on-box — {shortVoiceName(n)}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
           {cameras !== null && cameras.length === 0 && (
             <span className="italic text-muted-foreground">
               No cameras registered — use{" "}

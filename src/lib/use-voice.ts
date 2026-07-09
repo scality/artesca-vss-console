@@ -130,6 +130,24 @@ declare global {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+export interface SpeakOptions {
+  /** Called when the utterance/clip finishes (used for hands-free loop). */
+  onEnd?: () => void;
+  /**
+   * Which TTS engine to use:
+   * - "browser" (default): the Web Speech synthesis engine, client-side.
+   * - "nim": the on-box NVIDIA Magpie TTS NIM via the /api/tts proxy. Falls
+   *   back to the browser engine on any fetch/playback failure.
+   */
+  engine?: "browser" | "nim";
+  /** browser engine: a specific voice URI to use (else the best English auto-pick). */
+  browserVoiceURI?: string;
+  /** nim engine: the on-box voice name (e.g. "Magpie-Multilingual.EN-US.Aria"). */
+  nimVoice?: string;
+  /** browser engine playback rate (0.1–10, default 1.0). */
+  rate?: number;
+}
+
 export interface UseVoiceResult {
   /** True only when BOTH SpeechRecognition AND speechSynthesis are available. */
   supported: boolean;
@@ -144,14 +162,14 @@ export interface UseVoiceResult {
   /** Stop the active recognition session (if any). */
   stopListening: () => void;
   /**
-   * Speak `text` via the browser's text-to-speech engine after stripping
-   * markdown and agent reasoning blocks to plain prose. Optionally calls
-   * `onEnd` when the utterance finishes (useful for hands-free conversation
-   * mode: start listening again after the agent stops speaking).
+   * Speak `text` after stripping markdown/agent-reasoning to plain prose.
+   * Second arg is either SpeakOptions or (back-compat) a bare onEnd callback.
    */
-  speak: (text: string, onEnd?: () => void) => void;
-  /** Cancel any in-progress or queued speech synthesis. */
+  speak: (text: string, opts?: SpeakOptions | (() => void)) => void;
+  /** Cancel any in-progress speech (browser synthesis AND on-box clip playback). */
   cancelSpeak: () => void;
+  /** The browser's available synthesis voices (may be empty until warmed). */
+  listBrowserVoices: () => SpeechSynthesisVoice[];
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -168,6 +186,8 @@ export function useVoice(): UseVoiceResult {
   });
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
+  // Current on-box (NIM) audio element, so cancelSpeak can stop it too.
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const startListening = useCallback((onFinal: (text: string) => void): void => {
     if (typeof window === "undefined") return;
@@ -220,32 +240,107 @@ export function useVoice(): UseVoiceResult {
     setListening(false);
   }, []);
 
-  const speak = useCallback((text: string, onEnd?: () => void): void => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    const plain = stripMarkdownForSpeech(text);
-    if (!plain) return;
-    const utterance = new SpeechSynthesisUtterance(plain);
-    // Pin English + a good voice. Without this the engine uses the SYSTEM
-    // DEFAULT voice, which on a non-US machine is often a foreign-locale or
-    // low-quality "compact" voice reading English aloud → garbled/robotic
-    // output. lang alone fixes the language; pickEnglishVoice upgrades quality
-    // once the voice list is cached (warmVoices below primes it at load).
-    utterance.lang = "en-US";
-    const voice = pickEnglishVoice();
-    if (voice) utterance.voice = voice;
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    if (onEnd) utterance.onend = onEnd;
-    // Clear any stuck/queued utterance first (Chrome can wedge otherwise).
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+  const stopAudio = useCallback((): void => {
+    const a = audioRef.current;
+    if (a) {
+      try {
+        a.pause();
+        if (a.src) URL.revokeObjectURL(a.src);
+        a.src = "";
+      } catch {
+        // best-effort
+      }
+      audioRef.current = null;
+    }
   }, []);
+
+  const speak = useCallback(
+    (text: string, opts?: SpeakOptions | (() => void)): void => {
+      if (typeof window === "undefined") return;
+      const o: SpeakOptions = typeof opts === "function" ? { onEnd: opts } : opts ?? {};
+      const plain = stripMarkdownForSpeech(text);
+      if (!plain) return;
+
+      // Browser (Web Speech) synthesis — also the fallback for the NIM path.
+      const speakBrowser = () => {
+        if (!("speechSynthesis" in window)) return;
+        const utterance = new SpeechSynthesisUtterance(plain);
+        // Pin English + a good voice; the SYSTEM DEFAULT is often a
+        // foreign-locale/compact voice that mangles English.
+        utterance.lang = "en-US";
+        const chosen =
+          (o.browserVoiceURI &&
+            window.speechSynthesis
+              .getVoices()
+              .find((v) => v.voiceURI === o.browserVoiceURI)) ||
+          pickEnglishVoice();
+        if (chosen) utterance.voice = chosen;
+        utterance.rate = o.rate ?? 1.0;
+        utterance.pitch = 1.0;
+        if (o.onEnd) utterance.onend = o.onEnd;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utterance);
+      };
+
+      if (o.engine === "nim") {
+        // On-box NVIDIA Magpie TTS via the console proxy. Returns a WAV clip we
+        // play through an <audio> element. Any failure → browser fallback so a
+        // NIM outage never leaves the operator without a spoken reply.
+        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+        stopAudio();
+        const body = JSON.stringify({ text: plain, voice: o.nimVoice });
+        fetch("/api/tts", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        })
+          .then(async (r) => {
+            if (!r.ok) throw new Error(`tts ${r.status}`);
+            const blob = await r.blob();
+            if (!blob.size) throw new Error("empty audio");
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            audioRef.current = audio;
+            audio.onended = () => {
+              URL.revokeObjectURL(url);
+              audioRef.current = null;
+              o.onEnd?.();
+            };
+            audio.onerror = () => {
+              URL.revokeObjectURL(url);
+              audioRef.current = null;
+              speakBrowser();
+            };
+            await audio.play();
+          })
+          .catch(() => speakBrowser());
+        return;
+      }
+
+      speakBrowser();
+    },
+    [stopAudio],
+  );
 
   const cancelSpeak = useCallback((): void => {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
+    stopAudio();
+  }, [stopAudio]);
+
+  const listBrowserVoices = useCallback((): SpeechSynthesisVoice[] => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return [];
+    return window.speechSynthesis.getVoices();
   }, []);
 
-  return { supported, listening, startListening, stopListening, speak, cancelSpeak };
+  return {
+    supported,
+    listening,
+    startListening,
+    stopListening,
+    speak,
+    cancelSpeak,
+    listBrowserVoices,
+  };
 }
