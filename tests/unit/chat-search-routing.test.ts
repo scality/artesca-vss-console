@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   detectSearchIntent,
   buildSearchReplyMarkdown,
+  displayCaption,
   type SearchHit,
 } from "@/lib/chat-search-routing";
 
@@ -95,6 +96,14 @@ describe("buildSearchReplyMarkdown", () => {
     expect(md).not.toContain("Okay, a forklift");
   });
 
+  it("prefers the worker summary over the raw caption when present", () => {
+    const md = buildSearchReplyMarkdown("forklifts", [
+      hit({ summary: "Forklift lifting an unstable load near a worker" }),
+    ]);
+    expect(md).toContain("Forklift lifting an unstable load near a worker");
+    expect(md).not.toContain("Okay, a forklift");
+  });
+
   it("caps at 5 hits and notes the remainder", () => {
     const hits = Array.from({ length: 8 }, (_, i) => hit({ incidentId: `i${i}` }));
     const md = buildSearchReplyMarkdown("q", hits);
@@ -113,5 +122,22 @@ describe("buildSearchReplyMarkdown", () => {
   it("omits the age suffix when the timestamp is unparseable", () => {
     const md = buildSearchReplyMarkdown("q", [hit({ ts: "not-a-date" })]);
     expect(md).not.toContain("ago");
+  });
+});
+
+describe("displayCaption", () => {
+  it("prefers a non-empty summary verbatim", () => {
+    expect(
+      displayCaption({ summary: "Forklift near a worker", caption: "Okay, verbose reasoning…" }),
+    ).toBe("Forklift near a worker");
+  });
+
+  it("falls back to a cleaned caption when summary is empty/absent", () => {
+    expect(
+      displayCaption({ summary: "  ", caption: "Okay, a spill blocks aisle 3." }),
+    ).toBe("A spill blocks aisle 3.");
+    expect(displayCaption({ caption: "Okay, a spill blocks aisle 3." })).toBe(
+      "A spill blocks aisle 3.",
+    );
   });
 });
