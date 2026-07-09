@@ -36,6 +36,26 @@ const LEADING_FILLER: RegExp[] = [
   /^let me (?:start by|first|begin)\b[^.]*\.\s+/i,
 ];
 
+// Connective/function words that read as dangling if a (truncated) caption
+// ends on them — mirrors the worker's _DANGLING set. Applied as a display-side
+// guard so no stored summary ever renders ending mid-phrase ("…empty and in").
+const TRAILING_DANGLING = new Set([
+  "and", "or", "but", "with", "to", "the", "a", "an", "of", "in", "on", "at",
+  "near", "for", "from", "by", "as", "into", "onto", "over", "under", "that",
+  "which", "while", "then", "is", "are", "was", "were", "their", "its",
+]);
+
+export function stripTrailingDangling(s: string): string {
+  const words = (s ?? "").trim().split(/\s+/);
+  while (
+    words.length > 1 &&
+    TRAILING_DANGLING.has(words[words.length - 1].toLowerCase().replace(/[,;:]+$/, ""))
+  ) {
+    words.pop();
+  }
+  return words.join(" ");
+}
+
 export function cleanCaption(raw: string, maxLen = 200): string {
   let s = (raw ?? "")
     .replace(/<[^>]+>/g, " ") // drop any stray markup/tags
@@ -65,5 +85,5 @@ export function cleanCaption(raw: string, maxLen = 200): string {
     slice.lastIndexOf("? "),
   );
   if (lastStop > maxLen * 0.5) return slice.slice(0, lastStop + 1).trim();
-  return slice.trimEnd() + "…";
+  return stripTrailingDangling(slice.trimEnd()) + "…";
 }
