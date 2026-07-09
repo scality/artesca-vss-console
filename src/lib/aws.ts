@@ -144,3 +144,67 @@ export async function s3Stats(bucket: string): Promise<S3Stats> {
 
   return { bucket, objectCount, bytesTotal, bytesLast24h, ...(truncated ? { truncated } : {}) };
 }
+
+export interface S3RecentObject {
+  key: string;
+  size: number;
+  lastModified: string; // ISO 8601 (sorts lexicographically = chronologically)
+}
+
+export interface S3SubstrateStats extends S3Stats {
+  /** The most-recently-written objects (by LastModified), for the "live accumulation" stream. */
+  recent: S3RecentObject[];
+}
+
+/**
+ * Like s3Stats, but in the same single pass also tracks the N most-recently
+ * written objects — so the storage-substrate panel gets true "latest objects
+ * landing in ARTESCA" without a second listing. Memory stays bounded by
+ * trimming the running recent-set periodically.
+ */
+export async function s3SubstrateStats(bucket: string, recentLimit = 8): Promise<S3SubstrateStats> {
+  const client = s3Client();
+  let objectCount = 0;
+  let bytesTotal = 0;
+  let bytesLast24h = 0;
+  let continuationToken: string | undefined;
+  let pages = 0;
+  let truncated = false;
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  let recent: S3RecentObject[] = [];
+  const trim = () => {
+    recent.sort((a, b) => b.lastModified.localeCompare(a.lastModified));
+    if (recent.length > recentLimit) recent = recent.slice(0, recentLimit);
+  };
+
+  do {
+    const resp = await client.send(
+      new ListObjectsV2Command({ Bucket: bucket, ContinuationToken: continuationToken }),
+    );
+    for (const obj of resp.Contents ?? []) {
+      objectCount++;
+      const size = obj.Size ?? 0;
+      bytesTotal += size;
+      const lm = obj.LastModified;
+      if (lm && lm.getTime() >= cutoff) bytesLast24h += size;
+      recent.push({ key: obj.Key ?? "", size, lastModified: lm ? lm.toISOString() : "" });
+    }
+    if (recent.length > recentLimit * 40) trim(); // keep memory bounded on huge buckets
+    continuationToken = resp.NextContinuationToken;
+    pages++;
+    if (pages >= S3_STATS_PAGE_LIMIT) {
+      truncated = true;
+      break;
+    }
+  } while (continuationToken);
+
+  trim();
+  return {
+    bucket,
+    objectCount,
+    bytesTotal,
+    bytesLast24h,
+    ...(truncated ? { truncated } : {}),
+    recent,
+  };
+}
