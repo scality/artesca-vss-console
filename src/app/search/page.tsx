@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Search } from "lucide-react";
 import { Shell } from "@/components/Shell";
 import { ClipPlayer } from "@/components/incidents/ClipPlayer";
 import { formatAge } from "@/lib/format-age";
+import { cleanCaption } from "@/lib/search-caption";
 import {
   Dialog,
   DialogContent,
@@ -116,7 +117,7 @@ function HitCard({ hit, onClick }: HitCardProps) {
           {formatAge(ageS)} ago
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-foreground/80 line-clamp-2">
-          {truncate(hit.caption, 140)}
+          {truncate(cleanCaption(hit.caption), 140)}
         </p>
       </div>
     </button>
@@ -206,6 +207,10 @@ export default function SearchPage() {
     const trimmed = q.trim();
     if (!trimmed) return;
 
+    // Own the query state so callers (form submit, example chip, ?q= deep link)
+    // don't each have to setQuery separately — and the mount effect below stays
+    // free of a synchronous setState in its body.
+    setQuery(trimmed);
     setLoading(true);
     setError(null);
     setSearched(true);
@@ -241,6 +246,21 @@ export default function SearchPage() {
     },
     [query, runSearch],
   );
+
+  // Deep-link: /search?q=… (used by the chat search-routing thumbnails) pre-fills
+  // the box and runs the search on mount. Read from location rather than
+  // useSearchParams to avoid the Next 16 Suspense-boundary requirement.
+  // Deferred off the effect's synchronous tick so runSearch's setState doesn't
+  // cascade within the effect body; ref-guarded against a StrictMode double-run.
+  const deepLinkRan = useRef(false);
+  useEffect(() => {
+    if (deepLinkRan.current) return;
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q && q.trim()) {
+      deepLinkRan.current = true;
+      queueMicrotask(() => void runSearch(q));
+    }
+  }, [runSearch]);
 
   const applyExampleQuery = useCallback(
     (q: string) => {
