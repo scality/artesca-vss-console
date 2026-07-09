@@ -89,6 +89,8 @@ export interface Scenario {
   sensorFilter: string; // glob or comma-separated
   keywords: string[];
   enabled: boolean;
+  /** Optional: seal this scenario's incident clips into ARTESCA Object Lock (WORM). */
+  immutable?: { enabled: boolean; retentionDays: number; mode?: "GOVERNANCE" | "COMPLIANCE" };
 }
 
 export interface Incident {
