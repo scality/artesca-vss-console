@@ -20,8 +20,16 @@ export interface SearchHit {
   ts: string;
   category: string;
   caption: string;
+  /** Terse one-line display caption from the worker (LLM/extractive). May be absent on older points. */
+  summary?: string;
   incidentId: string;
   score: number;
+}
+
+/** Prefer the worker's terse summary; fall back to a client-side clean of the full caption. */
+export function displayCaption(hit: Pick<SearchHit, "summary" | "caption">, maxLen = 180): string {
+  const s = hit.summary?.trim();
+  return s || cleanCaption(hit.caption, maxLen);
 }
 
 export interface SearchIntent {
@@ -114,7 +122,7 @@ export function buildSearchReplyMarkdown(query: string, hits: SearchHit[]): stri
     const pct = Math.round((h.score ?? 0) * 100);
     const meta = `**${h.camera}** · ${h.category} · ${pct}%${ageSuffix(h.ts)}`;
     const still = `[![${h.camera}](${thumbUrl(h.camera, h.ts)})](${searchPageUrl(query)})`;
-    const caption = cleanCaption(h.caption, 180);
+    const caption = displayCaption(h, 180);
     return `${meta}\n\n${still}\n\n${caption}`;
   });
 

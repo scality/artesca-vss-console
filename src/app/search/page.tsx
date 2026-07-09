@@ -5,7 +5,7 @@ import { Search } from "lucide-react";
 import { Shell } from "@/components/Shell";
 import { ClipPlayer } from "@/components/incidents/ClipPlayer";
 import { formatAge } from "@/lib/format-age";
-import { cleanCaption } from "@/lib/search-caption";
+import { displayCaption } from "@/lib/chat-search-routing";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,7 @@ interface SearchHit {
   ts: string;
   category: string;
   caption: string;
+  summary?: string;
   incidentId: string;
   score: number;
 }
@@ -117,7 +118,7 @@ function HitCard({ hit, onClick }: HitCardProps) {
           {formatAge(ageS)} ago
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-foreground/80 line-clamp-2">
-          {truncate(cleanCaption(hit.caption), 140)}
+          {truncate(displayCaption(hit), 140)}
         </p>
       </div>
     </button>
@@ -163,9 +164,18 @@ function HitDetail({ hit, onClose }: HitDetailProps) {
           </div>
 
           <div>
-            <p className="text-xs text-muted-foreground mb-1">Caption</p>
-            <p className="text-sm leading-relaxed">{hit.caption}</p>
+            <p className="text-xs text-muted-foreground mb-1">Summary</p>
+            <p className="text-sm leading-relaxed">{displayCaption(hit)}</p>
           </div>
+
+          {hit.caption?.trim() && hit.caption.trim() !== displayCaption(hit) && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Full description</p>
+              <p className="whitespace-pre-line text-xs leading-relaxed text-muted-foreground">
+                {hit.caption}
+              </p>
+            </div>
+          )}
 
           {/* Clip player */}
           <div>
