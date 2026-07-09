@@ -22,6 +22,7 @@ import {
   Cog,
   Search,
   HardDrive,
+  BarChart3,
 } from "lucide-react";
 import { useKiosk } from "./KioskProvider";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ const ALL_ROUTES = [
   { href: "/incidents", label: "Incidents", icon: AlertTriangle },
   { href: "/search", label: "Search", icon: Search },
   { href: "/storage", label: "Storage", icon: HardDrive },
+  { href: "/analytics", label: "Ask the Store", icon: BarChart3 },
   { href: "/chat", label: "VSS Chat", icon: Bot },
   { href: "/agent", label: "Agent", icon: Cog },
   { href: "/cameras", label: "Cameras", icon: Camera },
