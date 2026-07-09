@@ -8,28 +8,41 @@ import { ConnectivityStrip } from "@/components/overview/ConnectivityStrip";
 import { KafkaLagTable } from "@/components/overview/KafkaLagTable";
 import { PodSummaryList } from "@/components/overview/PodSummaryList";
 import { OverviewAutoRefresh } from "@/components/overview/OverviewAutoRefresh";
+import { KioskHero } from "@/components/overview/KioskHero";
 import { isKioskFromHeaders } from "@/lib/kiosk";
-import { collectOverviewSnapshot, collectPodSummaries } from "@/lib/overview-collector";
+import {
+  collectOverviewSnapshot,
+  collectPodSummaries,
+  type PodsResult,
+} from "@/lib/overview-collector";
+import { collectHeroExtras } from "@/lib/hero-collector";
 import { CLUSTER } from "@/lib/cluster-refs";
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(2)} TB`;
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(2)} MB`;
-  return `${bytes} B`;
-}
 
 export default async function OverviewPage() {
   const hdrs = await headers();
   const kiosk = isKioskFromHeaders(hdrs);
 
-  const [overviewResult, podsResult] = await Promise.all([
+  const [overviewResult, podsResult, heroExtras] = await Promise.all([
     collectOverviewSnapshot(),
-    collectPodSummaries(),
+    // Kiosk shows no namespace/pod plumbing — skip the pod list there.
+    kiosk
+      ? Promise.resolve<PodsResult>({ pods: [], warnings: [] })
+      : collectPodSummaries(),
+    kiosk ? collectHeroExtras() : Promise.resolve(null),
   ]);
   const { snapshot: overview, mode } = overviewResult;
   const dockerMode = mode === "docker";
   const pods = podsResult.pods;
+
+  // Kiosk / showroom display: a story-first hero, no cluster plumbing.
+  if (kiosk && heroExtras) {
+    return (
+      <Shell>
+        <OverviewAutoRefresh />
+        <KioskHero overview={overview} extras={heroExtras} />
+      </Shell>
+    );
+  }
 
   // Degraded probes record *why* in warnings[]; surface them so an empty panel
   // (e.g. a missing GPU section) explains itself instead of silently vanishing.
@@ -252,47 +265,6 @@ export default async function OverviewPage() {
           </section>
         )}
 
-        {/* Row 5 — S3 bucket stats. Shown when bucket is configured in either mode. */}
-        {overview.s3.bucket && (
-          <section>
-            <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              S3 Bucket
-            </h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div className="rounded-lg border border-border bg-card p-4 space-y-1">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                  Bucket
-                </p>
-                <p className="font-mono text-sm font-semibold">
-                  {overview.s3.bucket}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border bg-card p-4 space-y-1">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                  Objects / Total Size
-                </p>
-                <p className="text-xl font-bold tabular-nums">
-                  {overview.s3.objectCount.toLocaleString()}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {formatBytes(overview.s3.bytesTotal)}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border bg-card p-4 space-y-1">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                  24h Growth
-                </p>
-                <p className="text-xl font-bold tabular-nums">
-                  {formatBytes(overview.s3.growth24h)}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {(overview.s3.growth24h / (24 * 3600 * 1024 * 1024)).toFixed(3)}{" "}
-                  MB/s avg
-                </p>
-              </div>
-            </div>
-          </section>
-        )}
       </div>
     </Shell>
   );
