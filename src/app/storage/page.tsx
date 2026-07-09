@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { HardDrive, Film, ShieldCheck, Layers, Clock } from "lucide-react";
+import { HardDrive, Film, ShieldCheck, Layers, Clock, Lock } from "lucide-react";
 import { Shell } from "@/components/Shell";
 import { formatBytes } from "@/lib/format-bytes";
 import { formatAge } from "@/lib/format-age";
@@ -38,6 +38,7 @@ const REFRESH_MS = 12_000;
 
 const BUCKET_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   recordings: Film,
+  evidence: Lock,
   alertClips: ShieldCheck,
   agentCorpus: Layers,
 };
@@ -103,11 +104,14 @@ export default function StoragePage() {
           </p>
           {data?.configured && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="rounded border border-border bg-muted px-2 py-0.5 font-mono">
-                endpoint {data.endpoint || "(default)"}
+              <span
+                className="inline-flex items-center gap-1 rounded border border-border bg-muted px-2 py-0.5"
+                title={`S3 endpoint: ${data.endpoint || "(SDK default)"} · region ${data.region}`}
+              >
+                <HardDrive className="h-3 w-3" /> ARTESCA S3 · on-premises
               </span>
-              <span className="rounded border border-border bg-muted px-2 py-0.5 font-mono">
-                region {data.region}
+              <span className="rounded border border-border bg-muted px-2 py-0.5">
+                S3-compatible object storage
               </span>
               <span className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">
                 <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
@@ -171,21 +175,33 @@ export default function StoragePage() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               {data.buckets.map((b) => {
                 const Icon = BUCKET_ICON[b.key] ?? Layers;
+                const empty = b.objectCount === 0;
                 return (
-                  <div key={b.key} className="rounded-lg border border-border bg-card p-4">
+                  <div
+                    key={b.key}
+                    className={`rounded-lg border border-border bg-card p-4 ${empty ? "opacity-55" : ""}`}
+                  >
                     <div className="flex items-center gap-2">
                       <Icon className="h-4 w-4 text-brand-teal" />
                       <span className="text-sm font-semibold">{b.label}</span>
                     </div>
                     <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{b.bucket}</p>
-                    <div className="mt-3 flex items-baseline justify-between">
-                      <span className="text-xl font-bold tabular-nums">{b.objectCount.toLocaleString()}</span>
-                      <span className="text-xs text-muted-foreground">objects</span>
-                    </div>
-                    <div className="mt-1 flex items-baseline justify-between">
-                      <span className="text-sm font-medium tabular-nums">{formatBytes(b.bytesTotal)}</span>
-                      <span className="text-[11px] text-muted-foreground">+{formatBytes(b.bytesLast24h)}/24h</span>
-                    </div>
+                    {empty ? (
+                      <p className="mt-3 text-sm text-muted-foreground">No objects yet</p>
+                    ) : (
+                      <>
+                        <div className="mt-3 flex items-baseline justify-between">
+                          <span className="text-xl font-bold tabular-nums">{b.objectCount.toLocaleString()}</span>
+                          <span className="text-xs text-muted-foreground">objects</span>
+                        </div>
+                        <div className="mt-1 flex items-baseline justify-between">
+                          <span className="text-sm font-medium tabular-nums">{formatBytes(b.bytesTotal)}</span>
+                          {b.bytesLast24h > 0 && (
+                            <span className="text-[11px] text-muted-foreground">+{formatBytes(b.bytesLast24h)}/24h</span>
+                          )}
+                        </div>
+                      </>
+                    )}
                     {b.truncated && (
                       <p className="mt-1 text-[10px] text-amber-600">count capped (very large bucket)</p>
                     )}
