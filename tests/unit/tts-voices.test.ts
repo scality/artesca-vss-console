@@ -29,6 +29,23 @@ describe("parseVoiceList", () => {
     ]);
   });
 
+  it("handles the Magpie shape { '<langs>': { voices: [...] } }", () => {
+    const data = {
+      "en-US,es-US,fr-FR": {
+        voices: [
+          "Magpie-Multilingual.EN-US.Mia",
+          "Magpie-Multilingual.EN-US.Mia.Happy",
+          "Magpie-Multilingual.EN-US.Aria",
+        ],
+      },
+    };
+    expect(parseVoiceList(data)).toEqual([
+      "Magpie-Multilingual.EN-US.Mia",
+      "Magpie-Multilingual.EN-US.Mia.Happy",
+      "Magpie-Multilingual.EN-US.Aria",
+    ]);
+  });
+
   it("dedupes and drops empties", () => {
     expect(parseVoiceList(["Aria", "Aria", "", "  ", "Ryan"])).toEqual(["Aria", "Ryan"]);
   });

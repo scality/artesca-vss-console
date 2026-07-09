@@ -31,9 +31,11 @@ export function parseVoiceList(data: unknown): string[] {
         o.voices.forEach(pushName);
         return;
       }
-      // { "en-US": [...], "de-DE": [...] } — flatten each language's list.
+      // Flatten each value: language-list arrays ({ "en-US": [...] }) or nested
+      // wrappers ({ "en-US,de-DE": { voices: [...] } }, the Magpie shape).
       for (const val of Object.values(o)) {
         if (Array.isArray(val)) val.forEach(pushName);
+        else if (val && typeof val === "object") walk(val);
         else pushName(val);
       }
     }
