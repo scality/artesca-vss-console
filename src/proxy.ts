@@ -40,6 +40,22 @@ export default auth((req) => {
     return withRequestId(response, reqId);
   }
 
+  // ?mode=normal exits kiosk — clears the cookie so an operator can leave the
+  // showroom wall without manually wiping browser cookies (the cookie is
+  // HttpOnly, so it can only be cleared server-side).
+  if (searchParams.get("mode") === "normal") {
+    const url = req.nextUrl.clone();
+    url.searchParams.delete("mode");
+    const response = NextResponse.redirect(url);
+    response.cookies.set("kiosk", "", {
+      httpOnly: true,
+      sameSite: "strict",
+      path: "/",
+      maxAge: 0,
+    });
+    return withRequestId(response, reqId);
+  }
+
   if (isPublic(pathname)) {
     const response = NextResponse.next();
     response.headers.set("x-request-id", reqId);
