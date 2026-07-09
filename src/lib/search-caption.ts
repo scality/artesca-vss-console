@@ -28,6 +28,12 @@ const LEADING_FILLER: RegExp[] = [
   // Drop a whole leading "The user asked/provided … ." sentence, but only when
   // a following sentence exists (trailing \s+) so a bare meta caption is kept.
   /^the user\b[^.]*\.\s+/i,
+  // Chain-of-thought openers the VLM emits before the real description
+  // ("First, I need to parse the video carefully. The forklift is …"). Each
+  // requires a trailing sentence so a bare caption is never emptied.
+  /^first,?\s+I (?:need to|have to|should|will|must|want to)\b[^.]*\.\s+/i,
+  /^(?:I|we) (?:need to|have to|should|will|must|want to)\b[^.]*\.\s+/i,
+  /^let me (?:start by|first|begin)\b[^.]*\.\s+/i,
 ];
 
 export function cleanCaption(raw: string, maxLen = 200): string {

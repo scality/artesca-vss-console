@@ -80,4 +80,25 @@ describe("cleanCaption", () => {
     const c = "The user asked to review the forklift footage.";
     expect(cleanCaption(c)).toBe(c);
   });
+
+  it("peels a 'First, I need to …' chain-of-thought opener", () => {
+    expect(
+      cleanCaption(
+        "First, I need to parse the video carefully. The forklift is moving between stacks of pallets.",
+      ),
+    ).toBe("The forklift is moving between stacks of pallets.");
+  });
+
+  it("peels a leading 'I need to focus on …' opener", () => {
+    expect(
+      cleanCaption(
+        "I need to focus on the key elements. A worker crosses the forklift path.",
+      ),
+    ).toBe("A worker crosses the forklift path.");
+  });
+
+  it("keeps 'First, the video shows …' (not a meta opener)", () => {
+    const c = "First, the video shows a forklift operator moving pallets.";
+    expect(cleanCaption(c)).toBe(c);
+  });
 });
