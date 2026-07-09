@@ -59,4 +59,25 @@ describe("cleanCaption", () => {
     const c = "Forklift operating unsafely near stacked pallets.";
     expect(cleanCaption(c)).toBe(c);
   });
+
+  it("peels the 'The user provided a … description of' meta-opener", () => {
+    expect(
+      cleanCaption(
+        "The user provided a detailed description of a warehouse scene with a forklift and some safety issues.",
+      ),
+    ).toBe("A warehouse scene with a forklift and some safety issues.");
+  });
+
+  it("drops a leading 'The user …' meta sentence when content follows", () => {
+    expect(
+      cleanCaption(
+        "The user provided a description and asked to identify safety issues. A forklift is tipping near a worker.",
+      ),
+    ).toBe("A forklift is tipping near a worker.");
+  });
+
+  it("keeps a bare 'The user …' caption when there is no following sentence", () => {
+    const c = "The user asked to review the forklift footage.";
+    expect(cleanCaption(c)).toBe(c);
+  });
 });
