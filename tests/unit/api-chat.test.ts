@@ -173,3 +173,56 @@ describe("POST /api/chat", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 });
+
+describe("POST /api/chat — archive-search routing", () => {
+  // Route fetch by URL: the caption-indexer ends in /search, the agent in /chat.
+  function routedFetch(hits: unknown[]) {
+    return vi.fn(async (url: string) => {
+      if (String(url).includes("/search")) {
+        return new Response(JSON.stringify({ hits }), { status: 200 });
+      }
+      throw new Error("agent must not be called for a search intent");
+    });
+  }
+
+  it("routes a search-intent message to the worker, not the agent", async () => {
+    const hits = [
+      {
+        camera: "dock-1",
+        ts: new Date().toISOString(),
+        category: "forklift-safety",
+        caption: "Okay, verbose reasoning…",
+        summary: "Forklift near a worker",
+        incidentId: "i1",
+        score: 0.9,
+      },
+    ];
+    vi.stubGlobal("fetch", routedFetch(hits));
+
+    const res = await POST(makePostRequest({ messages: [{ role: "user", content: "find every forklift incident" }] }));
+    expect(res.status).toBe(200);
+    const content = (await res.json()).choices[0].message.content as string;
+    expect(content).toContain("matching clip");
+    expect(content).toContain("Forklift near a worker"); // prefers the worker summary
+    expect(content).toContain("/search?q=");
+    expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain("/search");
+  });
+
+  it("forwards an ordinary question to the agent, not the worker", async () => {
+    // Default stubbed fetch returns the agent UPSTREAM_RESPONSE for any URL.
+    const res = await POST(makePostRequest({ messages: [{ role: "user", content: "how many cameras are streaming?" }] }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).choices[0].message.content).toBe("Video shows a motion event.");
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toMatch(/\/chat$/);
+  });
+
+  it("fail-softs to an inline message when the worker is down on a search intent", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+    const res = await POST(makePostRequest({ messages: [{ role: "user", content: "search the footage for spills" }] }));
+    expect(res.status).toBe(200);
+    const content = (await res.json()).choices[0].message.content as string;
+    expect(content).toContain("temporarily unavailable");
+    expect(content).toContain("/search");
+  });
+});
