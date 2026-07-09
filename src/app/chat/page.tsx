@@ -30,10 +30,15 @@ function parseVoiceChoice(choice: string): {
   return { engine: "browser", browserVoiceURI: uri || undefined };
 }
 
-/** "Magpie-Multilingual.EN-US.Aria" → "Aria" for a compact dropdown label. */
+/**
+ * Compact dropdown label for an on-box voice name.
+ * "Magpie-Multilingual.EN-US.Mia"        → "Mia"
+ * "Magpie-Multilingual.EN-US.Mia.Happy"  → "Mia · Happy"
+ * (drops the product + locale prefix, keeps speaker [+ emotional style]).
+ */
 function shortVoiceName(name: string): string {
-  const parts = name.split(".");
-  return parts[parts.length - 1] || name;
+  const tail = name.split(".").slice(2);
+  return tail.length ? tail.join(" · ") : name;
 }
 
 // Stable per-conversation id sent as the `conversation-id` header (via /api/chat)
@@ -812,11 +817,16 @@ export default function ChatPage() {
                   </option>
                 ))}
                 {onboxTts.available &&
-                  onboxTts.voices.map((n) => (
-                    <option key={n} value={`nim:${n}`}>
-                      NVIDIA on-box — {shortVoiceName(n)}
-                    </option>
-                  ))}
+                  (() => {
+                    // The NIM lists hundreds of voices across languages; scope the
+                    // dropdown to EN-US for the showroom (fall back to all if none).
+                    const en = onboxTts.voices.filter((n) => /\.EN-US\./i.test(n));
+                    return (en.length ? en : onboxTts.voices).map((n) => (
+                      <option key={n} value={`nim:${n}`}>
+                        NVIDIA on-box — {shortVoiceName(n)}
+                      </option>
+                    ));
+                  })()}
               </select>
             </label>
           )}
