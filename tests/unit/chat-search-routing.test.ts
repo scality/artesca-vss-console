@@ -140,4 +140,13 @@ describe("displayCaption", () => {
       "A spill blocks aisle 3.",
     );
   });
+
+  it("strips a trailing dangling tail from a stored summary", () => {
+    expect(
+      displayCaption({
+        summary: "Most shelves in the supermarket aisle appear to be empty and in",
+        caption: "raw",
+      }),
+    ).toBe("Most shelves in the supermarket aisle appear to be empty");
+  });
 });

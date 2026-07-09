@@ -13,7 +13,7 @@
  * and both halves stay unit-testable.
  */
 import { formatAge } from "@/lib/format-age";
-import { cleanCaption } from "@/lib/search-caption";
+import { cleanCaption, stripTrailingDangling } from "@/lib/search-caption";
 
 export interface SearchHit {
   camera: string;
@@ -26,10 +26,12 @@ export interface SearchHit {
   score: number;
 }
 
-/** Prefer the worker's terse summary; fall back to a client-side clean of the full caption. */
+/** Prefer the worker's terse summary; fall back to a client-side clean of the full caption.
+ *  A trailing-dangling guard runs on the summary so an old/edge stored summary never
+ *  renders ending mid-phrase ("…empty and in"). */
 export function displayCaption(hit: Pick<SearchHit, "summary" | "caption">, maxLen = 180): string {
   const s = hit.summary?.trim();
-  return s || cleanCaption(hit.caption, maxLen);
+  return (s && stripTrailingDangling(s)) || cleanCaption(hit.caption, maxLen);
 }
 
 export interface SearchIntent {
