@@ -10,6 +10,22 @@ let _kc: KubeConfig | null = null;
 // In-cluster service-account token — present only inside a pod.
 const IN_CLUSTER_TOKEN = "/var/run/secrets/kubernetes.io/serviceaccount/token";
 
+// The client-node v1 Exec (native `ws`) rejects a failed WebSocket upgrade with
+// a plain response-shaped object, not an Error — so `String(err)` downstream
+// collapses to "[object Object]" and hides the real cause. Normalize to an Error
+// that captures the object's own props (incl. non-enumerable message/statusCode).
+function toError(err: unknown): Error {
+  if (err instanceof Error) return err;
+  if (typeof err === "string") return new Error(err);
+  try {
+    const dump = JSON.stringify(err, Object.getOwnPropertyNames(err as object));
+    if (dump && dump !== "{}") return new Error(dump);
+  } catch {
+    /* circular / non-serializable */
+  }
+  return new Error(String(err));
+}
+
 export function getKubeConfig(): KubeConfig {
   if (_kc) return _kc;
   _kc = new KubeConfig();
@@ -190,11 +206,11 @@ export async function runInPod(
             resolve({ stdout: stdoutBuf, stderr: stderrBuf, code: null });
           }
         });
-        ws.on("error", (err: Error) => {
+        ws.on("error", (err: unknown) => {
           if (!settled) {
             settled = true;
             clearTimeout(timer);
-            reject(err);
+            reject(toError(err));
           }
         });
       })
@@ -202,7 +218,7 @@ export async function runInPod(
         if (!settled) {
           settled = true;
           clearTimeout(timer);
-          reject(err);
+          reject(toError(err));
         }
       });
   });
