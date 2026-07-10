@@ -467,6 +467,20 @@ const S3 = {
   },
 } as const;
 
+// ─── KV-cache demo (ISVD-331 Phase C) ────────────────────────────────────────
+// vLLM+LMCache OpenAI-compatible completions endpoint (namespace kvcache-demo)
+// offloading KV blocks to an ARTESCA S3 bucket. Backs the /kvcache page's LIVE
+// mode: GET /health on vllmUrl is the availability probe; the bucket is listed
+// with the same S3 client (aws.ts/s3.ts) the console already uses for the
+// objectstore-creds Secret — no separate credentials needed.
+const KVCACHE = {
+  vllmUrl:
+    process.env.KVCACHE_VLLM_URL ??
+    "http://vllm-lmcache.kvcache-demo.svc.cluster.local:8000",
+  bucket: process.env.KVCACHE_BUCKET ?? "llm-kvcache-poc",
+  model: process.env.KVCACHE_MODEL ?? "Qwen/Qwen2.5-1.5B-Instruct",
+} as const;
+
 // ─── Recording auto-heal (guarded re-arm on stalled VST recorder) ───────────
 // The VST cloud recorder can silently stall — sessions stay alive but stop
 // producing segments while the source/VLM pipeline is fine (root-caused
@@ -740,6 +754,8 @@ export const CLUSTER = {
   cameras: CAMERAS,
   demoData: DEMO_DATA,
   s3: S3,
+  /** vLLM+LMCache KV-cache demo backend (ISVD-331 Phase C) — /kvcache page LIVE mode. */
+  kvcache: KVCACHE,
   restartable: RESTARTABLE,
   search: {
     /** POST /search endpoint on the vss-caption-indexer worker. */

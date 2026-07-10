@@ -1,11 +1,17 @@
 import { Cpu, HardDrive, ArrowRight, ArrowLeft, Lightbulb } from "lucide-react";
+import { formatBytes } from "@/lib/format-bytes";
+
+interface MechanismDiagramProps {
+  /** Live ARTESCA S3 KV-cache bucket counter (Phase C) — null/undefined in mock mode. */
+  liveBucket?: { objects: number; bytes: number } | null;
+}
 
 /**
  * "The idea" section — the KV cache *is* the computation. Compute once, park
  * it on ARTESCA, reuse forever. A plain CSS/SVG-free diagram (flex boxes +
  * arrows) since this is a static explainer, not an animated beat.
  */
-export function MechanismDiagram() {
+export function MechanismDiagram({ liveBucket }: MechanismDiagramProps = {}) {
   return (
     <section className="rounded-lg border border-border bg-card p-5">
       <h2 className="flex items-center gap-2 text-lg font-bold">
@@ -54,6 +60,14 @@ export function MechanismDiagram() {
           Content-addressed by a hash of the token sequence — no index needed. Two visitors
           asking the same question, on the same store knowledge, land on the same key.
         </p>
+        {liveBucket && (
+          <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-brand-teal">
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-brand-teal" />
+            {liveBucket.objects.toLocaleString()} KV block object
+            {liveBucket.objects === 1 ? "" : "s"} · {formatBytes(liveBucket.bytes)} live on
+            ARTESCA S3 right now
+          </p>
+        )}
       </div>
     </section>
   );

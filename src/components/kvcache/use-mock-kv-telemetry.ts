@@ -67,13 +67,23 @@ export interface CostTotals {
   pctCostReduction: number;
 }
 
-/** Pure — same inputs, same outputs, every time. */
-export function computeCostTotals(n: number = DAILY_QUESTIONS): CostTotals {
+/**
+ * Pure — same inputs, same outputs, every time. Defaults to the fixed mock
+ * GPU-seconds constants; a live caller (Phase C) overrides `coldSeconds` /
+ * `warmSeconds` with the REAL measured cold/warm time-to-first-token from a
+ * completed live race, so the exact same cost math renders from real inputs
+ * instead of demo constants — the GPU-hour price stays illustrative either way.
+ */
+export function computeCostTotals(
+  n: number = DAILY_QUESTIONS,
+  coldSeconds: number = GPU_SECONDS_COLD,
+  warmSeconds: number = GPU_SECONDS_WARM,
+): CostTotals {
   const rate = GPU_COST_PER_HOUR_USD / 3600;
-  const coldCostPerQuery = GPU_SECONDS_COLD * rate;
-  const warmCostPerQuery = GPU_SECONDS_WARM * rate;
+  const coldCostPerQuery = coldSeconds * rate;
+  const warmCostPerQuery = warmSeconds * rate;
   const savedCostPerQuery = coldCostPerQuery - warmCostPerQuery;
-  const gpuSecondsSavedPerQuery = GPU_SECONDS_COLD - GPU_SECONDS_WARM;
+  const gpuSecondsSavedPerQuery = coldSeconds - warmSeconds;
   return {
     n,
     coldCostPerQuery,
@@ -84,8 +94,8 @@ export function computeCostTotals(n: number = DAILY_QUESTIONS): CostTotals {
     totalColdCostUsd: coldCostPerQuery * n,
     totalWarmCostUsd: warmCostPerQuery * n,
     totalSavedUsd: savedCostPerQuery * n,
-    pctGpuTimeReduction: (1 - GPU_SECONDS_WARM / GPU_SECONDS_COLD) * 100,
-    pctCostReduction: (1 - warmCostPerQuery / coldCostPerQuery) * 100,
+    pctGpuTimeReduction: coldSeconds > 0 ? (1 - warmSeconds / coldSeconds) * 100 : 0,
+    pctCostReduction: coldCostPerQuery > 0 ? (1 - warmCostPerQuery / coldCostPerQuery) * 100 : 0,
   };
 }
 

@@ -14,8 +14,34 @@ function formatUsd(n: number, digits = 5): string {
   return `$${n.toFixed(digits)}`;
 }
 
-export function CostBeat() {
-  const totals = useMemo(() => computeCostTotals(DAILY_QUESTIONS), []);
+export interface CostBeatLiveTimings {
+  /** Real measured cold time-to-first-token (ms) from the last live race. */
+  coldTtftMs: number;
+  /** Real measured warm time-to-first-token (ms) from the last live race. */
+  warmTtftMs: number;
+}
+
+interface CostBeatProps {
+  /** True once the console has confirmed the vllm-lmcache backend is reachable. */
+  live?: boolean;
+  /** When set, the cost math below runs on these REAL measured TTFTs instead
+   *  of the fixed mock GPU-seconds constants — same formulas, real inputs.
+   *  The $/GPU-hour price itself stays illustrative either way. */
+  liveTimings?: CostBeatLiveTimings | null;
+}
+
+export function CostBeat({ live = false, liveTimings }: CostBeatProps = {}) {
+  const totals = useMemo(
+    () =>
+      liveTimings
+        ? computeCostTotals(
+            DAILY_QUESTIONS,
+            liveTimings.coldTtftMs / 1000,
+            liveTimings.warmTtftMs / 1000,
+          )
+        : computeCostTotals(DAILY_QUESTIONS),
+    [liveTimings],
+  );
   const { queriesDone, running, done, gpuSecondsSaved, dollarsSaved, start, reset } =
     useKvCostSim(totals);
 
@@ -35,6 +61,17 @@ export function CostBeat() {
             A showroom day of {totals.n.toLocaleString()} store-knowledge questions, with vs
             without the cache.
           </p>
+          {liveTimings && (
+            <p className="mt-0.5 text-[11px] font-medium text-emerald-700">
+              Using the real cold/warm time-to-first-token from your last live race — the
+              $/GPU-hour price is still illustrative.
+            </p>
+          )}
+          {live && !liveTimings && (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Run the race above at least once to switch this math to real measured numbers.
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button size="sm" variant="outline" onClick={reset} disabled={running}>

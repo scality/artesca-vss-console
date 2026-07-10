@@ -33,6 +33,10 @@ export function PersistenceBeat() {
             GPUs restart — for upgrades, crashes, or scaling. The KV cache doesn&rsquo;t live in
             GPU memory anymore, so a restart doesn&rsquo;t erase it.
           </p>
+          <p className="mt-1 text-[11px] italic text-muted-foreground">
+            Illustrative — a real GPU pod restart is a slower, asynchronous operation than this
+            animation shows; live restart timing is a later phase of this prototype.
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button size="sm" variant="outline" onClick={reset} disabled={busy}>
