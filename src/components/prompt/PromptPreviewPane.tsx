@@ -80,9 +80,7 @@ export function PromptPreviewPane({ currentModel }: PromptPreviewPaneProps) {
           </span>
         )}
         <p className="text-xs text-muted-foreground">
-          Preview uses{" "}
-          <span className="font-medium text-foreground">NVILA-Lite-2B</span>;
-          live inference uses{" "}
+          Live inference uses{" "}
           <span className="font-medium text-foreground">{currentModel}</span>.
         </p>
       </div>

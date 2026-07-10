@@ -47,6 +47,7 @@ const PromptResponseSchema = z.object({
   gcs: GcsFieldSchema.optional(),
   sets: z.array(PromptSetSchema).optional(),
   activePromptId: z.string().nullable().optional(),
+  previewAvailable: z.boolean().optional(),
 });
 
 export default function PromptPage() {
@@ -146,8 +147,8 @@ export default function PromptPage() {
           <div>
             <h2 className="text-lg font-semibold">VLM Prompt</h2>
             <p className="text-sm text-muted-foreground">
-              Edit the system prompt for the Vision Language Model. Changes
-              require a vss-rtvi-vlm restart (~30 s).
+              Edit the system prompt for the Vision Language Model. Saving
+              restarts the vss-rtvi-vlm workload (~1–2 min while the model reloads).
             </p>
             {data?.gcs?.available === true && (
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -278,10 +279,12 @@ export default function PromptPage() {
               onChange={setDraft}
             />
 
-            <div className="rounded-lg border border-border p-4 space-y-3">
-              <h3 className="text-sm font-semibold">Preview Inference</h3>
-              <PromptPreviewPane currentModel={data.model} />
-            </div>
+            {data.previewAvailable && (
+              <div className="rounded-lg border border-border p-4 space-y-3">
+                <h3 className="text-sm font-semibold">Preview Inference</h3>
+                <PromptPreviewPane currentModel={data.model} />
+              </div>
+            )}
 
             <ModelCardGrid />
           </>
