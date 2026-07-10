@@ -59,6 +59,7 @@ export const ScenarioSchema = z.object({
   sensorFilter: z.string(),
   keywords: z.array(z.string()),
   enabled: z.boolean(),
+  cooldownSeconds: z.number().int().nonnegative().optional(),
   // Optional: seal this scenario's incident clips into ARTESCA Object Lock (WORM).
   immutable: z
     .object({

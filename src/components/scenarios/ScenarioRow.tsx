@@ -54,7 +54,7 @@ export function ScenarioRow({
           onCheckedChange={(v) => update("enabled", v)}
         />
       </TableCell>
-      <TableCell>
+      <TableCell className="min-w-[200px]">
         <Input
           value={scenario.name}
           onChange={(e) => update("name", e.target.value)}
@@ -142,10 +142,16 @@ export function ScenarioRow({
       <TableCell>
         <Input
           type="number"
+          min={0}
           className="h-8 w-20 text-xs"
           placeholder="120"
-          value={scenario.description ?? ""}
-          onChange={(e) => update("description", e.target.value || undefined)}
+          value={scenario.cooldownSeconds ?? ""}
+          onChange={(e) =>
+            update(
+              "cooldownSeconds",
+              e.target.value === "" ? undefined : Number(e.target.value)
+            )
+          }
           title="Cooldown override (seconds)"
         />
       </TableCell>

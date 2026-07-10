@@ -64,6 +64,7 @@ function parseRawScenarios(raw: ScenariosConfigRaw): Scenario[] {
     sensorFilter: s.sensor_filter ?? s.sensorFilter ?? "*",
     keywords: s.keywords ?? [],
     enabled: s.enabled !== false,
+    cooldownSeconds: s.cooldown_seconds,
   }));
 }
 
@@ -77,6 +78,7 @@ function scenarioEntryToClient(s: ScenarioEntry): Scenario {
     sensorFilter: s.sensor_filter,
     keywords: s.keywords,
     enabled: s.enabled,
+    cooldownSeconds: s.cooldown_seconds,
   };
 }
 
@@ -90,6 +92,7 @@ function clientToScenarioEntry(s: Scenario): ScenarioEntry {
     sensor_filter: s.sensorFilter,
     keywords: s.keywords,
     enabled: s.enabled,
+    ...(s.cooldownSeconds !== undefined ? { cooldown_seconds: s.cooldownSeconds } : {}),
   };
 }
 
@@ -104,6 +107,7 @@ function scenariosToConfigMap(scenarios: Scenario[]): ScenariosConfigRaw {
       sensor_filter: s.sensorFilter,
       keywords: s.keywords,
       enabled: s.enabled,
+      ...(s.cooldownSeconds !== undefined ? { cooldown_seconds: s.cooldownSeconds } : {}),
     })),
   };
 }

@@ -47,6 +47,7 @@ export function scenarioToGcsConfig(s: Scenario): ScenarioConfig {
     sensor_filter: s.sensorFilter,
     keywords: s.keywords,
     enabled: s.enabled,
+    ...(s.cooldownSeconds !== undefined ? { cooldown_seconds: s.cooldownSeconds } : {}),
   };
 }
 
