@@ -102,7 +102,7 @@ export async function GET() {
       // `model` reflects the VLM actually deployed (read live), not the legacy
       // `doc.model` field — which can hold a stale name from an earlier seed.
       const model = liveVlm?.displayName ?? doc?.model ?? "";
-      return NextResponse.json({ prompt: doc?.prompt ?? "", model, sets, activePromptId, defaultPrompt, gcs: { available: false }, previewAvailable: Boolean(process.env.NIM_PREVIEW_ENDPOINT), warnings });
+      return NextResponse.json({ prompt: doc?.prompt ?? "", model, runtime: "k8s", sets, activePromptId, defaultPrompt, gcs: { available: false }, previewAvailable: Boolean(process.env.NIM_PREVIEW_ENDPOINT), warnings });
     } catch (err) {
       warnings.push(`config store unavailable: ${err instanceof Error ? err.message : String(err)}`);
       const liveVlm = await readLiveVlm().catch(() => null);

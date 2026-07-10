@@ -162,6 +162,12 @@ export default function PromptPage() {
                 </span>
               </p>
             )}
+            {data?.runtime === "k8s" && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                <span className="text-emerald-700">Persisted</span> — saved in the config
+                store (Firestore) and restored across restarts.
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {data?.gcs?.available === true && (
@@ -227,8 +233,8 @@ export default function PromptPage() {
             <div className="flex-1">
               <div className="font-medium">No prompt configured.</div>
               <div className="mt-1 text-emerald-700/70">
-                Apply the bundled Pyramid retail-scenario default? Same prompt is wired into
-                future deploys via <code>scripts/stacks/nvidia-vss/bootstrap-compose.sh</code>.
+                Apply the bundled Pyramid retail-scenario default? It matches the prompt wired
+                into fresh deploys.
               </div>
             </div>
             <Button
