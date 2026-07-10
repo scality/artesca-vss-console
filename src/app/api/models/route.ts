@@ -3,10 +3,16 @@ import { auth } from "@/lib/auth";
 import { ModelCardSchema } from "@/lib/schemas";
 import modelCatalog from "@/data/model-catalog.json";
 import { createLogger } from "@/lib/logger";
+import { readLiveVlm } from "@/lib/helpers/live-vlm";
 
 const log = createLogger("api/models");
 
 export const dynamic = "force-dynamic";
+
+// The VLM is swapped from a catalog only on the docker/compose path. On k8s
+// (Helm profiles) the VLM is chart-fixed; the console shows it read-only and
+// routes reasoning-model changes to /agent.
+const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
 
 export async function GET() {
   const session = await auth();
@@ -39,9 +45,29 @@ export async function GET() {
     return partial?.image;
   };
 
-  const currentModel =
-    resolve(process.env.NIM_CURRENT_MODEL) ?? parsed[0]?.image ?? "";
   const previewModel = resolve(process.env.NIM_PREVIEW_MODEL);
 
-  return NextResponse.json({ models: parsed, currentModel, previewModel });
+  // On k8s, report the VLM that is actually deployed (read live from the
+  // Deployment) — not a catalog default. Swapping isn't offered here; the VLM is
+  // chart-managed and the reasoning model is changed on /agent.
+  const activeModel = DOCKER_MODE ? null : await readLiveVlm();
+  const swappable = DOCKER_MODE;
+
+  // currentModel highlights a catalog card (docker/compose swap grid). Prefer the
+  // live-active image when known, else the env hint, else the first catalog entry.
+  const currentModel =
+    resolve(activeModel?.image) ??
+    resolve(process.env.NIM_CURRENT_MODEL) ??
+    activeModel?.image ??
+    parsed[0]?.image ??
+    "";
+
+  return NextResponse.json({
+    models: parsed,
+    currentModel,
+    previewModel,
+    activeModel,
+    swappable,
+    reasoningModelHref: "/agent",
+  });
 }

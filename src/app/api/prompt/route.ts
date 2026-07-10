@@ -88,18 +88,24 @@ export async function GET() {
   // when the Firestore doc is empty (e.g. instance not yet seeded post-cutover).
   {
     const { makeReconcileContext } = await import("@/lib/reconcile/context");
+    const { readLiveVlm } = await import("@/lib/helpers/live-vlm");
     const defaultPrompt = readDefaultPrompt();
     try {
       const ctx = await makeReconcileContext();
-      const [doc, sets, activePromptId] = await Promise.all([
+      const [doc, sets, activePromptId, liveVlm] = await Promise.all([
         ctx.store.readPrompt(ctx.instance),
         (ctx.store.readPromptSets ? ctx.store.readPromptSets(ctx.instance) : Promise.resolve([])) as Promise<import("@/lib/config-store/types").PromptSet[]>,
         (ctx.store.readActivePromptId ? ctx.store.readActivePromptId(ctx.instance) : Promise.resolve(null)) as Promise<string | null>,
+        readLiveVlm(),
       ]);
-      return NextResponse.json({ prompt: doc?.prompt ?? "", model: doc?.model ?? "", sets, activePromptId, defaultPrompt, gcs: { available: false }, warnings });
+      // `model` reflects the VLM actually deployed (read live), not the legacy
+      // `doc.model` field — which can hold a stale name from an earlier seed.
+      const model = liveVlm?.displayName ?? doc?.model ?? "";
+      return NextResponse.json({ prompt: doc?.prompt ?? "", model, sets, activePromptId, defaultPrompt, gcs: { available: false }, warnings });
     } catch (err) {
       warnings.push(`config store unavailable: ${err instanceof Error ? err.message : String(err)}`);
-      return NextResponse.json({ prompt: "", model: "", sets: [], activePromptId: null, defaultPrompt, gcs: { available: false }, warnings });
+      const liveVlm = await readLiveVlm().catch(() => null);
+      return NextResponse.json({ prompt: "", model: liveVlm?.displayName ?? "", sets: [], activePromptId: null, defaultPrompt, gcs: { available: false }, warnings });
     }
   }
 }
