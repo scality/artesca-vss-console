@@ -32,10 +32,15 @@ interface StorageSubstrate {
   recent: RecentObject[];
   totals: { objectCount: number; bytesTotal: number; bytesLast24h: number };
   warnings: string[];
+  refreshing?: boolean;
   ts: string;
 }
 
-const REFRESH_MS = 12_000;
+// Poll fast until the first settled (non-refreshing) snapshot lands, then relax.
+// The server serves cached data instantly (stale-while-revalidate) and refreshes
+// buckets in the background within ~15s, so 10s polling stays current cheaply.
+const FAST_MS = 2_500;
+const SETTLED_MS = 10_000;
 
 const BUCKET_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   recordings: Film,
@@ -56,30 +61,44 @@ export default function StoragePage() {
   // Baseline captured on the first successful poll → "since you opened this view".
   const [baseline, setBaseline] = useState<{ objectCount: number; bytesTotal: number } | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<StorageSubstrate | null> => {
     try {
       const r = await fetch("/api/storage/substrate", { cache: "no-store" });
       const j = (await r.json()) as StorageSubstrate;
       if (!r.ok) throw new Error((j as unknown as { error?: string }).error ?? `HTTP ${r.status}`);
-      if (j.configured) {
+      // Capture the baseline only once we have real (settled) numbers, so the
+      // "since you opened this view" delta isn't anchored to an empty first paint.
+      if (j.configured && !j.refreshing && j.totals.objectCount > 0) {
         setBaseline((prev) => prev ?? { objectCount: j.totals.objectCount, bytesTotal: j.totals.bytesTotal });
       }
       setData(j);
       setError(null);
+      return j;
     } catch (e) {
       setError(e instanceof Error ? e.message : "network error");
+      return null;
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    // Defer the first fetch off the effect's synchronous tick so load()'s
-    // setState isn't a cascading in-effect update; the interval callback runs
-    // async by nature.
-    queueMicrotask(() => void load());
-    const h = setInterval(() => void load(), REFRESH_MS);
-    return () => clearInterval(h);
+    // Self-scheduling poll: fast while the server is still filling in bucket
+    // scans (refreshing), then relax to SETTLED_MS. Deferred off the effect's
+    // synchronous tick so load()'s setState isn't a cascading in-effect update.
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      const j = await load();
+      if (cancelled) return;
+      const next = j && j.configured && !j.refreshing ? SETTLED_MS : FAST_MS;
+      timer = setTimeout(() => void tick(), next);
+    };
+    queueMicrotask(() => void tick());
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [load]);
 
   const capPct =
@@ -114,10 +133,17 @@ export default function StoragePage() {
               <span className="rounded border border-border bg-muted px-2 py-0.5">
                 S3-compatible object storage
               </span>
-              <span className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">
-                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-                live
-              </span>
+              {data.refreshing ? (
+                <span className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium text-amber-700">
+                  <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+                  updating…
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">
+                  <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                  live
+                </span>
+              )}
             </div>
           )}
         </div>
