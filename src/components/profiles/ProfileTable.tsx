@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatAge } from "@/lib/utils";
+import { formatAgeMs } from "@/lib/utils";
 import type { DemoProfile } from "@/lib/types";
 
 interface ProfileRow {
@@ -74,7 +74,7 @@ export function ProfileTable({
               </TableCell>
               <TableCell className="text-sm text-muted-foreground">
                 {/* eslint-disable-next-line react-hooks/purity -- Date.now() for display age only */}
-                {formatAge(Date.now() - new Date(p.savedAt).getTime())} ago
+                {formatAgeMs(Date.now() - new Date(p.savedAt).getTime())} ago
               </TableCell>
               <TableCell className="text-sm">{p.savedBy}</TableCell>
               <TableCell className="text-right text-sm">{p.numScenarios}</TableCell>

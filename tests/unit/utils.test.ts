@@ -1,26 +1,26 @@
 import { describe, it, expect } from "vitest";
-import { formatAge, glob2regex, cn } from "@/lib/utils";
+import { formatAgeMs, glob2regex, cn } from "@/lib/utils";
 
-describe("formatAge", () => {
+describe("formatAgeMs", () => {
   it("shows seconds for sub-minute durations", () => {
-    expect(formatAge(45_000)).toBe("45s");
+    expect(formatAgeMs(45_000)).toBe("45s");
   });
 
   it("shows minutes and seconds for 1-60 minute durations", () => {
-    expect(formatAge(90_000)).toBe("1m30s");
-    expect(formatAge(5 * 60 * 1000)).toBe("5m0s");
+    expect(formatAgeMs(90_000)).toBe("1m30s");
+    expect(formatAgeMs(5 * 60 * 1000)).toBe("5m0s");
   });
 
   it("shows hours and minutes for multi-hour durations", () => {
-    expect(formatAge(2 * 3600 * 1000 + 23 * 60 * 1000)).toBe("2h23m");
+    expect(formatAgeMs(2 * 3600 * 1000 + 23 * 60 * 1000)).toBe("2h23m");
   });
 
   it("shows days and hours for multi-day durations", () => {
-    expect(formatAge(3 * 86400 * 1000 + 5 * 3600 * 1000)).toBe("3d5h");
+    expect(formatAgeMs(3 * 86400 * 1000 + 5 * 3600 * 1000)).toBe("3d5h");
   });
 
   it("handles zero", () => {
-    expect(formatAge(0)).toBe("0s");
+    expect(formatAgeMs(0)).toBe("0s");
   });
 });
 

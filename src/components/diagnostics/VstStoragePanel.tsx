@@ -30,33 +30,12 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
+import { formatAge } from "@/lib/format-age";
+import { formatBytes } from "@/lib/format-bytes";
 
 // ──────────────────────────────────────────────
 // Format helpers
 // ──────────────────────────────────────────────
-
-/** All byte sizes use base-2 (KiB / MiB / GiB / TiB). */
-function formatBytes(n: number): string {
-  const TiB = 2 ** 40;
-  const GiB = 2 ** 30;
-  const MiB = 2 ** 20;
-  const KiB = 2 ** 10;
-  if (n >= TiB) return `${(n / TiB).toFixed(2)} TiB`;
-  if (n >= GiB) return `${(n / GiB).toFixed(2)} GiB`;
-  if (n >= MiB) return `${(n / MiB).toFixed(1)} MiB`;
-  if (n >= KiB) return `${Math.round(n / KiB)} KiB`;
-  return `${n} B`;
-}
-
-function formatAge(secs: number): string {
-  if (secs < 60) return `${Math.round(secs)}s`;
-  const m = Math.floor(secs / 60);
-  const s = Math.round(secs % 60);
-  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`;
-  const h = Math.floor(m / 60);
-  const rm = m % 60;
-  return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
-}
 
 function formatSizeBucket(minKB: number, maxKB: number | null): string {
   const fmt = (kb: number): string => {
