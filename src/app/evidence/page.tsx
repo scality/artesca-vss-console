@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ShieldCheck, Lock, Play, Loader2, Check, X } from "lucide-react";
+import { ShieldCheck, Lock, Play, Loader2, Check, X, AlertTriangle } from "lucide-react";
 import { Shell } from "@/components/Shell";
 import { ClipPlayer } from "@/components/incidents/ClipPlayer";
 import { formatBytes } from "@/lib/format-bytes";
@@ -25,7 +25,12 @@ interface Incident {
   severity?: string;
   summary?: string;
 }
-type VerifyState = { phase: "idle" } | { phase: "run" } | { phase: "denied"; msg: string } | { phase: "deleted" };
+type VerifyState =
+  | { phase: "idle" }
+  | { phase: "run" }
+  | { phase: "immutable"; msg: string }
+  | { phase: "deleted" }
+  | { phase: "inconclusive"; msg: string };
 
 function daysUntil(iso?: string): number | null {
   if (!iso) return null;
@@ -127,10 +132,18 @@ export default function EvidencePage() {
       }).then((r) => r.json());
       setVerify((v) => ({
         ...v,
-        [it.key]: j.denied ? { phase: "denied", msg: j.error ?? "AccessDenied" } : { phase: "deleted" },
+        [it.key]:
+          j.status === "immutable"
+            ? { phase: "immutable", msg: j.error ?? "AccessDenied" }
+            : j.status === "deleted"
+              ? { phase: "deleted" }
+              : { phase: "inconclusive", msg: j.error ?? "unknown error" },
       }));
-    } catch {
-      setVerify((v) => ({ ...v, [it.key]: { phase: "idle" } }));
+    } catch (e) {
+      setVerify((v) => ({
+        ...v,
+        [it.key]: { phase: "inconclusive", msg: e instanceof Error ? e.message : "network error" },
+      }));
     }
   }, []);
 
@@ -249,7 +262,7 @@ export default function EvidencePage() {
                   </span>
                 </div>
 
-                {vs.phase === "denied" && (
+                {vs.phase === "immutable" && (
                   <div className="mt-2 flex items-start gap-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[11px] text-emerald-700">
                     <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span>
@@ -260,7 +273,15 @@ export default function EvidencePage() {
                 )}
                 {vs.phase === "deleted" && (
                   <div className="mt-2 flex items-center gap-2 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] text-red-700">
-                    <X className="h-3.5 w-3.5" /> Object was deleted — lock not enforced!
+                    <X className="h-3.5 w-3.5" /> ⚠ Lock broken — the object was deletable.
+                  </div>
+                )}
+                {vs.phase === "inconclusive" && (
+                  <div className="mt-2 flex items-start gap-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      Couldn&apos;t verify — <span className="font-mono opacity-70">{vs.msg}</span>
+                    </span>
                   </div>
                 )}
 
