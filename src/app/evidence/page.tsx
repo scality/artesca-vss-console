@@ -28,7 +28,7 @@ interface Incident {
 type VerifyState =
   | { phase: "idle" }
   | { phase: "run" }
-  | { phase: "immutable"; msg: string }
+  | { phase: "immutable" }
   | { phase: "deleted" }
   | { phase: "inconclusive"; msg: string };
 
@@ -134,7 +134,7 @@ export default function EvidencePage() {
         ...v,
         [it.key]:
           j.status === "immutable"
-            ? { phase: "immutable", msg: j.error ?? "AccessDenied" }
+            ? { phase: "immutable" }
             : j.status === "deleted"
               ? { phase: "deleted" }
               : { phase: "inconclusive", msg: j.error ?? "unknown error" },
@@ -266,8 +266,7 @@ export default function EvidencePage() {
                   <div className="mt-2 flex items-start gap-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[11px] text-emerald-700">
                     <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span>
-                      Delete <b>denied</b> by ARTESCA Object Lock — the evidence is immutable.{" "}
-                      <span className="font-mono opacity-70">{vs.msg}</span>
+                      Delete <b>denied</b> by ARTESCA Object Lock — the evidence is immutable.
                     </span>
                   </div>
                 )}
