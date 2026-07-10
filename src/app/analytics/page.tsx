@@ -17,6 +17,7 @@ interface Answer {
   question: string;
   text: string;
   clipQuery: string;
+  error?: boolean;
 }
 
 const WINDOWS: Array<{ label: string; hours?: number }> = [
@@ -35,7 +36,13 @@ const EXAMPLES = [
 async function fetchStats(hours?: number): Promise<Stats> {
   const qs = hours ? `?hours=${hours}` : "";
   const r = await fetch(`/api/analytics${qs}`, { cache: "no-store" });
-  return (await r.json()) as Stats;
+  const body = (await r.json()) as Stats;
+  // A non-2xx or a body carrying `error` means the worker proxy failed —
+  // never treat the zeroed fallback shape as a real (empty) answer.
+  if (!r.ok || body.error) {
+    throw new Error(body.error || `analytics HTTP ${r.status}`);
+  }
+  return body;
 }
 
 function BarRow({ label, count, max }: { label: string; count: number; max: number }) {
@@ -51,8 +58,8 @@ function BarRow({ label, count, max }: { label: string; count: number; max: numb
   );
 }
 
-function Bars({ data }: { data: Record<string, number> }) {
-  const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
+function Bars({ data }: { data?: Record<string, number> }) {
+  const entries = Object.entries(data ?? {}).sort((a, b) => b[1] - a[1]);
   const max = entries.length ? entries[0][1] : 0;
   if (!entries.length) return <p className="text-xs text-muted-foreground">No incidents in this window.</p>;
   return (
@@ -76,8 +83,9 @@ export default function AnalyticsPage() {
     setLoading(true);
     try {
       setStats(await fetchStats(h));
-    } catch {
-      setStats({ total: 0, byCategory: {}, byCamera: {}, byDay: [], error: "network error" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "network error";
+      setStats({ total: 0, byCategory: {}, byCamera: {}, byDay: [], error: msg });
     } finally {
       setLoading(false);
     }
@@ -99,13 +107,13 @@ export default function AnalyticsPage() {
       let count: number;
       let subject: string;
       if (parsed.category) {
-        count = s.byCategory[parsed.category] ?? 0;
+        count = s.byCategory?.[parsed.category] ?? 0;
         subject = `${categoryLabel(parsed.category)} incident${count === 1 ? "" : "s"}`;
       } else if (parsed.camera) {
-        count = s.byCamera[parsed.camera] ?? 0;
+        count = s.byCamera?.[parsed.camera] ?? 0;
         subject = `incident${count === 1 ? "" : "s"} on ${parsed.camera}`;
       } else {
-        count = s.total;
+        count = s.total ?? 0;
         subject = `incident${count === 1 ? "" : "s"}`;
       }
       const where = parsed.camera && parsed.category ? ` on ${parsed.camera}` : "";
@@ -114,12 +122,16 @@ export default function AnalyticsPage() {
         text: `${count} ${subject}${where} ${parsed.windowLabel}.`,
         clipQuery: q,
       });
+    } catch (e) {
+      // Never present a confident "0 incidents" answer when the backend actually failed.
+      const msg = e instanceof Error ? e.message : "network error";
+      setAnswer({ question: q, text: `Analytics unavailable — ${msg}`, clipQuery: q, error: true });
     } finally {
       setAsking(false);
     }
   }, []);
 
-  const dayMax = stats?.byDay.length ? Math.max(...stats.byDay.map((d) => d.count)) : 0;
+  const dayMax = stats?.byDay?.length ? Math.max(...stats.byDay.map((d) => d.count)) : 0;
 
   return (
     <Shell>
@@ -176,15 +188,23 @@ export default function AnalyticsPage() {
         </div>
 
         {answer && (
-          <div className="rounded-lg border border-brand-teal/40 bg-brand-teal-soft/40 px-4 py-3">
+          <div
+            className={`rounded-lg border px-4 py-3 ${
+              answer.error
+                ? "border-red-300 bg-red-50"
+                : "border-brand-teal/40 bg-brand-teal-soft/40"
+            }`}
+          >
             <p className="text-xs text-muted-foreground">“{answer.question}”</p>
-            <p className="mt-1 text-lg font-semibold">{answer.text}</p>
-            <a
-              href={`/search?q=${encodeURIComponent(answer.clipQuery)}`}
-              className="mt-1 inline-block text-xs text-brand-teal underline underline-offset-2"
-            >
-              View the matching clips →
-            </a>
+            <p className={`mt-1 text-lg font-semibold ${answer.error ? "text-red-700" : ""}`}>{answer.text}</p>
+            {!answer.error && (
+              <a
+                href={`/search?q=${encodeURIComponent(answer.clipQuery)}`}
+                className="mt-1 inline-block text-xs text-brand-teal underline underline-offset-2"
+              >
+                View the matching clips →
+              </a>
+            )}
           </div>
         )}
 
@@ -208,11 +228,15 @@ export default function AnalyticsPage() {
 
         {loading && !stats ? (
           <div className="text-sm text-muted-foreground">Loading…</div>
+        ) : stats?.error ? (
+          <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">
+            Analytics unavailable — {stats.error}
+          </div>
         ) : stats ? (
           <>
             <div className="rounded-lg border border-border bg-card p-4">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Total incidents</p>
-              <p className="mt-1 text-3xl font-bold tabular-nums">{stats.total.toLocaleString()}</p>
+              <p className="mt-1 text-3xl font-bold tabular-nums">{(stats.total ?? 0).toLocaleString()}</p>
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -226,11 +250,11 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            {stats.byDay.length > 0 && (
+            {(stats.byDay ?? []).length > 0 && (
               <div className="rounded-lg border border-border bg-card p-4">
                 <p className="mb-3 text-sm font-semibold">By day</p>
                 <div className="flex items-end gap-1" style={{ height: 80 }}>
-                  {stats.byDay.slice(-30).map((d) => (
+                  {(stats.byDay ?? []).slice(-30).map((d) => (
                     <div
                       key={d.day}
                       title={`${d.day}: ${d.count}`}
@@ -240,15 +264,9 @@ export default function AnalyticsPage() {
                   ))}
                 </div>
                 <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
-                  <span>{stats.byDay.slice(-30)[0]?.day}</span>
-                  <span>{stats.byDay[stats.byDay.length - 1]?.day}</span>
+                  <span>{(stats.byDay ?? []).slice(-30)[0]?.day}</span>
+                  <span>{(stats.byDay ?? [])[(stats.byDay ?? []).length - 1]?.day}</span>
                 </div>
-              </div>
-            )}
-
-            {stats.error && (
-              <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
-                {stats.error}
               </div>
             )}
           </>
