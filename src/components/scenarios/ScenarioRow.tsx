@@ -54,7 +54,7 @@ export function ScenarioRow({
           onCheckedChange={(v) => update("enabled", v)}
         />
       </TableCell>
-      <TableCell className="min-w-[200px]">
+      <TableCell className="min-w-[240px]">
         <Input
           value={scenario.name}
           onChange={(e) => update("name", e.target.value)}
