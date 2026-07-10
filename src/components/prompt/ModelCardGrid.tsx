@@ -13,7 +13,13 @@ const ModelsResponseSchema = z.object({
   currentModel: z.string(),
   previewModel: z.string().optional(),
   activeModel: z
-    .object({ image: z.string(), displayName: z.string(), tag: z.string() })
+    .object({
+      image: z.string(),
+      displayName: z.string(),
+      tag: z.string(),
+      modelId: z.string().optional(),
+      runtime: z.string().optional(),
+    })
     .nullable()
     .optional(),
   swappable: z.boolean().optional(),
@@ -69,8 +75,13 @@ export function ModelCardGrid() {
             </span>
             <Badge className="text-xs bg-primary/20 text-primary border-primary/40">Active</Badge>
           </div>
+          {data.activeModel?.runtime && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              served by {data.activeModel.runtime}
+            </p>
+          )}
           {data.activeModel?.image && (
-            <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+            <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground/80">
               {data.activeModel.image}
             </p>
           )}
