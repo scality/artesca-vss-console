@@ -150,6 +150,11 @@ export default function PromptPage() {
               Edit the system prompt for the Vision Language Model. Saving
               restarts the vss-rtvi-vlm workload (~1–2 min while the model reloads).
             </p>
+            {data?.model && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Model: <span className="font-medium text-foreground">{data.model}</span>
+              </p>
+            )}
             {data?.gcs?.available === true && (
               <p className="text-xs text-muted-foreground mt-0.5">
                 GCS:{" "}
