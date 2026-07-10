@@ -3,21 +3,10 @@
 import { KpiCard } from "@/components/KpiCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { OverviewSnapshot } from "@/lib/types";
+import { formatBytes } from "@/lib/format-bytes";
 
 interface KpiGridProps {
   data: OverviewSnapshot;
-}
-
-function formatBytes(n: number): string {
-  const TiB = 2 ** 40;
-  const GiB = 2 ** 30;
-  const MiB = 2 ** 20;
-  const KiB = 2 ** 10;
-  if (n >= TiB) return `${(n / TiB).toFixed(2)} TiB`;
-  if (n >= GiB) return `${(n / GiB).toFixed(2)} GiB`;
-  if (n >= MiB) return `${(n / MiB).toFixed(1)} MiB`;
-  if (n >= KiB) return `${Math.round(n / KiB)} KiB`;
-  return `${n} B`;
 }
 
 export function KpiGrid({ data }: KpiGridProps) {

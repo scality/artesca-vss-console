@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatAge } from "@/lib/utils";
+import { formatAgeMs } from "@/lib/utils";
 
 const NAG_THRESHOLD_DAYS = 90;
 
@@ -27,7 +27,7 @@ export function SecretRow({ label, configured, ageMs, onRotate }: SecretRowProps
           </Badge>
           {ageMs !== null && (
             <span className={`text-xs ${overdue ? "text-destructive font-medium" : "text-muted-foreground"}`}>
-              Last rotated {formatAge(ageMs)} ago
+              Last rotated {formatAgeMs(ageMs)} ago
               {overdue && " — overdue"}
             </span>
           )}

@@ -9,7 +9,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { formatAge } from "@/lib/utils";
+import { formatAgeMs } from "@/lib/utils";
 import type { SgWhitelistEntry } from "@/lib/types";
 
 interface SgWhitelistTableProps {
@@ -46,7 +46,7 @@ export function SgWhitelistTable({ entries, onDelete }: SgWhitelistTableProps) {
               <TableCell className="text-sm">{e.addedBy}</TableCell>
               <TableCell className="text-sm text-muted-foreground">
                 {/* eslint-disable-next-line react-hooks/purity -- Date.now() for display age only */}
-                {formatAge(Date.now() - new Date(e.addedAt).getTime())} ago
+                {formatAgeMs(Date.now() - new Date(e.addedAt).getTime())} ago
               </TableCell>
               <TableCell className="text-sm">{e.port}</TableCell>
               <TableCell className="text-right">

@@ -24,28 +24,8 @@ import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import type { NodeContentMap, TabRendererProps } from "../registry";
 import type { S3State, CacheState, DbState, RedisState } from "@/lib/types/pipeline";
-
-// ─── Format helpers ────────────────────────────────────────────────────────────
-
-function formatBytes(n: number): string {
-  const GiB = 2 ** 30;
-  const MiB = 2 ** 20;
-  const KiB = 2 ** 10;
-  if (n >= GiB) return `${(n / GiB).toFixed(2)} GiB`;
-  if (n >= MiB) return `${(n / MiB).toFixed(1)} MiB`;
-  if (n >= KiB) return `${Math.round(n / KiB)} KiB`;
-  return `${n} B`;
-}
-
-function formatAge(secs: number): string {
-  if (secs < 60) return `${Math.round(secs)}s`;
-  const m = Math.floor(secs / 60);
-  const s = Math.round(secs % 60);
-  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`;
-  const h = Math.floor(m / 60);
-  const rm = m % 60;
-  return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
-}
+import { formatAge } from "@/lib/format-age";
+import { formatBytes } from "@/lib/format-bytes";
 
 // ─── Tier-context strip ────────────────────────────────────────────────────────
 // VST storage is two-tier: a hot local-disk cache buffers recorded segments,

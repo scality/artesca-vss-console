@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /** Format a millisecond duration as "4h23m" or "2m5s". */
-export function formatAge(ms: number): string {
+export function formatAgeMs(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
   const days = Math.floor(totalSeconds / 86400);
   const hours = Math.floor((totalSeconds % 86400) / 3600);

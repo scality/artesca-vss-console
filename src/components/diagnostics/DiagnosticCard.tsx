@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatAge } from "@/lib/utils";
+import { formatAgeMs } from "@/lib/utils";
 
 export interface DiagnosticTest {
   id: string;
@@ -43,7 +43,7 @@ export function DiagnosticCard({ test, running, onRun, onShowOutput }: Diagnosti
       <CardContent className="flex flex-col gap-3 mt-auto">
         {ageMs !== null && (
           <p className="text-xs text-muted-foreground">
-            Last run: {formatAge(ageMs)} ago
+            Last run: {formatAgeMs(ageMs)} ago
           </p>
         )}
         <div className="flex gap-2">
