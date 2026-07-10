@@ -35,8 +35,10 @@ export function KioskToggle() {
           Kiosk mode
         </Label>
         <p className="text-xs text-muted-foreground">
-          Hides operator pages (/cameras, /scenarios, /prompt, /logs, /settings, etc.).
-          Only overview, topology, and incidents remain visible. Use for the showroom projector.
+          Hides operator pages (cameras, scenarios, prompt, tuning, logs, settings, …) and the
+          nav-section headers. Only the Overview (as a showroom story hero), Topology, Incidents,
+          and Chat remain visible. Use for the showroom projector — or just append{" "}
+          <code>?mode=kiosk</code> to any URL.
         </p>
       </div>
     </div>
