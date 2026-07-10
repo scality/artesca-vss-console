@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   Dialog,
@@ -8,6 +8,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { MarkdownReport, isSafeUrl } from "@/components/MarkdownReport";
+import { useToast } from "@/hooks/use-toast";
+import { FileText, Loader2, RefreshCw } from "lucide-react";
 import { ClipPlayer } from "./ClipPlayer";
 import type { Incident } from "@/lib/types";
 
@@ -38,9 +44,84 @@ const SEVERITY_BADGE: Record<Incident["severity"], string> = {
   high: "bg-red-50 text-red-700 border-red-200",
 };
 
+/**
+ * Client-side view of the POST/GET /api/incidents/report contract:
+ *   POST { sensorId, ts, raw?, force? } → { ok:true, markdown, frames, clipUrl?, cached, warnings? } | { error }
+ *   GET  ?sensorId=&ts=                 → { ok:true, markdown, frames, clipUrl?, cached:true, generatedAt } | { ok:false }
+ */
+type ReportState =
+  | { phase: "idle" }
+  | { phase: "loading" }
+  | { phase: "error"; message: string }
+  | {
+      phase: "ready";
+      markdown: string;
+      frames: string[];
+      clipUrl?: string;
+      cached: boolean;
+      warnings?: string[];
+      generatedAt?: string;
+    };
+
+/** Narrow an arbitrary parsed JSON body down to the report success shape,
+ *  without trusting the server to always return well-formed fields. */
+function asReportSuccess(j: unknown): {
+  markdown: string;
+  frames: string[];
+  clipUrl?: string;
+  cached: boolean;
+  warnings?: string[];
+  generatedAt?: string;
+} | null {
+  if (!j || typeof j !== "object") return null;
+  const r = j as Record<string, unknown>;
+  if (r.ok !== true || typeof r.markdown !== "string") return null;
+  return {
+    markdown: r.markdown,
+    frames: Array.isArray(r.frames) ? r.frames.filter((f): f is string => typeof f === "string") : [],
+    clipUrl: typeof r.clipUrl === "string" ? r.clipUrl : undefined,
+    cached: r.cached === true,
+    warnings: Array.isArray(r.warnings) ? r.warnings.filter((w): w is string => typeof w === "string") : undefined,
+    generatedAt: typeof r.generatedAt === "string" ? r.generatedAt : undefined,
+  };
+}
+
 export function IncidentDetail({ incident, onClose }: IncidentDetailProps) {
   const [rawExpanded, setRawExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [report, setReport] = useState<ReportState>({ phase: "idle" });
+  const { toast } = useToast();
+
+  const sensorId = incident?.sensorId;
+  const ts = incident?.ts;
+
+  // Reset the report panel and probe for a previously-cached report whenever
+  // the dialog is (re)opened on a — possibly different — incident, so a
+  // Generate Report already run for this incident shows up immediately with
+  // a "Regenerate" affordance instead of forcing the operator to re-click.
+  useEffect(() => {
+    // Dialog closed (no incident) — nothing to reset yet; the branch below
+    // resets to idle the next time it opens on a (possibly different)
+    // incident, and this component renders null while closed regardless.
+    if (!sensorId || !ts) return;
+    let alive = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing any stale report before probing the new incident
+    setReport({ phase: "idle" });
+    const params = new URLSearchParams({ sensorId, ts });
+    fetch(`/api/incidents/report?${params.toString()}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!alive || !j) return;
+        const parsed = asReportSuccess(j);
+        if (parsed) setReport({ phase: "ready", ...parsed, cached: true });
+      })
+      .catch(() => {
+        /* no cached report reachable — leave idle, "Generate Report" is the affordance */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sensorId, ts]);
 
   if (!incident) return null;
 
@@ -56,6 +137,51 @@ export function IncidentDetail({ incident, onClose }: IncidentDetailProps) {
       /* clipboard unavailable */
     }
   };
+
+  const generateReport = async (force: boolean) => {
+    setReport({ phase: "loading" });
+    try {
+      const res = await fetch("/api/incidents/report", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sensorId: incident.sensorId,
+          ts: incident.ts,
+          raw: incident.raw,
+          ...(force ? { force: true } : {}),
+        }),
+      });
+      const j = await res.json().catch(() => null);
+      const parsed = asReportSuccess(j);
+      if (!res.ok || !parsed) {
+        const message =
+          (j && typeof j === "object" && typeof (j as Record<string, unknown>).error === "string"
+            ? (j as Record<string, unknown>).error
+            : null) ?? `HTTP ${res.status}`;
+        throw new Error(String(message));
+      }
+      setReport({ phase: "ready", ...parsed });
+      toast({ title: "Incident report generated" });
+    } catch (e) {
+      const message = (e as Error).message || "Report generation failed";
+      setReport({ phase: "error", message });
+      toast({ title: "Failed to generate report", description: message, variant: "destructive" });
+    }
+  };
+
+  const reportButtonLabel =
+    report.phase === "loading"
+      ? "Generating…"
+      : report.phase === "error"
+      ? "Retry"
+      : report.phase === "ready"
+      ? "Regenerate"
+      : "Generate Report";
+  // Re-run after a report already exists (or failed) always forces a fresh
+  // generation rather than silently re-serving the cache.
+  const reportButtonForce = report.phase === "ready" || report.phase === "error";
+  const safeFrames = report.phase === "ready" ? report.frames.filter(isSafeUrl) : [];
+  const safeClipUrl = report.phase === "ready" && isSafeUrl(report.clipUrl) ? report.clipUrl : undefined;
 
   return (
     <Dialog open={!!incident} onOpenChange={(v) => !v && onClose()}>
@@ -123,6 +249,98 @@ export function IncidentDetail({ incident, onClose }: IncidentDetailProps) {
                   }}
                 />
               </div>
+            </div>
+
+            {/* Generated incident report */}
+            <div>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">Incident Report</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  disabled={report.phase === "loading"}
+                  onClick={() => void generateReport(reportButtonForce)}
+                >
+                  {report.phase === "loading" ? (
+                    <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                  ) : report.phase === "ready" ? (
+                    <RefreshCw className="mr-1.5 h-3 w-3" />
+                  ) : (
+                    <FileText className="mr-1.5 h-3 w-3" />
+                  )}
+                  {reportButtonLabel}
+                </Button>
+              </div>
+
+              {report.phase === "error" && (
+                <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-brand-red">
+                  <p className="font-medium">Report generation failed.</p>
+                  <p className="mt-0.5 font-mono text-[11px]">{report.message}</p>
+                </div>
+              )}
+
+              {report.phase === "ready" && (
+                <div className="space-y-3">
+                  {(report.cached || (report.warnings && report.warnings.length > 0)) && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {report.cached && (
+                        <Badge
+                          variant="outline"
+                          className="border-brand-light-gray text-[10px] font-normal text-muted-foreground"
+                          title={report.generatedAt ? `Generated ${new Date(report.generatedAt).toLocaleString()}` : undefined}
+                        >
+                          cached
+                          {report.generatedAt ? ` · ${new Date(report.generatedAt).toLocaleString()}` : ""}
+                        </Badge>
+                      )}
+                      {report.warnings?.map((w, i) => (
+                        <Badge
+                          key={i}
+                          variant="outline"
+                          className="border-amber-200 bg-amber-50 text-[10px] font-normal text-amber-700"
+                        >
+                          {w}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  <Card className="space-y-0 p-3 text-sm">
+                    <MarkdownReport markdown={report.markdown} className="text-foreground" />
+                  </Card>
+
+                  {safeFrames.length > 0 && (
+                    <div>
+                      <p className="mb-1.5 text-xs text-muted-foreground">Frames</p>
+                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                        {safeFrames.map((src, i) => (
+                          <img
+                            key={i}
+                            src={src}
+                            alt={`Report frame ${i + 1}`}
+                            loading="lazy"
+                            className="aspect-video w-full rounded border border-border object-cover"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {safeClipUrl && (
+                    <div>
+                      <p className="mb-1.5 text-xs text-muted-foreground">Report clip</p>
+                      <video
+                        src={safeClipUrl}
+                        controls
+                        preload="metadata"
+                        className="block w-full max-w-md max-h-64 rounded border border-border bg-black object-contain"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
