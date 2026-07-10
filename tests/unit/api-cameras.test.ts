@@ -79,6 +79,24 @@ vi.mock("@/lib/reconcile/cameras", () => ({
   }),
 }));
 
+// The GET route's k8s branch also dynamically imports these helpers in its
+// Promise.all — without mocks, listIngestingCameras() → listRealtimeRules()
+// does a real fetch() with a 15s AbortSignal.timeout to the (unreachable in
+// tests) in-cluster alert-bridge, which hangs well past vitest's 5s default
+// timeout (the route's .catch() only handles rejection, not a slow-resolving
+// promise). Mock all three so the k8s branch resolves instantly.
+vi.mock("@/lib/helpers/ingestion", () => ({
+  listIngestingCameras: vi.fn().mockResolvedValue({ ingesting: new Set(), warning: undefined }),
+}));
+
+vi.mock("@/lib/helpers/recording-health", () => ({
+  probeRecordingByName: vi.fn().mockResolvedValue(new Map()),
+}));
+
+vi.mock("@/lib/reconcile/recording-recovery", () => ({
+  getRecoveryStates: vi.fn().mockReturnValue(new Map()),
+}));
+
 import type { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
@@ -169,6 +187,13 @@ describe("GET /api/cameras (k8s)", () => {
     expect(body.error).toMatch(/unauthorized/i);
   });
 
+  // NOTE: buildK8sCamerasResponse (the function that actually computes
+  // vstRegistered from the merge of desired + live VST sensors) is mocked
+  // below, so the vstRegistered assertion here is mock-passthrough, not a
+  // test of the real merge logic — that's covered by
+  // tests/unit/cameras-collect-k8s.test.ts. This test instead exercises what
+  // the GET route itself owns: wiring the k8s helpers together and shaping
+  // the response (no warnings surfaced when every helper is happy).
   it("returns Firestore desired cameras with live vstRegistered", async () => {
     vi.mocked(vstListSensors).mockResolvedValue({
       sensors: [{ sensor_id: "aisle-1", name: "aisle-1" }],
@@ -199,6 +224,7 @@ describe("GET /api/cameras (k8s)", () => {
     expect(body.cameras).toHaveLength(1);
     expect(body.cameras[0].feeds[0].vstRegistered).toBe(true);
     expect(body.gcs.available).toBe(false);
+    expect(body.warnings).toEqual([]);
   });
 
   it("degrades to empty list + warning when the context is unavailable", async () => {
