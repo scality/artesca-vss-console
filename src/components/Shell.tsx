@@ -1,5 +1,7 @@
 "use client";
 
+import { usePathname } from "next/navigation";
+import { LogOut } from "lucide-react";
 import { useKiosk } from "./KioskProvider";
 import { Nav } from "./Nav";
 import { PortalHeader } from "./brand/PortalHeader";
@@ -12,6 +14,7 @@ interface ShellProps {
 
 export function Shell({ children, className }: ShellProps) {
   const { kiosk } = useKiosk();
+  const pathname = usePathname();
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -37,6 +40,21 @@ export function Shell({ children, className }: ShellProps) {
 
         <main className={cn("flex-1 p-6", className)}>{children}</main>
       </div>
+
+      {/* Kiosk exit — the only visible chrome in kiosk mode. A plain <a> (full
+          navigation) so the middleware processes ?mode=normal and clears the
+          HttpOnly kiosk cookie server-side. Corner-anchored to stay out of the
+          showroom display. */}
+      {kiosk && (
+        <a
+          href={`${pathname}?mode=normal`}
+          title="Leave kiosk mode and return to the operator view"
+          className="fixed bottom-4 right-4 z-50 inline-flex items-center gap-1.5 rounded-full border border-border bg-card/90 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-card hover:text-foreground"
+        >
+          <LogOut className="h-3.5 w-3.5" />
+          Exit kiosk
+        </a>
+      )}
     </div>
   );
 }
