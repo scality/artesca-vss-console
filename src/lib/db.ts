@@ -67,6 +67,16 @@ export function getDb(): Database.Database {
       updated_at               TEXT NOT NULL,
       updated_by               TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS incident_reports (
+      sensor_id    TEXT NOT NULL,
+      ts           TEXT NOT NULL,
+      markdown     TEXT NOT NULL,
+      frames_json  TEXT NOT NULL,
+      clip_url     TEXT,
+      generated_at TEXT NOT NULL,
+      PRIMARY KEY (sensor_id, ts)
+    );
   `);
 
   if (!_signalHandlersRegistered) {
@@ -316,6 +326,70 @@ export function upsertCameraOverride(row: CameraOverrideRow): void {
 export function deleteCameraOverride(cameraId: string): void {
   const db = getDb();
   db.prepare("DELETE FROM camera_overrides WHERE camera_id = ?").run(cameraId);
+}
+
+// ─── Incident reports ─────────────────────────────────────────────────────────
+
+export interface IncidentReportRow {
+  sensorId: string;
+  ts: string;
+  markdown: string;
+  frames: string[];
+  clipUrl?: string;
+  generatedAt: string;
+}
+
+export function saveIncidentReport(row: IncidentReportRow): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT OR REPLACE INTO incident_reports
+       (sensor_id, ts, markdown, frames_json, clip_url, generated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(
+    row.sensorId,
+    row.ts,
+    row.markdown,
+    JSON.stringify(row.frames),
+    row.clipUrl ?? null,
+    row.generatedAt,
+  );
+}
+
+export function loadIncidentReport(sensorId: string, ts: string): IncidentReportRow | null {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT sensor_id, ts, markdown, frames_json, clip_url, generated_at
+       FROM incident_reports WHERE sensor_id = ? AND ts = ?`
+    )
+    .get(sensorId, ts) as
+    | {
+        sensor_id: string;
+        ts: string;
+        markdown: string;
+        frames_json: string;
+        clip_url: string | null;
+        generated_at: string;
+      }
+    | undefined;
+
+  if (!row) return null;
+
+  let frames: string[] = [];
+  try {
+    frames = JSON.parse(row.frames_json) as string[];
+  } catch {
+    frames = [];
+  }
+
+  return {
+    sensorId: row.sensor_id,
+    ts: row.ts,
+    markdown: row.markdown,
+    frames,
+    clipUrl: row.clip_url ?? undefined,
+    generatedAt: row.generated_at,
+  };
 }
 
 // ─── Rotation tracking ────────────────────────────────────────────────────────
