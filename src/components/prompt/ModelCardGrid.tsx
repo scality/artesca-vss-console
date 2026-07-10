@@ -4,8 +4,7 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ModelCardSchema } from "@/lib/schemas";
 import { z } from "zod";
-import { Loader2, Cpu, ArrowUpRight } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Loader2 } from "lucide-react";
 import { ModelCard } from "./ModelCard";
 
 const ModelsResponseSchema = z.object({
@@ -55,53 +54,9 @@ export function ModelCardGrid() {
     );
   }
 
-  // Helm profiles: the VLM is chart-managed and not swapped from here — show the
-  // live-deployed model read-only and route reasoning-model changes to /agent.
-  if (!data.swappable) {
-    const href = data.reasoningModelHref ?? "/agent";
-    return (
-      <div className="space-y-4">
-        <div>
-          <h3 className="text-base font-semibold">Vision-language model</h3>
-          <p className="text-sm text-muted-foreground">
-            The VLM is managed by the VSS deployment and isn&apos;t swapped from here.
-          </p>
-        </div>
-        <div className="rounded-lg border border-primary/60 bg-primary/5 p-4">
-          <div className="flex items-center gap-2">
-            <Cpu className="h-4 w-4 text-brand-teal" />
-            <span className="text-sm font-semibold">
-              {data.activeModel?.displayName ?? "VLM"}
-            </span>
-            <Badge className="text-xs bg-primary/20 text-primary border-primary/40">Active</Badge>
-          </div>
-          {data.activeModel?.runtime && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              served by {data.activeModel.runtime}
-            </p>
-          )}
-          {data.activeModel?.image && (
-            <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground/80">
-              {data.activeModel.image}
-            </p>
-          )}
-          {!data.activeModel && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Live model unavailable — the VLM deployment couldn&apos;t be read.
-            </p>
-          )}
-          <p className="mt-3 text-xs text-muted-foreground">
-            The reasoning model (e.g. Nemotron or Claude) is configured on{" "}
-            <a href={href} className="inline-flex items-center gap-0.5 font-medium text-brand-teal hover:underline">
-              Agent
-              <ArrowUpRight className="h-3 w-3" />
-            </a>
-            .
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // Helm profiles: the VLM is chart-managed and not swapped from here. The active
+  // model is shown compactly in the page header, so this panel renders nothing.
+  if (!data.swappable) return null;
 
   return (
     <div className="space-y-4">
