@@ -27,6 +27,7 @@ export const KIOSK_ALLOWED_ROUTES: readonly string[] = [
   "/incidents",
   "/topology",
   "/chat",
+  "/kvcache",
 ];
 
 /**

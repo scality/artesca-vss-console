@@ -24,6 +24,7 @@ import {
   HardDrive,
   BarChart3,
   ShieldCheck,
+  Gauge,
 } from "lucide-react";
 import { useKiosk } from "./KioskProvider";
 import { cn } from "@/lib/utils";
@@ -52,6 +53,7 @@ const NAV_GROUPS: Array<{
       { href: "/chat", label: "VSS Chat", icon: Bot },
       { href: "/evidence", label: "Evidence", icon: ShieldCheck },
       { href: "/storage", label: "Storage", icon: HardDrive },
+      { href: "/kvcache", label: "KV Cache", icon: Gauge },
     ],
   },
   {
