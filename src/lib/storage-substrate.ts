@@ -23,15 +23,58 @@ import {
   s3Region,
 } from "@/lib/s3";
 
-const CACHE_TTL_MS = 30_000;
-const cache = new Map<string, { ts: number; stats: Awaited<ReturnType<typeof s3SubstrateStats>> }>();
+// Stale-while-revalidate cache. Listing the recordings bucket is ~65 sequential
+// S3 round-trips (64k+ objects), so a blocking cache stalls first paint and one
+// poll every TTL. Instead: serve whatever is cached INSTANTLY and refresh in the
+// background; only a genuine cold start waits (briefly, bounded) for first data.
+type BucketStats = Awaited<ReturnType<typeof s3SubstrateStats>>;
+const FRESH_MS = 15_000; // younger than this → serve as-is; older → serve + background-refresh
+const COLD_START_WAIT_MS = 2_500; // cold cache: wait at most this long for first data
+const FAILED_BACKOFF_MS = 60_000; // an unlistable bucket is retried at most this often
+const cache = new Map<string, { ts: number; stats: BucketStats }>();
+const inflight = new Map<string, Promise<void>>();
+const failed = new Map<string, number>(); // bucket → ts of last scan failure
 
-async function cachedStats(bucket: string) {
+/** Fire-and-forget full scan; dedups concurrent refreshes per bucket. */
+function refreshBucket(bucket: string): Promise<void> {
+  const existing = inflight.get(bucket);
+  if (existing) return existing;
+  const p = (async () => {
+    try {
+      const stats = await s3SubstrateStats(bucket, 8);
+      cache.set(bucket, { ts: Date.now(), stats });
+      failed.delete(bucket);
+    } catch {
+      // Not provisioned / no access — record the failure so we back off instead of
+      // rescanning (and reporting "refreshing") on every poll.
+      failed.set(bucket, Date.now());
+    } finally {
+      inflight.delete(bucket);
+    }
+  })();
+  inflight.set(bucket, p);
+  return p;
+}
+
+/** Non-blocking read: cached value (possibly stale) + whether a refresh is due/running. */
+function statsSWR(bucket: string): { stats: BucketStats | null; refreshing: boolean } {
   const c = cache.get(bucket);
-  if (c && Date.now() - c.ts < CACHE_TTL_MS) return c.stats;
-  const stats = await s3SubstrateStats(bucket, 8);
-  cache.set(bucket, { ts: Date.now(), stats });
-  return stats;
+  if (c) {
+    if (Date.now() - c.ts >= FRESH_MS) {
+      void refreshBucket(bucket);
+      return { stats: c.stats, refreshing: true };
+    }
+    return { stats: c.stats, refreshing: false };
+  }
+  // No cached value. If the bucket recently failed to list, treat it as
+  // (known) unavailable — not "still loading" — so it doesn't pin the page to
+  // fast-polling. Retry only after the backoff window.
+  const f = failed.get(bucket);
+  if (f && Date.now() - f < FAILED_BACKOFF_MS) {
+    return { stats: null, refreshing: false };
+  }
+  void refreshBucket(bucket);
+  return { stats: null, refreshing: true };
 }
 
 export interface BucketSubstrate {
@@ -60,6 +103,8 @@ export interface StorageSubstrate {
   recent: RecentObject[];
   totals: { objectCount: number; bytesTotal: number; bytesLast24h: number };
   warnings: string[];
+  /** true while a background bucket scan is in flight (numbers may still be filling in). */
+  refreshing: boolean;
   ts: string;
 }
 
@@ -90,22 +135,28 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
       recent: [],
       totals: { objectCount: 0, bytesTotal: 0, bytesLast24h: 0 },
       warnings: ["S3 not configured (set OBJECTSTORE_ENDPOINT + OBJECTSTORE_ACCESS_KEY_ID)"],
+      refreshing: false,
       ts: new Date().toISOString(),
     };
   }
 
-  const results = await Promise.all(
-    defs.map(async (d) => {
-      try {
-        return { d, s: await cachedStats(d.bucket) };
-      } catch {
-        // Bucket not provisioned / no access on this deploy — flag unavailable
-        // (hidden in the UI). No warning: it would leak the raw endpoint and is
-        // expected on deploys that don't use every bucket.
-        return { d, s: null };
-      }
-    }),
-  );
+  // Cold start (nothing cached yet): give the just-kicked background scans a brief,
+  // bounded window to land so the first paint can show real numbers when the buckets
+  // are small/fast — but never block on the big recordings scan.
+  if (defs.every((d) => !cache.has(d.bucket))) {
+    defs.forEach((d) => void refreshBucket(d.bucket));
+    await Promise.race([
+      Promise.allSettled(defs.map((d) => inflight.get(d.bucket) ?? Promise.resolve())),
+      new Promise((r) => setTimeout(r, COLD_START_WAIT_MS)),
+    ]);
+  }
+
+  // Non-blocking reads: cached-or-null + a background refresh when stale.
+  const results = defs.map((d) => {
+    const { stats, refreshing } = statsSWR(d.bucket);
+    return { d, s: stats, refreshing };
+  });
+  const refreshing = results.some((r) => r.refreshing);
 
   const buckets: BucketSubstrate[] = results
     .map(({ d, s }) => ({
@@ -138,5 +189,5 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
     { objectCount: 0, bytesTotal: 0, bytesLast24h: 0 },
   );
 
-  return { configured: true, endpoint, region, capacityBytes, buckets, recent, totals, warnings, ts: new Date().toISOString() };
+  return { configured: true, endpoint, region, capacityBytes, buckets, recent, totals, warnings, refreshing, ts: new Date().toISOString() };
 }
