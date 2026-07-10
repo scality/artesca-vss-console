@@ -29,7 +29,13 @@ export const GET = withRequestContext(async function (req: NextRequest) {
     if (!resp.ok) {
       return NextResponse.json({ ...EMPTY, error: `stats HTTP ${resp.status}` }, { status: 502 });
     }
-    return NextResponse.json(await resp.json());
+    const d = await resp.json();
+    return NextResponse.json({
+      total: Number(d?.total) || 0,
+      byCategory: d?.byCategory ?? {},
+      byCamera: d?.byCamera ?? {},
+      byDay: Array.isArray(d?.byDay) ? d.byDay : [],
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ...EMPTY, error: `stats unreachable: ${msg}` }, { status: 503 });
