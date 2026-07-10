@@ -2,7 +2,11 @@
  * POST /api/evidence/verify  → { key, versionId? }
  *
  * Proof-of-immutability: attempts to permanently delete the locked version and
- * reports whether ARTESCA denied it. { denied: true } means the WORM lock held.
+ * reports the outcome as a tri-state `status`: "immutable" (ARTESCA refused
+ * the delete — the WORM lock held), "deleted" (the delete succeeded — the
+ * lock is broken), or "inconclusive" (the delete threw for some other reason
+ * — creds, network, wrong bucket, missing key/version — so immutability could
+ * NOT be verified either way).
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";

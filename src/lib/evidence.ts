@@ -162,20 +162,46 @@ export async function listEvidence(): Promise<EvidenceItem[]> {
 }
 
 export interface VerifyResult {
-  denied: boolean;
+  status: "immutable" | "deleted" | "inconclusive";
   error?: string;
+}
+
+/** True when the S3 error represents the object-lock refusing the delete. */
+function isAccessDenied(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const err = e as {
+    name?: string;
+    Code?: string;
+    $metadata?: { httpStatusCode?: number };
+    message?: string;
+  };
+  if (err.name === "AccessDenied" || err.Code === "AccessDenied") return true;
+  if (err.$metadata?.httpStatusCode === 403) return true;
+  // Object-Lock-specific refusal message ARTESCA/S3 can surface instead of
+  // (or alongside) a generic AccessDenied code.
+  if (typeof err.message === "string" && /object.?lock/i.test(err.message) && /deni(ed|al)/i.test(err.message)) {
+    return true;
+  }
+  return false;
 }
 
 /**
  * Prove immutability: attempt to permanently delete the locked version.
- * ARTESCA must refuse (AccessDenied) while retention holds → denied:true.
- * If the delete unexpectedly succeeds, denied:false (surfaces a broken lock).
+ *
+ * Three distinguishable outcomes:
+ *  - the delete succeeds            → "deleted"      (the lock is broken)
+ *  - the delete is refused by S3    → "immutable"     (the lock held)
+ *  - the delete throws for any other reason (network, creds, wrong bucket,
+ *    NoSuchKey/NoSuchVersion, timeout, …) → "inconclusive" — we could NOT
+ *    verify either way, and must never report that as a false "immutable".
  */
 export async function verifyImmutable(key: string, versionId?: string): Promise<VerifyResult> {
   try {
     await client().send(new DeleteObjectCommand({ Bucket: EVIDENCE_BUCKET, Key: key, VersionId: versionId }));
-    return { denied: false };
+    return { status: "deleted" };
   } catch (e) {
-    return { denied: true, error: e instanceof Error ? `${e.name}: ${e.message}` : String(e) };
+    const error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    if (isAccessDenied(e)) return { status: "immutable", error };
+    return { status: "inconclusive", error };
   }
 }
