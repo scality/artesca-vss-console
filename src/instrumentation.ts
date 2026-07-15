@@ -13,6 +13,8 @@
  * Only active in the Node.js runtime (not edge).
  */
 
+import * as Sentry from "@sentry/nextjs";
+
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger("instrumentation");
@@ -23,7 +25,14 @@ const log = createLogger("instrumentation");
 const globalForInstrumentation = globalThis as unknown as { __started?: boolean };
 
 export async function register() {
+  // Sentry initializes on both Node.js and edge runtimes; background watchers
+  // only run on Node.js. Init before anything else so early errors are caught.
+  if (process.env.NEXT_RUNTIME === "edge") {
+    await import("../sentry.edge.config");
+    return;
+  }
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  await import("../sentry.server.config");
 
   const { filterUrlParseDeprecation } = await import("@/lib/deprecation-filter");
   filterUrlParseDeprecation();
@@ -65,3 +74,6 @@ export async function register() {
     startCaptionBridge();
   }
 }
+
+// Captures all unhandled server-side request errors.
+export const onRequestError = Sentry.captureRequestError;

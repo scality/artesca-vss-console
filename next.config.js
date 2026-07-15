@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 
+const { withSentryConfig } = require("@sentry/nextjs");
+
 const SAFE_DEFAULT = "http://metropolis-nvidia-vss-ui:3000";
 
 // Blocked host patterns: link-local, loopback, metadata service, RFC1918 literals.
@@ -80,4 +82,21 @@ module.exports = {
     return [{ source: "/capabilities", destination: "/agent", permanent: true }];
   },
 };
+
+module.exports = withSentryConfig(module.exports, {
+  // Source-map upload only runs when SENTRY_AUTH_TOKEN is set (build-time
+  // secret, passed into the Docker build). Without it the build proceeds and
+  // upload is skipped — the SDK still reports events, only stack frames stay
+  // minified.
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+
+  widenClientFileUpload: true,
+
+  // Proxy API route so browser events bypass ad-blockers.
+  tunnelRoute: "/monitoring",
+
+  silent: !process.env.CI,
+});
 

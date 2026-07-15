@@ -123,12 +123,38 @@ fi
 # ---------------------------------------------------------------------------
 BUILDX_CACHE_DIR="${BUILDX_CACHE_DIR:-${TMPDIR:-/tmp}/nvidia-vss-console-buildx-cache}"
 mkdir -p "$BUILDX_CACHE_DIR"
+
+# ---------------------------------------------------------------------------
+# Sentry source-map upload (fail-soft). Pull the CI-scoped build env from
+# Secret Manager (isv-labs-sentry-build-env) so the in-image `next build`
+# uploads source maps + names the release. Absent secret / no ADC → skip,
+# build proceeds (events still report, frames stay minified).
+# ---------------------------------------------------------------------------
+SENTRY_BUILD_ARGS=()
+SENTRY_BUILD_SECRETS=()
+SENTRY_ENV="$(gcloud secrets versions access latest --secret=isv-labs-sentry-build-env --project=isv-alliances 2>/dev/null || true)"
+if [[ -n "$SENTRY_ENV" ]]; then
+  export SENTRY_ORG="$(printf '%s\n' "$SENTRY_ENV" | sed -n 's/^SENTRY_ORG=//p')"
+  export SENTRY_PROJECT="scality-vss-console-ui"
+  export SENTRY_AUTH_TOKEN="$(printf '%s\n' "$SENTRY_ENV" | sed -n 's/^SENTRY_AUTH_TOKEN=//p')"
+  export SENTRY_RELEASE="$TAG_HASH"
+  if [[ -n "$SENTRY_AUTH_TOKEN" ]]; then
+    SENTRY_BUILD_ARGS+=(--build-arg "SENTRY_ORG=$SENTRY_ORG" --build-arg "SENTRY_PROJECT=$SENTRY_PROJECT" --build-arg "SENTRY_RELEASE=$SENTRY_RELEASE")
+    SENTRY_BUILD_SECRETS+=(--secret "id=sentry_auth_token,env=SENTRY_AUTH_TOKEN")
+    echo "==> Sentry source-map upload enabled (org=$SENTRY_ORG project=$SENTRY_PROJECT release=$SENTRY_RELEASE)"
+  fi
+else
+  echo "==> Sentry build env not available — skipping source-map upload"
+fi
+
 echo "==> building $FULL_IMAGE (platform linux/amd64, cache $BUILDX_CACHE_DIR)"
 docker buildx build \
   --platform linux/amd64 \
   --tag "$FULL_IMAGE" \
   --cache-to "type=local,dest=${BUILDX_CACHE_DIR},mode=max" \
   --cache-from "type=local,src=${BUILDX_CACHE_DIR}" \
+  ${SENTRY_BUILD_ARGS[@]+"${SENTRY_BUILD_ARGS[@]}"} \
+  ${SENTRY_BUILD_SECRETS[@]+"${SENTRY_BUILD_SECRETS[@]}"} \
   --load \
   "$REPO_ROOT/console"
 

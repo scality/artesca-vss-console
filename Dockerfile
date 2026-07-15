@@ -28,10 +28,25 @@ RUN npm ci --ignore-scripts && npm rebuild better-sqlite3
 
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# Sentry source-map upload during `next build` (see next.config.js
+# withSentryConfig). Non-secret build metadata is passed as ARGs; the auth
+# token is a BuildKit secret so it never lands in an image layer. All are
+# optional — without SENTRY_AUTH_TOKEN, next build proceeds and upload is
+# skipped (events still report, frames stay minified). CI/laptop drivers pass
+# these from Secret Manager `isv-labs-sentry-build-env`.
+ARG SENTRY_ORG
+ARG SENTRY_PROJECT
+ARG SENTRY_RELEASE
+ENV SENTRY_ORG=${SENTRY_ORG} \
+    SENTRY_PROJECT=${SENTRY_PROJECT} \
+    SENTRY_RELEASE=${SENTRY_RELEASE}
+
 # next build emits .next/standalone — a self-contained Node server tree that
 # includes node_modules entries for serverExternalPackages (ssh2, better-sqlite3,
 # cpu-features) resolved at build time for the current arch.
-RUN npm run build
+RUN --mount=type=secret,id=sentry_auth_token,env=SENTRY_AUTH_TOKEN,required=false \
+    npm run build
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 2 – runner: minimal Alpine with runtime-only packages

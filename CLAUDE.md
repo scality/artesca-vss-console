@@ -115,6 +115,15 @@ scripts/validate-console.sh
 
 The flow is idempotent — reruns re-apply the manifests and pick up image-tag changes.
 
+## Observability (Sentry)
+
+Errors + tracing + masked session replay report to Sentry org **scality-3i**, project **scality-vss-console-ui** (region `de.sentry.io`). Full runbook: [`../docs/console-sentry.md`](../docs/console-sentry.md).
+
+- **Init files**: [`src/instrumentation-client.ts`](src/instrumentation-client.ts) (browser), [`sentry.server.config.ts`](sentry.server.config.ts) (Node), [`sentry.edge.config.ts`](sentry.edge.config.ts) (edge) — loaded from [`src/instrumentation.ts`](src/instrumentation.ts) ahead of the reconcile loop / background watchers; `onRequestError` captures unhandled route errors; [`src/app/global-error.tsx`](src/app/global-error.tsx) catches root-layout React errors. [`next.config.js`](next.config.js) is wrapped with `withSentryConfig` (browser events tunnel through `/monitoring`). DSN is a hardcoded fallback (ingest-only identifier, not a secret); `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` (via the `console-env` ConfigMap) override. **The `CONSOLE_SENTRY_DSN` fallback is empty until the real DSN is inlined** — Sentry no-ops until then.
+- **Hardened on purpose — do not re-enable when adding signals**: no `enableLogs`, no `includeLocalVariables`, replay masking pinned (`maskAllText`/`maskAllInputs`/`blockAllMedia`, `networkDetailAllowUrls: []`). The console holds lab secrets (objectstore/S3 keys, camera-sim SSH PEM, Firestore SA key) in server locals, logs cluster command lines, and renders credentials as text (Grafana password, Secrets page).
+- **Source maps + releases**: uploaded **inside the image's `next build`** — [`Dockerfile`](Dockerfile) takes `SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_RELEASE` build args + `SENTRY_AUTH_TOKEN` as a BuildKit secret. Both build drivers ([`../scripts/build-console-image.sh`](../scripts/build-console-image.sh) laptop-sideload — the path that reaches Pyramid — and [`../.github/workflows/build-console.yml`](../.github/workflows/build-console.yml) CI GHCR) pull `isv-labs-sentry-build-env` from Secret Manager, fail-soft. `SENTRY_PROJECT` is fixed to `scality-vss-console-ui` (the shared secret's value is the deployer's).
+- **Verify**: `GET /api/sentry-verify` throws deliberately — `kubectl -n console exec deploy/console -- curl -s http://localhost:8800/api/sentry-verify`, then check the issue shows frames at `src/app/api/sentry-verify/route.ts`.
+
 ## Pointers
 
 - Top-level platform: [`../CLAUDE.md`](../CLAUDE.md)
