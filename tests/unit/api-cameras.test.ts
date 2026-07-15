@@ -75,6 +75,7 @@ vi.mock("@/lib/reconcile/cameras", () => ({
     alreadyPresent: [],
     failed: [],
     pruned: [],
+    parked: [],
     drift: [],
   }),
 }));
@@ -166,6 +167,7 @@ beforeEach(() => {
     alreadyPresent: [],
     failed: [],
     pruned: [],
+    parked: [],
     drift: [],
   });
   vi.mocked(buildK8sCamerasResponse).mockReset().mockReturnValue({ cameras: [], reconcile: null });

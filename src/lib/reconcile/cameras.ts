@@ -10,8 +10,23 @@ export interface CameraReconcileResult {
   failed: { id: string; warning?: string }[];
   /** Camera ids (live sensor names) removed this run (prune only). */
   pruned: string[];
+  /**
+   * Disabled cameras (recording.enabled === false) that were de-registered
+   * from the live sensor set this run because they were still registered.
+   * The camera config is preserved in `desired`; re-enabling recording
+   * re-adds it on the next reconcile.
+   */
+  parked: string[];
   /** Human-readable desired-vs-live differences observed. */
   drift: string[];
+}
+
+/** A camera is "parked" (must not be a live sensor) when its recording is
+ *  explicitly disabled. VIOS/streamprocessing otherwise retries "add live
+ *  stream" against the (often stale) RTSP URL of a registered-but-unconnectable
+ *  sensor forever, flooding the vision-llm-errors topic. */
+function isParked(cam: CameraEntry): boolean {
+  return cam.recording?.enabled === false;
 }
 
 /**
@@ -35,6 +50,7 @@ export async function reconcileCameras(
     alreadyPresent: [],
     failed: [],
     pruned: [],
+    parked: [],
     drift: [],
   };
 
@@ -42,9 +58,26 @@ export async function reconcileCameras(
   const liveByName = new Map(live.map((s) => [s.name, s]));
   const desiredIds = new Set(desired.map((c) => c.id));
 
-  // Add / confirm desired cameras.
+  // Add / confirm desired cameras. Disabled cameras are "parked": never added,
+  // and de-registered if currently live (independent of `prune`, which only
+  // governs sensors absent from `desired`).
   for (const cam of desired) {
-    if (liveByName.has(cam.id)) {
+    const liveSensor = liveByName.get(cam.id);
+
+    if (isParked(cam)) {
+      if (liveSensor && adapter.removeSensor) {
+        const res = await adapter.removeSensor(liveSensor.sensorId);
+        if (res.ok) {
+          result.parked.push(cam.id);
+          result.drift.push(`parked disabled camera (de-registered live sensor): ${cam.id}`);
+        } else {
+          result.failed.push({ id: cam.id, warning: res.warning });
+        }
+      }
+      continue;
+    }
+
+    if (liveSensor) {
       result.alreadyPresent.push(cam.id);
       continue;
     }

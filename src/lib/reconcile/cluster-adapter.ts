@@ -1,6 +1,6 @@
 import "server-only";
 
-import { vstListSensors, vstAddSensor, vstStartStream } from "@/lib/helpers/vst";
+import { vstListSensors, vstAddSensor, vstStartStream, vstDeleteSensor } from "@/lib/helpers/vst";
 import { appsV1, rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import {
@@ -76,7 +76,14 @@ export class VstClusterAdapter implements ClusterAdapter {
     if (!stream.ok && stream.warning) return { ok: true, warning: stream.warning };
     return { ok: true };
   }
-  // removeSensor intentionally omitted — convergence is additive-only here.
+
+  // De-register a live sensor by its VIOS UUID. Used to "park" disabled cameras
+  // (recording.enabled === false) so VIOS/streamprocessing stops retrying an
+  // unconnectable stream, and by the opt-in prune path. The steady-state loop
+  // runs prune=false, so this only fires for explicit desired-state parking.
+  async removeSensor(sensorId: string): Promise<{ ok: boolean; warning?: string }> {
+    return vstDeleteSensor(sensorId);
+  }
 
   async getDeploymentEnv(ns: string, deployment: string, key: string): Promise<string | null> {
     const d = await appsV1().readNamespacedDeployment({ name: deployment, namespace: ns });

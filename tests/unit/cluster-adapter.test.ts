@@ -5,9 +5,10 @@ vi.mock("@/lib/helpers/vst", () => ({
   vstListSensors: vi.fn(),
   vstAddSensor: vi.fn(),
   vstStartStream: vi.fn(),
+  vstDeleteSensor: vi.fn(),
 }));
 
-import { vstListSensors, vstAddSensor, vstStartStream } from "@/lib/helpers/vst";
+import { vstListSensors, vstAddSensor, vstStartStream, vstDeleteSensor } from "@/lib/helpers/vst";
 import { VstClusterAdapter, ClusterAdapter } from "@/lib/reconcile/cluster-adapter";
 
 describe("VstClusterAdapter", () => {
@@ -53,9 +54,13 @@ describe("VstClusterAdapter", () => {
     });
   });
 
-  it("does not implement removeSensor (prune unsupported in Plan 1)", () => {
+  it("implements removeSensor by de-registering the sensor UUID via vstDeleteSensor", async () => {
+    vi.mocked(vstDeleteSensor).mockResolvedValue({ ok: true });
     const a: ClusterAdapter = new VstClusterAdapter();
-    expect(a.removeSensor).toBeUndefined();
+    expect(typeof a.removeSensor).toBe("function");
+    const r = await a.removeSensor!("uuid-123");
+    expect(r.ok).toBe(true);
+    expect(vstDeleteSensor).toHaveBeenCalledWith("uuid-123");
   });
 
   it("VstClusterAdapter implements the Plan-4 k8s ops", () => {
