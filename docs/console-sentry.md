@@ -4,15 +4,15 @@ The in-cluster console reports errors, traces, and masked session replays to Sen
 
 | Fact | Value |
 | ---- | ----- |
-| Org / project | `scality-3i` / `scality-vss-console-ui` |
+| Org / project | `scality-3i` / `scality-vss-console-ui` (project id `4511738391494736`) |
 | Region | `de.sentry.io` (EU data residency) |
-| Issues UI | https://scality-3i.sentry.io/issues/?project=scality-vss-console-ui |
+| Issues UI | https://scality-3i.sentry.io/issues/?project=4511738391494736 |
 | SDK | `@sentry/nextjs`, all three runtimes (browser / Node / edge) |
 | Environments | `development` (laptop `npm run dev`) · `production` (in-cluster console pod) |
 | Release | image tag hash (laptop sideload) / `sha-<short>` (CI GHCR build) |
 | Build secret | GCP Secret Manager `isv-labs-sentry-build-env` (project `isv-alliances`) — shared with the deployer; org + token reused, project overridden to `scality-vss-console-ui` |
 
-> **DSN not yet inlined.** The `CONSOLE_SENTRY_DSN` fallback in [`console/sentry.server.config.ts`](../console/sentry.server.config.ts) (and the matching literals in the edge / client configs) is currently empty — Sentry no-ops until it's filled. Paste the `scality-vss-console-ui` DSN there (and update the project id in this table + the Issues URL). Format: `https://<key>@o4511336023326720.ingest.de.sentry.io/<projectId>`.
+The DSN is inlined as the `CONSOLE_SENTRY_DSN` fallback in [`console/sentry.server.config.ts`](../console/sentry.server.config.ts) (and the matching literals in the edge / client configs), so every pod reports without env plumbing. It is an ingest-only identifier, not a secret. `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` (via the `console-env` ConfigMap) override it.
 
 ## What's instrumented
 

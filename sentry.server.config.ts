@@ -2,10 +2,9 @@ import * as Sentry from "@sentry/nextjs";
 
 // Fallback DSN for project `scality-vss-console-ui` (org scality-3i, de region).
 // A DSN is an ingest-only identifier, not a secret — hardcoding it lets every
-// in-cluster pod report without env plumbing. Empty = Sentry disabled (no-op),
-// which keeps builds green until the real DSN is inlined here.
-// TODO(sentry): paste the scality-vss-console-ui DSN as CONSOLE_SENTRY_DSN below.
-export const CONSOLE_SENTRY_DSN = "";
+// in-cluster pod report without env plumbing. SENTRY_DSN overrides it.
+export const CONSOLE_SENTRY_DSN =
+  "https://507501f6802911f191fb369c30d22471@o4511336023326720.ingest.de.sentry.io/4511738391494736";
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN ?? CONSOLE_SENTRY_DSN,
