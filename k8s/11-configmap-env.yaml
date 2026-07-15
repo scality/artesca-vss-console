@@ -114,6 +114,16 @@ data:
   NIM_CURRENT_MODEL: "nvidia-nemotron-nano-9b-v2"
   NIM_PREVIEW_MODEL: "nvila-lite-2b"
 
+  # ── Sentry observability (optional) ──────────────────────────────────────────
+  # DSN is an ingest-only identifier, not a secret. A build-time fallback is
+  # hardcoded in the image (sentry.server.config.ts / instrumentation-client.ts),
+  # so the pod reports without any env here. Set these only to point a given
+  # deploy at a different project/DSN without rebuilding.
+  #   SENTRY_DSN            — server + edge runtime ingest.
+  #   NEXT_PUBLIC_SENTRY_DSN — browser ingest (baked at build; override needs rebuild).
+  # SENTRY_DSN: "https://<key>@o4511336023326720.ingest.de.sentry.io/<projectId>"
+  # NEXT_PUBLIC_SENTRY_DSN: "https://<key>@o4511336023326720.ingest.de.sentry.io/<projectId>"
+
   # ── NextAuth ──────────────────────────────────────────────────────────────────
   # Must be reachable from inside the pod for callbacks.
   NEXTAUTH_URL: "http://console.console.svc.cluster.local:8800"
