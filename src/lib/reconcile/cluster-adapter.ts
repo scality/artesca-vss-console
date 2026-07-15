@@ -11,7 +11,12 @@ import {
 
 /** A live sensor as the reconciler sees it (subset of VstSensor, renamed). */
 export interface AdapterSensor {
+  /** Identity key — the camera NAME on the k8s path (used for desired-vs-live
+   *  matching). NOT safe as a VST delete key; use `uuid`. */
   sensorId: string;
+  /** Real VIOS UUID for lifecycle ops (delete). Falls back to sensorId when the
+   *  source didn't surface a distinct UUID. */
+  uuid?: string;
   name: string;
   rtspUrl?: string;
 }
@@ -57,6 +62,7 @@ export class VstClusterAdapter implements ClusterAdapter {
     if (warning) return [];
     return sensors.map((s) => ({
       sensorId: s.sensor_id,
+      uuid: typeof s.sensor_uuid === "string" ? s.sensor_uuid : undefined,
       name: typeof s.name === "string" ? s.name : s.sensor_id,
       rtspUrl: typeof s.rtsp_url === "string" ? s.rtsp_url : undefined,
     }));

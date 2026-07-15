@@ -20,9 +20,9 @@ function fakeAdapter(initial: AdapterSensor[], opts: { withRemove?: boolean } = 
     },
   };
   if (opts.withRemove) {
-    adapter.removeSensor = async (sensorId) => {
-      removed.push(sensorId);
-      const i = sensors.findIndex((s) => s.sensorId === sensorId);
+    adapter.removeSensor = async (key) => {
+      removed.push(key);
+      const i = sensors.findIndex((s) => s.uuid === key || s.sensorId === key);
       if (i >= 0) sensors.splice(i, 1);
       return { ok: true };
     };
@@ -120,6 +120,17 @@ describe("reconcileCameras", () => {
     expect(r.added).toEqual([]);
     expect(r.alreadyPresent).toEqual([]);
     expect(r.drift).toContain("parked disabled camera (de-registered live sensor): pyramid-cam0");
+  });
+
+  it("parks by the real VIOS UUID when name != uuid (the k8s-path delete key)", async () => {
+    const { adapter, removed } = fakeAdapter(
+      [{ sensorId: "pyramid-cam0", uuid: "f0094a7b-98b3-4934-ac3a-0b2ef406097d", name: "pyramid-cam0" }],
+      { withRemove: true },
+    );
+    const r = await reconcileCameras([disabledCam("pyramid-cam0")], adapter, { prune: false });
+    // Delete must use the UUID, not the name — deleting by name returns HTTP 4xx.
+    expect(removed).toEqual(["f0094a7b-98b3-4934-ac3a-0b2ef406097d"]);
+    expect(r.parked).toEqual(["pyramid-cam0"]);
   });
 
   it("never adds a disabled camera that is not live", async () => {

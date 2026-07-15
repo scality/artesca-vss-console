@@ -10,6 +10,10 @@ const VST_BASE = CLUSTER.vst.sensorUrl;
 
 export interface VstSensor {
   sensor_id: string;
+  /** The VIOS UUID (distinct from sensor_id, which carries the camera NAME on
+   *  the k8s path for name-based matching). Delete/lifecycle ops are keyed by
+   *  this UUID — deleting by name returns HTTP 4xx. */
+  sensor_uuid?: string;
   name?: string;
   rtsp_url?: string;
   status?: string;
@@ -88,6 +92,8 @@ export async function vstListSensors(): Promise<{
           typeof o.name === "string"
             ? o.name
             : String(o.sensorId ?? o.sensor_id ?? ""),
+        // Real VIOS UUID, kept alongside sensor_id (=name) for delete ops.
+        sensor_uuid: String(o.sensorId ?? o.sensor_id ?? "") || undefined,
         name: typeof o.name === "string" ? o.name : undefined,
         rtsp_url: typeof o.rtsp_url === "string" ? o.rtsp_url : undefined,
         status:

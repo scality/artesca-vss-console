@@ -66,7 +66,7 @@ export async function reconcileCameras(
 
     if (isParked(cam)) {
       if (liveSensor && adapter.removeSensor) {
-        const res = await adapter.removeSensor(liveSensor.sensorId);
+        const res = await adapter.removeSensor(liveSensor.uuid ?? liveSensor.sensorId);
         if (res.ok) {
           result.parked.push(cam.id);
           result.drift.push(`parked disabled camera (de-registered live sensor): ${cam.id}`);
@@ -91,7 +91,7 @@ export async function reconcileCameras(
     if (desiredIds.has(s.name)) continue;
     result.drift.push(`extra live sensor not in desired: ${s.name}`);
     if (opts.prune && adapter.removeSensor) {
-      const res = await adapter.removeSensor(s.sensorId);
+      const res = await adapter.removeSensor(s.uuid ?? s.sensorId);
       if (res.ok) result.pruned.push(s.name);
       else result.failed.push({ id: s.name, warning: res.warning });
     }
