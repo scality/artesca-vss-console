@@ -40,6 +40,9 @@ export async function register() {
   if (globalForInstrumentation.__started) return;
   globalForInstrumentation.__started = true;
 
+  const { startErrorBridge } = await import("@/lib/error-bridge");
+  void startErrorBridge();
+
   if (process.env.RECONCILE_AGENT === "1") {
     const { startReconcileLoop } = await import("@/lib/reconcile-agent");
     await startReconcileLoop();
