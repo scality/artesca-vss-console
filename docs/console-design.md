@@ -96,13 +96,13 @@ browser (showroom laptop or iPad on the SG-whitelisted network)
 
 ## Tech stack
 
-Complementary to expatfolio where it makes sense (Next.js / TypeScript /
+Deliberately conventional where it can be (Next.js / TypeScript /
 Tailwind / React Query / Vitest / Playwright — operators and engineers
 recognize the same patterns) and divergent where the use case demands it
 (in-cluster data sources, no managed auth/DB/email, deploys as a K8s pod
 not to Vercel).
 
-### Shared with expatfolio (keeps our mental model stable)
+### Conventional choices (keeps our mental model stable)
 
 | Library | Why |
 | --- | --- |
@@ -111,12 +111,12 @@ not to Vercel).
 | `tailwindcss@3` + `@tailwindcss/typography` | Same Tailwind; dark-theme class toggle like the alert dashboard |
 | `@radix-ui/*` via `shadcn/ui` | Same primitives (Dialog, DropdownMenu, Tabs, Toast, Select, Switch) |
 | `@tanstack/react-query` | Same client-cache / refetch pattern |
-| `recharts` | Metric graphs — matches expatfolio's portfolio graphs stylistically |
+| `recharts` | Metric graphs — consistent chart styling with our other dashboards |
 | `lucide-react` | Icons |
-| `zod` | Runtime schema validation for ConfigMap round-trips, same pattern as expatfolio form validation |
+| `zod` | Runtime schema validation for ConfigMap round-trips, the standard form-validation pattern |
 | `vitest` + `@playwright/test` | Same test harness |
 
-### Specific to this use case (replaces expatfolio's SaaS pieces)
+### Specific to this use case (replaces the usual managed-SaaS pieces)
 
 | Library | Replaces | Why |
 | --- | --- | --- |
@@ -132,7 +132,7 @@ not to Vercel).
 
 ### Node runtime + build
 
-- Node.js 24 LTS (same as expatfolio)
+- Node.js 24 LTS
 - `next build` with `output: "standalone"` for a ~150 MB runtime image
 - Multi-stage Dockerfile (same pattern as `docker/alert-worker/`)
 - GHCR publication via `.github/workflows/build-console.yml`
