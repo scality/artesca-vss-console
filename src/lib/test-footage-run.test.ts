@@ -16,13 +16,20 @@ vi.mock("@/lib/k8s", () => ({
   waitForRollout: vi.fn(),
   quiesceDeployment: vi.fn(),
   scaleDeployment: vi.fn(),
+  deploymentExists: vi.fn(),
 }));
 
 import { registerSensorAndArm } from "@/lib/helpers/vst-register";
 import { vstDeleteSensor, vstListSensors } from "@/lib/helpers/vst";
 import { setIngestion, suspendIngestion, listIngestingCameras } from "@/lib/helpers/ingestion";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
-import { rolloutRestart, waitForRollout, quiesceDeployment, scaleDeployment } from "@/lib/k8s";
+import {
+  rolloutRestart,
+  waitForRollout,
+  quiesceDeployment,
+  scaleDeployment,
+  deploymentExists,
+} from "@/lib/k8s";
 import { listAlertProfiles, pausedSensors, startRun, stopRun } from "./test-footage-run";
 
 const register = vi.mocked(registerSensorAndArm);
@@ -37,6 +44,7 @@ const restart = vi.mocked(rolloutRestart);
 const waitRollout = vi.mocked(waitForRollout);
 const quiesce = vi.mocked(quiesceDeployment);
 const scale = vi.mocked(scaleDeployment);
+const depExists = vi.mocked(deploymentExists);
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -62,6 +70,7 @@ beforeEach(() => {
   waitRollout.mockResolvedValue(true);
   quiesce.mockResolvedValue({ previousReplicas: 1, quiesced: true });
   scale.mockResolvedValue(undefined);
+  depExists.mockResolvedValue(true);
 });
 
 describe("startRun", () => {
@@ -256,9 +265,12 @@ describe("startRun", () => {
     ).rejects.toThrow(/could not register/);
 
     // The showroom must not be left with its analysis switched off because a
-    // test failed to start.
-    expect(ingestion).toHaveBeenCalledWith("checkout-1", true);
-    expect(ingestion).toHaveBeenCalledWith("pyramid-16-cam0", true);
+    // test failed to start. Clearing the marker is the resume — the reconciler
+    // owns rule creation and seeds every unpaused camera on its next tick.
+    const cleared = patchCm.mock.calls
+      .map((c) => String(c[3]))
+      .some((w) => !JSON.parse(w).paused_sensors);
+    expect(cleared).toBe(true);
   });
 
   it("rejects a file whose name is not usable footage", async () => {
@@ -287,7 +299,9 @@ describe("stopRun", () => {
     expect(delSensor).toHaveBeenCalledWith("uuid-test");
     // The live camera is resumed, never deleted.
     expect(delSensor).not.toHaveBeenCalledWith("uuid-live");
-    expect(ingestion).toHaveBeenCalledWith("checkout-1", true);
+    // Resume is the marker clear, not a second create — see restoreCameras.
+    expect(ingestion).not.toHaveBeenCalledWith("checkout-1", true);
+    expect(res.resumed).toContain("checkout-1");
   });
 
   it("resumes cameras the ConfigMap says are paused, not just the caller's list", async () => {
@@ -303,8 +317,6 @@ describe("stopRun", () => {
     const res = await stopRun({ resume: [] });
 
     expect(res.resumed.sort()).toEqual(["pyramid-16-cam0", "pyramid-18-cam1"]);
-    expect(ingestion).toHaveBeenCalledWith("pyramid-16-cam0", true);
-    expect(ingestion).toHaveBeenCalledWith("pyramid-18-cam1", true);
   });
 
   it("never tries to resume a test camera it just deleted", async () => {
@@ -399,5 +411,39 @@ describe("pausedSensors", () => {
   it("reports nothing rather than throwing when the ConfigMap cannot be read", async () => {
     readCm.mockRejectedValue(new Error("nope"));
     expect(await pausedSensors()).toEqual([]);
+  });
+});
+
+describe("restore ownership", () => {
+  beforeEach(() => {
+    listSensors.mockResolvedValue({
+      sensors: [{ sensor_id: "test-clip", streamId: "uuid-test" }],
+    } as unknown as Awaited<ReturnType<typeof vstListSensors>>);
+    readCm.mockResolvedValue({
+      value: { rules: [{ sensor: "checkout-1" }], paused_sensors: ["checkout-1"] },
+      raw: "{}",
+      resourceVersion: "1",
+    } as unknown as Awaited<ReturnType<typeof readConfigMapKey>>);
+  });
+
+  it("leaves rule creation to the reconciler when one is deployed", async () => {
+    depExists.mockResolvedValue(true);
+
+    await stopRun({ resume: ["checkout-1"] });
+
+    // Both writers creating the same rule is the whole defect: neither sees the
+    // other's create in time on an eventually-consistent index, so both post and
+    // the reconciler then deduplicates. One owner, no race.
+    expect(ingestion).not.toHaveBeenCalledWith("checkout-1", true);
+  });
+
+  it("creates the rules itself when no reconciler is deployed", async () => {
+    depExists.mockResolvedValue(false);
+
+    await stopRun({ resume: ["checkout-1"] });
+
+    // Nothing else would ever create them on this profile, and with a single
+    // writer there is no race to avoid.
+    expect(ingestion).toHaveBeenCalledWith("checkout-1", true);
   });
 });
