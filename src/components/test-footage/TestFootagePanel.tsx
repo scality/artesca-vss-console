@@ -36,6 +36,9 @@ const ResponseSchema = z.object({
 
 type Footage = z.infer<typeof FileSchema>;
 
+/** Shown before the first API response lands; mirrors MAX_UPLOAD_BYTES. */
+const MAX_UPLOAD_BYTES_FALLBACK = 2 * 1024 * 1024 * 1024;
+
 function humanSize(bytes: number): string {
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
   if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(0)} MB`;
@@ -257,7 +260,9 @@ export function TestFootagePanel() {
           </Button>
           <span className="text-xs text-muted-foreground">
             mp4 · ts · mkv · mov · webm, up to{" "}
-            {data ? `${data.maxUploadBytes / 1e9} GB` : "2 GB"}
+            {/* humanSize, not a raw divide: the limit is 2 GiB, which printed
+                as "2.147483648 GB" in the byte count nobody wants to read. */}
+            {humanSize(data?.maxUploadBytes ?? MAX_UPLOAD_BYTES_FALLBACK)}
           </span>
         </div>
 

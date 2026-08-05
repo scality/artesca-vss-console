@@ -34,6 +34,12 @@ const ALLOWED_EXTENSIONS = [".mp4", ".ts", ".mkv", ".mov", ".webm"] as const;
  *  enough that a mistaken upload cannot fill the 20 Gi volume in one request. */
 export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 
+/** Bytes as a size an operator can read. A raw `bytes / 1e9` rendered the 2 GiB
+ *  limit as "2.147483648 GB" in both the upload hint and these errors. */
+function gb(bytes: number): string {
+  return `${(bytes / 1e9).toFixed(1)} GB`;
+}
+
 export type PlaybackMode = "loop" | "once";
 
 export interface FootageFile {
@@ -144,7 +150,7 @@ export async function saveFootage(
 ): Promise<FootageFile> {
   if (declaredBytes !== undefined && declaredBytes > MAX_UPLOAD_BYTES) {
     throw new FootageError(
-      `file is ${(declaredBytes / 1e9).toFixed(1)} GB — the limit is ${MAX_UPLOAD_BYTES / 1e9} GB`,
+      `file is ${gb(declaredBytes)} — the limit is ${gb(MAX_UPLOAD_BYTES)}`,
       413,
     );
   }
@@ -161,7 +167,7 @@ export async function saveFootage(
       written += chunk.byteLength;
       if (written > MAX_UPLOAD_BYTES) {
         controller.error(
-          new FootageError(`upload exceeded the ${MAX_UPLOAD_BYTES / 1e9} GB limit`, 413),
+          new FootageError(`upload exceeded the ${gb(MAX_UPLOAD_BYTES)} limit`, 413),
         );
         return;
       }
