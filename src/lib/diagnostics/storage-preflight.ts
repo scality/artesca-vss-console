@@ -51,8 +51,34 @@ interface RecorderStorageConfig {
   enabled?: boolean;
 }
 
-/** Read cloud_storage_* out of the recorder's vst_config.json ConfigMap. The
- *  keys sit at the top level of that document on the Helm profile. */
+/** Collect every cloud_storage_* / enable_cloud_storage value in the document,
+ *  at whatever depth it sits. On the Helm alerts profile they live under `data`,
+ *  but the nesting is chart-version-dependent — a top-level-only read silently
+ *  yields "storage disabled" for a recorder that is writing perfectly well,
+ *  which is exactly the false alarm this module exists to prevent. */
+export function extractStorageKeys(doc: unknown): Record<string, unknown> {
+  const found: Record<string, unknown> = {};
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      if (k === "enable_cloud_storage" || k.startsWith("cloud_storage")) {
+        // First occurrence wins — shallowest, since this is breadth-agnostic
+        // depth-first over a document with a single storage block.
+        if (!(k in found)) found[k] = v;
+      } else {
+        visit(v);
+      }
+    }
+  };
+  visit(doc);
+  return found;
+}
+
+/** Read cloud_storage_* out of the recorder's vst_config.json ConfigMap. */
 async function readRecorderStorageConfig(): Promise<RecorderStorageConfig | undefined> {
   const { configMap, namespace, key } = CLUSTER.vst.recorderConfig;
   const cm = await readConfigMapKey(namespace, configMap, key).catch((err) => {
@@ -61,17 +87,18 @@ async function readRecorderStorageConfig(): Promise<RecorderStorageConfig | unde
   });
   if (!cm?.raw) return undefined;
   try {
-    const doc = JSON.parse(cm.raw) as Record<string, unknown>;
+    const keys = extractStorageKeys(JSON.parse(cm.raw));
+    if (Object.keys(keys).length === 0) return undefined;
     const str = (k: string) =>
-      typeof doc[k] === "string" ? (doc[k] as string) : undefined;
+      typeof keys[k] === "string" ? (keys[k] as string) : undefined;
     return {
       endpoint: str("cloud_storage_endpoint"),
       accessKey: str("cloud_storage_access_key"),
       secretKey: str("cloud_storage_secret_key"),
       bucket: str("cloud_storage_bucket"),
       region: str("cloud_storage_region"),
-      useSsl: doc.cloud_storage_use_ssl === true,
-      enabled: doc.enable_cloud_storage === true,
+      useSsl: keys.cloud_storage_use_ssl === true,
+      enabled: keys.enable_cloud_storage === true,
     };
   } catch (err) {
     log.warn("recorder config unparseable", { err: String(err) });
