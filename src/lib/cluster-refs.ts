@@ -282,6 +282,15 @@ const ALERT_BRIDGE_REALTIME_URL =
   process.env.ALERT_BRIDGE_REALTIME_URL ??
   `${ALERT_BRIDGE_URL}/api/v1/realtime`;
 
+// RT-VLM OpenAI-compatible model list. Used to resolve the model id a rule must
+// carry: the realtime-alert-rules CM ships a build-versioned name (and can hold
+// a placeholder like "resolved-live-from-vlm"), and the alert-bridge rejects a
+// name the VLM doesn't serve with 400 "No such model" — surfacing to the console
+// only as a 502, leaving the camera silently un-ingested.
+const RTVI_VLM_MODELS_URL =
+  process.env.RTVI_VLM_MODELS_URL ??
+  `http://vss-rtvi-vlm.${VSS_NS}.svc.cluster.local:8000/v1/models`;
+
 // ─── VSS Agent (chat) ─────────────────────────────────────────────────────────
 // Helm: vss-agent Deployment/Service in vss-<profile>, OpenAI-compatible
 // /chat endpoint on :8000. Same resolution /api/chat/route.ts already used
@@ -699,6 +708,17 @@ export const CLUSTER = {
     proxyStreamRemoveUrl: VST_PROXY_STREAM_REMOVE_URL,
     /** Origin the /api/media proxy forwards snapshot/clip paths onto. */
     mediaOrigin: VST_MEDIA_ORIGIN,
+    /** The recorder's own config document — cloud_storage_* lives here, written
+     *  at deploy time from the objectstore-creds Secret. Read (never written)
+     *  by the storage preflight, which exercises those credentials so a stale
+     *  endpoint or revoked key is reported instead of silently killing every
+     *  recording. */
+    recorderConfig: {
+      namespace: VSS_NS,
+      configMap:
+        process.env.VST_RECORDER_CONFIG_MAP ?? "vss-vios-streamprocessing-configs",
+      key: process.env.VST_RECORDER_CONFIG_KEY ?? "vst_config.json",
+    },
     ...VST,
   },
   /** Enables the /api/media proxy + chat media-URL rewrite (config: VSS_MEDIA_PROXY_ENABLED). */
@@ -727,6 +747,8 @@ export const CLUSTER = {
      *  vlm-stream-reconciler converges from. Sampling tuning is written here. */
     rulesConfigMap: process.env.REALTIME_RULES_CM ?? "realtime-alert-rules",
     rulesNamespace: VSS_NS,
+    /** RT-VLM /v1/models — the authority on which model id a rule may carry. */
+    vlmModelsUrl: RTVI_VLM_MODELS_URL,
   },
   agent: {
     /** vss-agent's OpenAI-compatible base URL — /chat and /health hang off this. */

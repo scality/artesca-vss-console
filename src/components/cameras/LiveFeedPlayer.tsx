@@ -43,10 +43,17 @@ export function LiveFeedPlayer({ eip, sensorId }: LiveFeedPlayerProps) {
     return () => hls.destroy();
   }, [eip, sensorId]);
 
+  // The inline preview is an HLS re-stream published by the camera-sim host.
+  // A real IP camera (Pyramid's camerabars) has no camera-sim behind it, which
+  // is normal — the previous copy ("no camera-sim host") read as a missing
+  // dependency and sent operators looking for a fault that wasn't there.
   if (!eip) {
     return (
-      <div className="w-80 aspect-video bg-muted/30 rounded flex items-center justify-center text-xs text-muted-foreground">
-        no camera-sim host
+      <div
+        className="w-80 aspect-video bg-muted/30 rounded flex items-center justify-center text-center text-xs text-muted-foreground px-3"
+        title="Inline preview is only available for camera-sim feeds. Recording and VLM analysis are unaffected."
+      >
+        preview unavailable for a direct RTSP camera
       </div>
     );
   }

@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, PlusCircle, CloudUpload } from "lucide-react";
 import { classifyListState } from "@/lib/diagnostics/list-state";
 import { CameraRow } from "./CameraRow";
+import { StoragePreflightBanner, useCameraChain } from "./ChainDiagnosis";
 import { AddCameraDialog } from "./AddCameraDialog";
 import type { PromptSet } from "@/components/prompt/PromptSetManager";
 
@@ -74,6 +75,14 @@ export function CameraTable() {
     refetchInterval: 15_000,
     refetchOnWindowFocus: true,
   });
+
+  // Why-is-it-broken diagnosis, keyed by camera id. Polled separately from the
+  // camera list so a slow cluster probe never delays rendering the table.
+  const { data: chainReport } = useCameraChain();
+  const chainByCamera = React.useMemo(
+    () => new Map((chainReport?.cameras ?? []).map((c) => [c.cameraId, c])),
+    [chainReport],
+  );
 
   const syncToGcs = useMutation({
     mutationFn: async () => {
@@ -144,6 +153,11 @@ export function CameraTable() {
         </div>
       </div>
 
+      {/* Shared-dependency failures first: when the recorder can't reach S3,
+          every camera stops recording at once and the per-row errors are all
+          the same consequence. */}
+      <StoragePreflightBanner report={chainReport} />
+
       {isLoading && (
         <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
           <Loader2 className="h-5 w-5 animate-spin" />
@@ -205,7 +219,13 @@ export function CameraTable() {
                     );
                   }
                   return data.cameras.map((camera) => (
-                    <CameraRow key={camera.id} camera={camera} eip={data.eip} promptSets={promptSets} />
+                    <CameraRow
+                      key={camera.id}
+                      camera={camera}
+                      eip={data.eip}
+                      promptSets={promptSets}
+                      chain={chainByCamera.get(camera.id)}
+                    />
                   ));
                 })()}
               </TableBody>

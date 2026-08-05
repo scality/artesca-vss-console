@@ -12,11 +12,14 @@ import { ChevronDown, ChevronRight, Trash2, RefreshCw, Video, VideoOff, Eye, Eye
 import { FeedList } from "./FeedList";
 import { CameraDetailPanel } from "./CameraDetailPanel";
 import type { PromptSet } from "@/components/prompt/PromptSetManager";
+import { ChainSteps, ChainVerdictBadge, type ChainForCamera } from "./ChainDiagnosis";
 
 interface CameraRowProps {
   camera: Camera & { gcsPersisted?: boolean };
   eip: string;
   promptSets: PromptSet[];
+  /** Chain diagnosis for this camera — why it is (not) producing incidents. */
+  chain?: ChainForCamera;
 }
 
 /** Badge showing whether VST is actually recording this camera (timeline
@@ -182,7 +185,7 @@ const roleBadgeClass: Record<Camera["role"], string> = {
   other: "border-muted-foreground text-muted-foreground",
 };
 
-export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
+export function CameraRow({ camera, eip, promptSets, chain }: CameraRowProps) {
   const [expanded, setExpanded] = React.useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -354,6 +357,13 @@ export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
             />
             <IngestionBadge vstIngesting={camera.feeds[0]?.vstIngesting} />
           </div>
+          {/* The badges above say WHAT the state is; this says WHY, so a red
+              chip is actionable without reading pod logs. */}
+          {chain?.verdict && (
+            <div className="mt-1">
+              <ChainVerdictBadge chain={chain} />
+            </div>
+          )}
         </TableCell>
         <TableCell>
           <Badge
@@ -463,12 +473,24 @@ export function CameraRow({ camera, eip, promptSets }: CameraRowProps) {
                 <TabsTrigger value="bindings" className="h-6 text-xs px-3">
                   Scenario bindings &amp; recording
                 </TabsTrigger>
+                <TabsTrigger value="diagnosis" className="h-6 text-xs px-3">
+                  Diagnosis
+                </TabsTrigger>
               </TabsList>
               <TabsContent value="feeds">
                 <FeedList cameraId={camera.id} feeds={camera.feeds} eip={eip} />
               </TabsContent>
               <TabsContent value="bindings">
                 <CameraDetailPanel camera={camera} />
+              </TabsContent>
+              <TabsContent value="diagnosis">
+                <div className="pl-4 py-1 space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Every link that must hold for this camera to produce
+                    incidents with video.
+                  </p>
+                  <ChainSteps chain={chain} />
+                </div>
               </TabsContent>
             </Tabs>
           </TableCell>
