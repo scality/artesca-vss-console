@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  FileVideo,
   LayoutDashboard,
   Network,
   AlertTriangle,
@@ -10,7 +11,6 @@ import {
   ListChecks,
   MessageSquare,
   Sliders,
-  Database,
   BookmarkCheck,
   KeyRound,
   ScrollText,
@@ -63,6 +63,7 @@ const NAV_GROUPS: Array<{
       { href: "/prompt", label: "VLM Prompt", icon: MessageSquare },
       { href: "/tuning", label: "Tuning", icon: Sliders },
       { href: "/agent", label: "Agent", icon: Cog },
+      { href: "/test-footage", label: "Test Footage", icon: FileVideo },
       { href: "/profiles", label: "Profiles", icon: BookmarkCheck },
     ],
   },

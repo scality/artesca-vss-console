@@ -56,7 +56,7 @@ able to run the demo from one browser tab, not four tabs plus a terminal.
 | 5 | **EC2 stop/start**: Out of scope (menubar owns it). | — |
 | 6 | **Incident drill-in playback**: Click an incident → play the source VST-recorded clip in-browser via HLS. Server-side fetches the clip from ARTESCA S3 (`nvidia-vss-video` bucket) OR proxies VST's clip endpoint; if only MP4/TS is available, ffmpeg sidecar transcodes to HLS on demand. Browser uses `hls.js` for cross-browser playback. | Adds `/api/clips/:sensor/:ts` SSE + HLS endpoint; adds ~2 dev-days to Phase 6. |
 | 7 | **Camera model**: One camera has **N feeds** (default 2, matching the Pyramid 2-lens camera rail; 4+ allowed). Each feed is a separate RTSP source registered into VST as its own sensor. Naming: sensor_id = `<camera-id>-<feed-id>` e.g. `checkout-1-a`, `checkout-1-b`. | Revised TypeScript data model (below). The alert worker's `sensor_filter` glob still works (`checkout-*` matches both `checkout-1-a` and `checkout-1-b`). |
-| 8 | **Editing scope**: All eight surfaces editable. Cameras (add/edit/remove, with N feeds each), scenario rules (keywords, sensor_filter, severity, cooldown-per-scenario), VLM system prompt, alert-worker env (cooldown, Slack webhook), rtvi-vlm tuning (max_num_seqs, KV cache %, max_model_len), manual rollout-restarts, demo-data controls (on/off, tick rate, match probability), NIM model swap (cosmos-reason2 ↔ cosmos-reason1 ↔ future NVILA-Lite). Plus: **named demo profiles** (save/load the whole scenario+prompt+camera config), **mediamtx path management**, **secret rotation UI** (NGC key, NVIDIA API key, HuggingFace token, Slack webhook). | Biggest scope expansion. Adds one Profiles page + one Secrets page + inline model-swap control on Prompt page. |
+| 8 | **Editing scope**: All eight surfaces editable. Cameras (add/edit/remove, with N feeds each), scenario rules (keywords, sensor_filter, severity, cooldown-per-scenario), VLM system prompt, alert-worker env (cooldown, Slack webhook), rtvi-vlm tuning (max_num_seqs, KV cache %, max_model_len), manual rollout-restarts, test-footage replay (upload a video file, run it as a camera in loop or one-shot, optionally pausing live-camera analysis), NIM model swap (cosmos-reason2 ↔ cosmos-reason1 ↔ future NVILA-Lite). Plus: **named demo profiles** (save/load the whole scenario+prompt+camera config), **mediamtx path management**, **secret rotation UI** (NGC key, NVIDIA API key, HuggingFace token, Slack webhook). | Biggest scope expansion. Adds one Profiles page + one Secrets page + inline model-swap control on Prompt page. |
 
 ## Architecture
 
@@ -179,7 +179,7 @@ others are hidden in kiosk mode.
 | `/scenarios` | — | Table of scenario rules (from `k8s/nvidia-vss/alerts/12-configmap-scenarios.yaml`). Inline edit per row: keywords (chips), sensor_filter (glob input with live match preview against current camera feeds), severity, channels, **per-scenario cooldown override**, enabled. Save issues `kubectl patch configmap` + rollout-restart of the alert-worker. |
 | `/prompt` | — | **VLM prompt editor** (Monaco). Current prompt in one pane; diff vs proposed in the other. "Preview" button sends a test message to the NIM and shows the response. Inline **NIM model swap** selector (cosmos-reason2 ↔ cosmos-reason1) rewrites the rtvi-vlm + NIM ConfigMaps and rollout-restarts both Deployments. "Save + restart" writes the ConfigMap + rollout-restart of rtvi-vlm. |
 | `/tuning` | — | Knobs for rtvi-vlm (`max_num_seqs`, `kv_cache_percent`, `max_model_len`), alert worker (global `cooldown_seconds`, Slack webhook), and **VST ingest** (`always_recording` / `event_recording` mode, `event_record_length_secs`, `default_gov_length`, `supported_video_codecs`, `storage_threshold_percentage`, `default_file_expiry_minutes`). Form edits → ConfigMap patches → rollout-restart the affected Deployment. VST form shows live observed bitrate + GoP per camera next to the inputs so the operator sees the impact of a change. |
-| `/demo-data` | — | Toggle the synthetic demo-data producer (scale 0 ↔ 1). Tick rate + match probability sliders → `kubectl set env`. Quick "rehearsal mode" button that scales to 1 with high match probability for a 60 s burst. |
+| `/test-footage` | — | Upload a video file and replay it as a camera through the real pipeline (RTSP → VST → VLM → scenarios) to test the prompt and alert rules on actual frames. Loop or one-shot; optionally pauses live-camera analysis so the GPU is dedicated to the run. |
 | `/profiles` | — | **Save / load named demo profiles** — a profile bundles scenarios + VLM prompt + cameras + rtvi tuning + alert tuning + NIM model into one object stored in a `console-profiles` ConfigMap. Use cases: "pyramid-jun-8" config snapshotted after rehearsal; "aarco-oct" variant; roll back to a known-good before a new demo. Load applies every component atomically. |
 | `/secrets` | — | **Secret rotation UI** — NGC key, NVIDIA API key, HuggingFace token, Slack webhook, console auth password. Paste a new value, confirm, and the console patches the target K8s Secret + rolls the consuming Deployment. |
 | `/logs` | — | Log streamer — pick a pod + container → live tail via SSE. Filter regex, pause/resume, download last N lines. Camera-sim `journalctl -fu camera-sim` available via an SSH tail. |
@@ -416,7 +416,7 @@ ClusterRole `console-reader` — cluster-scoped but read-only:
 - `nodes` + `nodes/metrics`: get / list (for GPU state)
 
 Role `console-writer` in each of the 6 namespaces (`vst`, `rtvi`, `agent`,
-`alerts`, `demo-data`, `pyramid-ingress`):
+`alerts`, `pyramid-ingress`):
 
 - `configmaps`: patch (for editing scenarios, cameras, prompt)
 - `deployments`, `statefulsets`: patch (for rollout-restart)
@@ -446,7 +446,7 @@ Sequenced so each lands with a testable outcome.
 | 5 | Cameras **write** (dual-write camera-sim + ConfigMap + register Job) | Add camera in UI → VST `/sensor/list` shows it within ~30 s |
 | 6 | SSE for logs + Kafka + incidents | Live log tail in browser matches `kubectl logs -f` |
 | 7 | Topology page (React Flow) | Health colors track actual state within 5 s |
-| 8 | Diagnostics page + demo-data on/off toggle | Every `scripts/*-smoke-test.sh` runnable from the UI |
+| 8 | Diagnostics page + test-footage replay | Every `scripts/*-smoke-test.sh` runnable from the UI |
 | 9 | Settings page (password rotation + feature flags) | Rotate password via UI, next login uses new |
 
 Each phase ships its own commit + includes a Playwright E2E that smokes the

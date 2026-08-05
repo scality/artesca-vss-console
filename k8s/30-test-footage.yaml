@@ -1,0 +1,149 @@
+# Test footage — replay local video files as RTSP so they drive the REAL
+# pipeline: VST ingest → recording → rtvi-vlm → Kafka → alert worker.
+#
+# Replaces the old synthetic demo-data producer, which published fabricated
+# caption text straight to Kafka. That exercised keyword matching only; it could
+# not test a VLM prompt, because the caption was the input rather than the model's
+# output. Real frames through the real VLM is the only thing that validates a
+# prompt or a scenario end to end.
+#
+# Lives in the `console` namespace on purpose: a PVC can only be mounted by pods
+# in its own namespace, and the console must write uploads into the same volume
+# the replay server reads from.
+#
+# No process management anywhere. mediamtx serves two REGEX paths and starts an
+# ffmpeg on demand when a client connects, killing it once nobody is reading:
+#
+#   rtsp://<node>:8654/loop/<file>   looping   (prompt iteration)
+#   rtsp://<node>:8654/once/<file>   one pass  (scoring a single clip)
+#
+# So "start a test run" is just: register a VST camera pointing at one of those
+# URLs. Nothing to reconcile, and a crashed run cannot leak an ffmpeg.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-footage-data
+  namespace: console
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: console-local
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-footage-mediamtx
+  namespace: console
+data:
+  mediamtx.yml: |
+    # Ports are deliberately non-default: this shares the host network with VST
+    # and the camera-sim conventions already use 8554/9997.
+    rtspAddress: :8654
+    apiAddress: 127.0.0.1:9897
+    api: yes
+    rtmp: no
+    hls: no
+    webrtc: no
+    srt: no
+    logLevel: info
+    logDestinations: [stdout]
+
+    # Lab-internal, reachable only on the node's loopback/LAN — same posture as
+    # the camera-sim RTSP port. No credentials to leak into a camera URL.
+    authMethod: internal
+    authInternalUsers:
+    - user: any
+      pass:
+      permissions:
+      - action: publish
+      - action: read
+      - action: api
+
+    pathDefaults:
+      # Give ffmpeg a moment to produce frames before mediamtx declares the
+      # source dead, and tear it down promptly once VST stops reading.
+      runOnDemandStartTimeout: 20s
+      runOnDemandCloseAfter: 10s
+
+    paths:
+      # $G1 is the capture group (the filename). -re paces the file at wall
+      # clock, so the VLM sees it at natural speed rather than as fast as the
+      # disk can read; -c copy keeps the original codec (no transcode, no GPU).
+      "~^loop/(.+)$":
+        runOnDemand: >-
+          ffmpeg -hide_banner -loglevel warning -re -stream_loop -1
+          -i /footage/$G1 -c copy -f rtsp rtsp://127.0.0.1:8654/$MTX_PATH
+        runOnDemandRestart: yes
+
+      "~^once/(.+)$":
+        runOnDemand: >-
+          ffmpeg -hide_banner -loglevel warning -re
+          -i /footage/$G1 -c copy -f rtsp rtsp://127.0.0.1:8654/$MTX_PATH
+        # Deliberately NOT restarted: one pass, then the stream ends.
+        runOnDemandRestart: no
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-footage-server
+  namespace: console
+  labels:
+    app: test-footage-server
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # RWO volume — never two pods holding it at once.
+  selector:
+    matchLabels:
+      app: test-footage-server
+  template:
+    metadata:
+      labels:
+        app: test-footage-server
+    spec:
+      # hostNetwork so VST (also hostNetwork, same converged node) can pull
+      # rtsp://127.0.0.1:8654/... — the same reason the camera-sim replay path
+      # uses it.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: mediamtx
+        # The -ffmpeg variant bundles the ffmpeg binary runOnDemand invokes.
+        image: bluenviron/mediamtx:1.9.3-ffmpeg
+        imagePullPolicy: IfNotPresent
+        args: ["/etc/mediamtx/mediamtx.yml"]
+        ports:
+        - containerPort: 8654
+          name: rtsp
+          protocol: TCP
+        volumeMounts:
+        - name: config
+          mountPath: /etc/mediamtx
+        - name: footage
+          mountPath: /footage
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            # ffmpeg with -c copy is a remux, not a transcode — cheap. The cap
+            # stops a pathological file from starving the VLM of CPU.
+            cpu: "2"
+            memory: 1Gi
+        readinessProbe:
+          tcpSocket:
+            port: 8654
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: config
+        configMap:
+          name: test-footage-mediamtx
+      - name: footage
+        persistentVolumeClaim:
+          claimName: test-footage-data
