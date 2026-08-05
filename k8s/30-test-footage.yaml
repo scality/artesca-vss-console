@@ -28,7 +28,13 @@ metadata:
 spec:
   accessModes:
   - ReadWriteOnce
-  storageClassName: console-local
+  # local-path (the cluster default) is a DYNAMIC provisioner, unlike
+  # console-local which is kubernetes.io/no-provisioner and needs a hand-made PV
+  # plus a host directory prepared by deploy-console.sh. Test footage is
+  # disposable, so dynamic provisioning with a Delete reclaim policy is right —
+  # and it keeps this manifest self-contained. A Pending PVC here would stop the
+  # console pod from starting at all, since the console mounts this volume.
+  storageClassName: local-path
   resources:
     requests:
       storage: 20Gi

@@ -170,6 +170,21 @@ export async function saveFootage(
       Readable.fromWeb(body.pipeThrough(counted) as Parameters<typeof Readable.fromWeb>[0]),
       createWriteStream(tmp),
     );
+
+    // A short body must never be stored as if it were the whole file. This
+    // caught a silent truncation: when a request is proxied, Next buffers the
+    // body to proxyClientMaxBodySize (10 MB) and passes the partial stream on
+    // WITHOUT erroring, so a 31 MB clip arrived as exactly 10 MiB and would
+    // have been served as playable footage — ffmpeg would then loop a third of
+    // the clip and the "test" would silently cover the wrong frames.
+    if (declaredBytes !== undefined && written !== declaredBytes) {
+      throw new FootageError(
+        `upload truncated: received ${written} of ${declaredBytes} bytes — ` +
+          `the request was cut short (a proxied route caps the body at 10 MB)`,
+        400,
+      );
+    }
+
     const { rename } = await import("node:fs/promises");
     await rename(tmp, target);
   } catch (err) {
