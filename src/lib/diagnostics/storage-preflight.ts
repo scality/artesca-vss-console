@@ -145,6 +145,35 @@ function classify(err: unknown, cfg: RecorderStorageConfig): { reason: string; f
   };
 }
 
+// AWS SDK clients are cached for the process lifetime and never destroyed —
+// the same convention as lib/aws.ts. Constructing one per request and calling
+// destroy() tears down the underlying Node HTTP handler and its sockets each
+// time; doing that repeatedly under concurrent requests aborted the whole
+// process natively (RemoveEnvironmentCleanupHook, SIGABRT), taking the console
+// down every few minutes. Keyed on the credentials so a rotation is picked up.
+const _recorderClients = new Map<string, S3Client>();
+
+function recorderS3Client(cfg: RecorderStorageConfig): S3Client {
+  const key = `${cfg.endpoint}|${cfg.accessKey}|${cfg.region ?? ""}`;
+  let client = _recorderClients.get(key);
+  if (!client) {
+    client = new S3Client({
+      endpoint: cfg.endpoint,
+      region: cfg.region || "us-east-1",
+      forcePathStyle: true,
+      credentials: {
+        accessKeyId: cfg.accessKey as string,
+        secretAccessKey: cfg.secretKey as string,
+      },
+      requestHandler: { requestTimeout: 8_000, connectionTimeout: 5_000 },
+    });
+    // Bound the map: a rotation would otherwise accumulate a client per key.
+    if (_recorderClients.size > 4) _recorderClients.clear();
+    _recorderClients.set(key, client);
+  }
+  return client;
+}
+
 function hostOf(endpoint?: string): string {
   if (!endpoint) return "(unset)";
   try {
@@ -201,22 +230,30 @@ export async function collectStoragePreflight(): Promise<StoragePreflight> {
 
   // Exercise the recorder's exact credentials against its exact endpoint —
   // a config read alone would have passed all through the Pyramid outage.
-  const client = new S3Client({
-    endpoint: cfg.endpoint,
-    region: cfg.region || "us-east-1",
-    forcePathStyle: true,
-    credentials: { accessKeyId: cfg.accessKey, secretAccessKey: cfg.secretKey },
-    requestHandler: { requestTimeout: 8_000, connectionTimeout: 5_000 },
-  });
+  const client = recorderS3Client(cfg);
 
   try {
     await client.send(new HeadBucketCommand({ Bucket: cfg.bucket }));
   } catch (err) {
     const { reason, fix } = classify(err, cfg);
     return { state: "fail", reason, fix, ...base };
-  } finally {
-    client.destroy();
   }
 
   return { state: "ok", ...base };
+}
+
+/**
+ * Cached preflight. The result is a cluster-wide fact that changes only when
+ * the recorder is reconfigured, while every camera row and a 30 s page poll ask
+ * for it — so probing S3 per request is pure waste.
+ */
+let _cached: { at: number; value: StoragePreflight } | undefined;
+const PREFLIGHT_TTL_MS = 30_000;
+
+export async function collectStoragePreflightCached(): Promise<StoragePreflight> {
+  const now = Date.now();
+  if (_cached && now - _cached.at < PREFLIGHT_TTL_MS) return _cached.value;
+  const value = await collectStoragePreflight();
+  _cached = { at: now, value };
+  return value;
 }
