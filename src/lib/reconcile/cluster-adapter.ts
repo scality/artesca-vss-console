@@ -1,6 +1,7 @@
 import "server-only";
 
-import { vstListSensors, vstAddSensor, vstStartStream, vstDeleteSensor } from "@/lib/helpers/vst";
+import { vstListSensors, vstDeleteSensor } from "@/lib/helpers/vst";
+import { registerSensorAndArm } from "@/lib/helpers/vst-register";
 import { appsV1, rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import {
@@ -76,11 +77,10 @@ export class VstClusterAdapter implements ClusterAdapter {
     // Step 1: register metadata. Step 2: start the recording pipeline
     // (proxy/stream/add) — required for the recorder to actually record;
     // no-op where the proxy endpoint is unset (legacy path).
-    const add = await vstAddSensor({ sensorId: name, rtspUrl, description });
-    if (!add.ok) return add;
-    const stream = await vstStartStream({ sensorId: name, rtspUrl });
-    if (!stream.ok && stream.warning) return { ok: true, warning: stream.warning };
-    return { ok: true };
+    const res = await registerSensorAndArm({ name, rtspUrl, description });
+    return res.warnings.length
+      ? { ok: res.ok, warning: res.warnings.join("; ") }
+      : { ok: res.ok };
   }
 
   // De-register a live sensor by its VIOS UUID. Used to "park" disabled cameras

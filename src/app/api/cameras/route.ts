@@ -26,6 +26,7 @@ import {
 } from "@/lib/helpers/gcs-config";
 import { triggerCameraBootstrap, awaitBootstrap } from "@/lib/gcs-bootstrap";
 import { listCameraOverrides } from "@/lib/db";
+import { redactRtspUrl } from "@/lib/helpers/vst-register";
 
 // The camera-sim's control-plane API (http://<camera-sim>:8080) is the
 // authoritative source for cameras.yaml — it owns the YAML, triggers the
@@ -395,7 +396,7 @@ export const POST = withRequestContext(async (req: NextRequest) => {
     }
     await auditLog("camera-add", `camera/${cameraId}`, {
       cameraId,
-      source: directRtsp ? parsed.data.rtspUrl : primary.fileName,
+      source: directRtsp ? redactRtspUrl(parsed.data.rtspUrl) : primary.fileName,
     });
     return NextResponse.json({ ok: true, cameraId, warnings });
   }
@@ -419,7 +420,7 @@ export const POST = withRequestContext(async (req: NextRequest) => {
 
   await auditLog("camera-add", `camera/${cameraId}`, {
     cameraId,
-    source: directRtsp ? parsed.data.rtspUrl : primary.fileName,
+    source: directRtsp ? redactRtspUrl(parsed.data.rtspUrl) : primary.fileName,
   });
 
   return NextResponse.json({ ok: true, cameraId, warnings });
