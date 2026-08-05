@@ -301,6 +301,61 @@ export async function waitForRollout(
   return false;
 }
 
+/** Set a Deployment's replica count. */
+export async function scaleDeployment(
+  namespace: string,
+  name: string,
+  replicas: number,
+): Promise<void> {
+  await appsV1().patchNamespacedDeployment(
+    { name, namespace, body: { spec: { replicas } } },
+    MERGE_PATCH_OPTS,
+  );
+}
+
+/**
+ * Scale a Deployment to zero and wait until none of its pods exist any more.
+ * Returns the replica count it had so the caller can put it back.
+ *
+ * Use this — not a restart — when a controller-style workload must be
+ * guaranteed not to act while the caller changes the state it manages. A
+ * rolling restart cannot give that guarantee: with maxSurge the outgoing pod
+ * overlaps the new one, and it then keeps running its loop for the whole
+ * termination grace period (30s here, against a 15s tick), reverting the
+ * caller's changes from its stale view after the rollout already reported
+ * itself complete.
+ *
+ * Waits on the pods disappearing rather than on `status.replicas`, because a
+ * pod that is terminating is still executing.
+ */
+export async function quiesceDeployment(
+  namespace: string,
+  name: string,
+  timeoutMs = 90_000,
+): Promise<{ previousReplicas: number; quiesced: boolean }> {
+  const dep = await appsV1().readNamespacedDeployment({ name, namespace });
+  const previousReplicas = dep.spec?.replicas ?? 1;
+  const labelSelector = Object.entries(dep.spec?.selector?.matchLabels ?? {})
+    .map(([k, v]) => `${k}=${v}`)
+    .join(",");
+
+  await scaleDeployment(namespace, name, 0);
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const pods = labelSelector
+        ? await listAllPodsInNs(coreV1(), namespace, { labelSelector })
+        : [];
+      if (pods.length === 0) return { previousReplicas, quiesced: true };
+    } catch {
+      // Transient API error — the deadline is the real bound.
+    }
+    await new Promise((r) => setTimeout(r, 2_000));
+  }
+  return { previousReplicas, quiesced: false };
+}
+
 const LIST_PODS_PAGE_SIZE = 500;
 const LIST_PODS_MAX_PAGES = 10;
 

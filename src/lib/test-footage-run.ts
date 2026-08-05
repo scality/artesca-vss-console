@@ -12,7 +12,7 @@ import {
 import { createLogger } from "@/lib/logger";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
-import { rolloutRestart, waitForRollout } from "@/lib/k8s";
+import { quiesceDeployment, rolloutRestart, scaleDeployment, waitForRollout } from "@/lib/k8s";
 
 const log = createLogger("test-footage-run");
 
@@ -31,11 +31,10 @@ const RECONCILER_DEPLOYMENT = process.env.VLM_RECONCILER_DEPLOYMENT ?? "vlm-stre
 async function setPausedSensors(sensors: string[]): Promise<string | undefined> {
   // Writing the marker is not enough on its own. The reconciler reads the rules
   // document from a MOUNTED ConfigMap, and a mount takes 60-90s to reflect an
-  // edit — so within its 15s tick it re-seeded the cameras from the stale copy
-  // and the pause evaporated. Restarting it makes the new pod read the current
-  // document immediately. It must keep RUNNING during the run (not be scaled to
-  // zero): the VLM ends a looping clip's caption task about every two minutes,
-  // and the reconciler is what re-fires it — the test stream needs that too.
+  // edit — so within its 15s tick it re-seeds the cameras from the stale copy
+  // and the pause evaporates. A restart makes the NEW pod read the current
+  // document; the pause path additionally quiesces the old one first (see
+  // quiesceReconciler), because a restart alone leaves it running.
   try {
     const { value, resourceVersion } = await readConfigMapKey<Record<string, unknown>>(
       CLUSTER.alertBridge.rulesNamespace,
@@ -58,17 +57,12 @@ async function setPausedSensors(sensors: string[]): Promise<string | undefined> 
         err instanceof Error ? err.message : String(err)
       }`;
     }
-    // And WAIT for the old pod to go. Restarting alone is not enough: the
-    // outgoing pod keeps ticking every 15s against its stale mount for the
-    // ~20s the rollout takes, so it re-seeded the very cameras the caller
-    // suspended immediately afterwards — the pause looked applied for a few
-    // seconds and was then silently undone.
     const rolled = await waitForRollout(
       CLUSTER.alertBridge.rulesNamespace,
       RECONCILER_DEPLOYMENT,
     );
     if (!rolled) {
-      return "the reconciler did not finish restarting in time — it may re-seed the live cameras from its stale copy during the run";
+      return "the reconciler did not finish restarting in time — it may act on its stale copy for a while";
     }
     return undefined;
   } catch (err) {
@@ -215,26 +209,70 @@ export async function startRun(req: RunRequest): Promise<RunResult> {
 
   if (req.pauseLive) {
     const live = await liveIngestingCameras();
-    // Mark them paused first: between removing a rule and writing the marker,
-    // the reconciler would re-seed it.
+    // Mark them paused first, so the reconciler will not want them back when it
+    // comes up again.
     const markWarning = await setPausedSensors(live);
     if (markWarning) warnings.push(markWarning);
-    for (const id of live) {
-      // suspend, NOT setIngestion(false): the latter also deletes the camera's
-      // desired spec from the ConfigMap, which is what a resume reads. The
-      // paused_sensors marker written above is what stops the reconciler
-      // re-seeding it while the run holds the GPU.
-      const res = await suspendIngestion(id);
-      if (res.ok) {
-        pausedCameras.push(id);
-      } else if (res.warning) {
-        warnings.push(`could not pause ${id}: ${res.warning}`);
+
+    // Then stop the reconciler outright for the few seconds it takes to remove
+    // the rules. Restarting it is not enough — measured on the showroom, the
+    // outgoing pod issued two rule-creating POSTs *after* the rollout reported
+    // itself complete, because maxSurge overlaps the pods and the old one keeps
+    // ticking (15s loop) for its whole 30s termination grace. Scaling to zero
+    // and waiting for the pod to be gone is the only state in which "no other
+    // writer exists" is actually true.
+    const quiesce = await quiesceDeployment(
+      CLUSTER.alertBridge.rulesNamespace,
+      RECONCILER_DEPLOYMENT,
+    ).catch((err) => {
+      warnings.push(
+        `could not stop the reconciler before pausing (it may re-seed the live cameras): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return null;
+    });
+    if (quiesce && !quiesce.quiesced) {
+      warnings.push(
+        "the reconciler did not stop in time — it may re-seed the live cameras during the run",
+      );
+    }
+
+    try {
+      for (const id of live) {
+        // suspend, NOT setIngestion(false): the latter also deletes the camera's
+        // desired spec from the ConfigMap, which is what a resume reads. The
+        // paused_sensors marker written above is what stops the reconciler
+        // re-seeding it once it is running again.
+        const res = await suspendIngestion(id);
+        if (res.ok) {
+          pausedCameras.push(id);
+        } else if (res.warning) {
+          warnings.push(`could not pause ${id}: ${res.warning}`);
+        }
+      }
+    } finally {
+      // Always bring it back, including on a throw: the reconciler is what
+      // re-fires a caption task when the VLM ends one (~every two minutes), so
+      // the test stream itself needs it running.
+      if (quiesce) {
+        await scaleDeployment(
+          CLUSTER.alertBridge.rulesNamespace,
+          RECONCILER_DEPLOYMENT,
+          quiesce.previousReplicas || 1,
+        ).catch((err) => {
+          warnings.push(
+            `the reconciler was left scaled to zero — no rule will be re-fired until it is restored: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        });
       }
     }
-    // Verify the pause actually took. Anything still ingesting here was
-    // re-seeded between the marker write and now, which means the reconciler
-    // is running from a stale view — worth removing again and worth saying so,
-    // since a silently-unpaused camera makes the run's timings meaningless.
+
+    // Verify. Anything still ingesting was re-seeded despite the above, which
+    // is worth removing again and worth saying — a silently-unpaused camera
+    // makes the run's timings meaningless.
     const stillLive = await liveIngestingCameras();
     const reSeeded = pausedCameras.filter((id) => stillLive.includes(id));
     for (const id of reSeeded) {
@@ -242,7 +280,7 @@ export async function startRun(req: RunRequest): Promise<RunResult> {
       if (!res.ok && res.warning) warnings.push(`could not re-pause ${id}: ${res.warning}`);
     }
     if (reSeeded.length) {
-      warnings.push(`re-paused ${reSeeded.join(", ")} — the reconciler had re-seeded them`);
+      warnings.push(`re-paused ${reSeeded.join(", ")} — something had re-seeded them`);
     }
 
     log.info("paused live cameras for a footage run", { pausedCameras, reSeeded, cameraId });

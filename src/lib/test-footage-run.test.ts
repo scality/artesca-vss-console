@@ -11,13 +11,18 @@ vi.mock("@/lib/helpers/configmaps", () => ({
   readConfigMapKey: vi.fn(),
   patchConfigMapRawKey: vi.fn(),
 }));
-vi.mock("@/lib/k8s", () => ({ rolloutRestart: vi.fn(), waitForRollout: vi.fn() }));
+vi.mock("@/lib/k8s", () => ({
+  rolloutRestart: vi.fn(),
+  waitForRollout: vi.fn(),
+  quiesceDeployment: vi.fn(),
+  scaleDeployment: vi.fn(),
+}));
 
 import { registerSensorAndArm } from "@/lib/helpers/vst-register";
 import { vstDeleteSensor, vstListSensors } from "@/lib/helpers/vst";
 import { setIngestion, suspendIngestion, listIngestingCameras } from "@/lib/helpers/ingestion";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
-import { rolloutRestart, waitForRollout } from "@/lib/k8s";
+import { rolloutRestart, waitForRollout, quiesceDeployment, scaleDeployment } from "@/lib/k8s";
 import { listAlertProfiles, pausedSensors, startRun, stopRun } from "./test-footage-run";
 
 const register = vi.mocked(registerSensorAndArm);
@@ -30,6 +35,8 @@ const readCm = vi.mocked(readConfigMapKey);
 const patchCm = vi.mocked(patchConfigMapRawKey);
 const restart = vi.mocked(rolloutRestart);
 const waitRollout = vi.mocked(waitForRollout);
+const quiesce = vi.mocked(quiesceDeployment);
+const scale = vi.mocked(scaleDeployment);
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -53,6 +60,8 @@ beforeEach(() => {
   patchCm.mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof patchConfigMapRawKey>>);
   restart.mockResolvedValue(undefined);
   waitRollout.mockResolvedValue(true);
+  quiesce.mockResolvedValue({ previousReplicas: 1, quiesced: true });
+  scale.mockResolvedValue(undefined);
 });
 
 describe("startRun", () => {
@@ -145,6 +154,49 @@ describe("startRun", () => {
     // mount, so it re-seeded the cameras seconds after they were suspended.
     expect(order[0]).toBe("waited");
     expect(order.slice(1).every((s) => s.startsWith("suspend:"))).toBe(true);
+  });
+
+  it("stops the reconciler before suspending, and starts it again after", async () => {
+    const order: string[] = [];
+    quiesce.mockImplementation(async () => {
+      order.push("quiesce");
+      return { previousReplicas: 1, quiesced: true };
+    });
+    suspend.mockImplementation(async (id: string) => {
+      order.push(`suspend:${id}`);
+      return { ok: true };
+    });
+    scale.mockImplementation(async () => {
+      order.push("scale-back");
+    });
+
+    await startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: true });
+
+    // Measured on the showroom: a restarted-but-not-stopped reconciler issued
+    // rule-creating POSTs after the rollout reported complete, because maxSurge
+    // overlaps the pods and the outgoing one keeps ticking for its 30s grace.
+    // Only "no pod exists" makes the suspend window safe.
+    expect(order[0]).toBe("quiesce");
+    expect(order[order.length - 1]).toBe("scale-back");
+    expect(order.filter((s) => s.startsWith("suspend:"))).toHaveLength(2);
+  });
+
+  it("restores the reconciler even when a suspend throws", async () => {
+    suspend.mockRejectedValue(new Error("alert-bridge exploded"));
+
+    await expect(
+      startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: true }),
+    ).rejects.toThrow();
+
+    // Leaving it at zero replicas would silently stop every caption task from
+    // ever being re-fired — a far worse outcome than the failed run.
+    expect(scale).toHaveBeenCalledWith(expect.any(String), "vlm-stream-reconciler", 1);
+  });
+
+  it("warns rather than pretending, when the reconciler will not stop", async () => {
+    quiesce.mockResolvedValue({ previousReplicas: 1, quiesced: false });
+    const res = await startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: true });
+    expect(res.warnings.join(" ")).toMatch(/did not stop in time/);
   });
 
   it("says so when the restart does not complete, instead of claiming the pause holds", async () => {
