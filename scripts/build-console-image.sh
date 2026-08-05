@@ -161,8 +161,9 @@ docker buildx build \
 # ---------------------------------------------------------------------------
 # Save + compress to a tarball
 # ---------------------------------------------------------------------------
-TARBALL="$(mktemp -t console-image-XXXXXX.tar.gz)"
-trap 'rm -f "$TARBALL"' EXIT
+# Stable path, not mktemp: on a link that drops mid-transfer the retry below
+# resumes the SAME file, and a re-run reuses it instead of re-saving 124 MB.
+TARBALL="${TMPDIR:-/tmp}/console-image-${TAG_HASH}.tar.gz"
 echo "==> saving to $TARBALL"
 docker save "$FULL_IMAGE" | gzip -3 > "$TARBALL"
 ls -lh "$TARBALL" | awk '{print "   ", $5, $9}'
@@ -170,8 +171,23 @@ ls -lh "$TARBALL" | awk '{print "   ", $5, $9}'
 # ---------------------------------------------------------------------------
 # Ship to node
 # ---------------------------------------------------------------------------
-echo "==> scp to $REMOTE_SSH_TARGET:/tmp/console-image.tar.gz"
-rscp "$TARBALL" "$REMOTE_SSH_TARGET:/tmp/console-image.tar.gz"
+echo "==> shipping to $REMOTE_SSH_TARGET:/tmp/console-image.tar.gz (resumable)"
+# The showroom is reached over a DMZ port that drops long transfers; rpush
+# resumes rather than restarting, and we retry a few times because a single
+# stall should not cost a whole rebuild.
+_pushed=0
+for _attempt in 1 2 3 4 5; do
+  if rpush "$TARBALL" "$REMOTE_SSH_TARGET:/tmp/console-image.tar.gz"; then
+    _pushed=1
+    break
+  fi
+  echo "    transfer attempt ${_attempt} failed — resuming in 5s"
+  sleep 5
+done
+if [[ "$_pushed" != "1" ]]; then
+  echo "ERROR: could not ship the image after 5 attempts (link to $REMOTE_SSH_TARGET)" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Import into containerd via a one-shot privileged Job.
@@ -182,8 +198,11 @@ rscp "$TARBALL" "$REMOTE_SSH_TARGET:/tmp/console-image.tar.gz"
 # ---------------------------------------------------------------------------
 JOB_NAME="console-image-import-$(date +%s)"
 JOB_YAML="$(mktemp -t console-import-XXXXXX.yaml)"
+# Only the generated YAML is disposable. The tarball is kept deliberately: it is
+# named after the image tag, so a retry after a dropped transfer resumes it and
+# a re-run of this script skips the 124 MB re-save.
 # shellcheck disable=SC2064
-trap "rm -f '$TARBALL' '$JOB_YAML'" EXIT
+trap "rm -f '$JOB_YAML'" EXIT
 cat > "$JOB_YAML" <<YAML
 apiVersion: batch/v1
 kind: Job

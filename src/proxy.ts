@@ -86,5 +86,14 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // `api/test-footage` is excluded deliberately. When a proxy matches a request,
+  // Next CLONES AND BUFFERS its body in memory up to
+  // experimental.proxyClientMaxBodySize (default 10 MB) and — per the Next docs
+  // — "the request will not fail or return an error to the client": the handler
+  // silently receives only the first 10 MB. A 31 MB clip uploaded that way was
+  // stored truncated with an HTTP 200. Raising the limit is not the fix either,
+  // since it buffers in memory and this pod has a 1 Gi cap; the upload has to
+  // stream, so it must not be proxied. Auth is unaffected — every API route
+  // checks auth() itself, which is the actual gate for API requests.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/test-footage).*)"],
 };
