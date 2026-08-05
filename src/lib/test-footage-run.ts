@@ -80,6 +80,92 @@ export interface RunRequest {
   mode: PlaybackMode;
   /** Stop ingesting the live cameras for the duration of the run. */
   pauseLive: boolean;
+  /** Which scenario the clip is judged against. Omitted → general-activity,
+   *  which asks the VLM for "anything notable" and therefore tests nothing in
+   *  particular — pick a profile to exercise a real prompt. */
+  alertType?: string;
+  prompt?: string;
+}
+
+/** A VLM configuration a run can adopt: the alert_type + prompt pair a live
+ *  camera is running, so a clip can be judged against exactly what production
+ *  asks for rather than a generic "notable activity" prompt. */
+export interface AlertProfile {
+  alertType: string;
+  prompt: string;
+  /** Live cameras configured this way — shown so the operator can tell which
+   *  part of the store a profile belongs to. */
+  cameras: string[];
+}
+
+/** The default profile, used when a run names no scenario. Deliberately vague:
+ *  it is the honest description of "we did not choose one". */
+export const DEFAULT_PROFILE: AlertProfile = {
+  alertType: "general-activity",
+  prompt: "Alert on any notable or anomalous activity.",
+  cameras: [],
+};
+
+/**
+ * The alert profiles configured on this deployment, newest-configured first.
+ *
+ * Read from the rules ConfigMap rather than the scenarios document on purpose:
+ * scenarios are keyword filters applied to a caption AFTER the VLM has spoken,
+ * so they cannot make the VLM look for anything. What decides whether a theft
+ * is described at all is the alert_type + prompt on the realtime rule — which
+ * is what this returns.
+ */
+export async function listAlertProfiles(): Promise<AlertProfile[]> {
+  let rules: Array<{ sensor?: string; alert_type?: string; prompt?: string }> = [];
+  try {
+    const { value } = await readConfigMapKey<{
+      rules?: Array<{ sensor?: string; alert_type?: string; prompt?: string }>;
+    }>(CLUSTER.alertBridge.rulesNamespace, CLUSTER.alertBridge.rulesConfigMap, "rules.json");
+    rules = value.rules ?? [];
+  } catch (err) {
+    log.warn("could not read alert profiles from the rules CM", { err });
+    return [DEFAULT_PROFILE];
+  }
+
+  const byType = new Map<string, AlertProfile>();
+  for (const r of rules) {
+    if (!r.alert_type || !r.prompt) continue;
+    // A test camera's own entry is not a profile — offering it back would let a
+    // run inherit the previous run's ad-hoc choice as if it were production.
+    if (r.sensor && isFootageCamera(r.sensor)) continue;
+    const existing = byType.get(r.alert_type);
+    if (existing) {
+      if (r.sensor) existing.cameras.push(r.sensor);
+    } else {
+      byType.set(r.alert_type, {
+        alertType: r.alert_type,
+        prompt: r.prompt,
+        cameras: r.sensor ? [r.sensor] : [],
+      });
+    }
+  }
+
+  const profiles = [...byType.values()];
+  return profiles.length ? profiles : [DEFAULT_PROFILE];
+}
+
+/** Sensors currently marked paused in the rules ConfigMap.
+ *
+ *  Surfaced so an abandoned run is visible: a run that is interrupted between
+ *  pausing the cameras and stopping (browser closed, pod restarted) leaves the
+ *  showroom analysing nothing, and without this the console showed no sign of
+ *  it — the cameras simply looked idle. */
+export async function pausedSensors(): Promise<string[]> {
+  try {
+    const { value } = await readConfigMapKey<{ paused_sensors?: unknown }>(
+      CLUSTER.alertBridge.rulesNamespace,
+      CLUSTER.alertBridge.rulesConfigMap,
+      "rules.json",
+    );
+    return Array.isArray(value.paused_sensors) ? value.paused_sensors.map(String) : [];
+  } catch {
+    return [];
+  }
 }
 
 export interface RunResult {
@@ -87,6 +173,8 @@ export interface RunResult {
   rtspUrl: string;
   /** Live cameras whose ingestion this run turned off, to restore on stop. */
   pausedCameras: string[];
+  /** The profile the clip is actually being judged against. */
+  alertType: string;
   warnings: string[];
 }
 
@@ -147,11 +235,22 @@ export async function startRun(req: RunRequest): Promise<RunResult> {
     throw new Error(`could not register the footage camera: ${reg.warnings.join("; ") || "unknown"}`);
   }
 
-  // Analysis on: this is what produces captions and therefore incidents.
-  const ing = await setIngestion(cameraId, true, rtspUrl);
+  // Analysis on: this is what produces captions and therefore incidents. The
+  // chosen profile decides what the VLM is asked to look for; scenarios then
+  // match keywords against whatever it says.
+  const ing = await setIngestion(cameraId, true, rtspUrl, {
+    alertType: req.alertType,
+    prompt: req.prompt,
+  });
   if (!ing.ok && ing.warning) warnings.push(ing.warning);
 
-  return { cameraId, rtspUrl, pausedCameras, warnings };
+  return {
+    cameraId,
+    rtspUrl,
+    pausedCameras,
+    alertType: req.alertType ?? DEFAULT_PROFILE.alertType,
+    warnings,
+  };
 }
 
 /** Re-enable ingestion on cameras a run paused. Best-effort per camera so one
@@ -215,11 +314,19 @@ export async function stopRun(input: {
     }
   }
 
-  const resumeWarnings = await restoreCameras(input.resume);
+  // Resume the union of what the caller remembers pausing and what the CM says
+  // is paused. The caller's list is lost whenever the browser tab that started
+  // the run is gone — which is exactly the case where the showroom is left
+  // analysing nothing, so recovering from the CM is what makes "Stop all" a
+  // genuine repair rather than a request the operator has to know to make from
+  // the right tab.
+  const marked = await pausedSensors();
+  const resume = [...new Set([...input.resume, ...marked])].filter((id) => !isFootageCamera(id));
+  const resumeWarnings = await restoreCameras(resume);
   warnings.push(...resumeWarnings);
 
-  log.info("footage run stopped", { stopped, resumed: input.resume });
-  return { stopped, resumed: input.resume, warnings };
+  log.info("footage run stopped", { stopped, resumed: resume });
+  return { stopped, resumed: resume, warnings };
 }
 
 /** Test cameras currently registered in VST — the live runs. */

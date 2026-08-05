@@ -20,9 +20,17 @@ const FileSchema = z.object({
   uploadedAt: z.string(),
 });
 
+const ProfileSchema = z.object({
+  alertType: z.string(),
+  prompt: z.string(),
+  cameras: z.array(z.string()),
+});
+
 const ResponseSchema = z.object({
   files: z.array(FileSchema),
   runs: z.array(z.object({ cameraId: z.string(), streamId: z.string().optional() })),
+  alertProfiles: z.array(ProfileSchema).default([]),
+  pausedSensors: z.array(z.string()).default([]),
   maxUploadBytes: z.number(),
 });
 
@@ -46,6 +54,8 @@ export function TestFootagePanel() {
 
   const [mode, setMode] = React.useState<"loop" | "once">("loop");
   const [pauseLive, setPauseLive] = React.useState(true);
+  /** "" = the generic default profile. */
+  const [alertType, setAlertType] = React.useState("");
   const [uploadPct, setUploadPct] = React.useState<number | null>(null);
   // Live cameras the current run paused, echoed back so stopping can resume
   // exactly those and nothing else.
@@ -62,6 +72,11 @@ export function TestFootagePanel() {
   });
 
   const running = new Set((data?.runs ?? []).map((r) => r.cameraId));
+  const profiles = data?.alertProfiles ?? [];
+  const selectedProfile = profiles.find((p) => p.alertType === alertType);
+  // Cameras left paused with no run to explain it — an interrupted run.
+  const orphanPaused = (data?.pausedSensors ?? []).filter((s) => !s.startsWith("test-"));
+  const abandonedPause = orphanPaused.length > 0 && (data?.runs.length ?? 0) === 0;
 
   /** XHR rather than fetch: it reports upload progress, which matters for a
    *  file that can take a minute to transfer. */
@@ -101,11 +116,19 @@ export function TestFootagePanel() {
       const res = await fetch("/api/test-footage/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName, mode, pauseLive }),
+        body: JSON.stringify({
+          fileName,
+          mode,
+          pauseLive,
+          ...(selectedProfile
+            ? { alertType: selectedProfile.alertType, prompt: selectedProfile.prompt }
+            : {}),
+        }),
       });
       const body = (await res.json()) as {
         error?: string;
         cameraId?: string;
+        alertType?: string;
         pausedCameras?: string[];
         warnings?: string[];
       };
@@ -116,13 +139,12 @@ export function TestFootagePanel() {
       setPaused(body.pausedCameras ?? []);
       queryClient.invalidateQueries({ queryKey: ["test-footage"] });
       queryClient.invalidateQueries({ queryKey: ["cameras"] });
+      const paused = body.pausedCameras?.length
+        ? `Paused ${body.pausedCameras.length} live camera(s) for the run.`
+        : "Live cameras left running.";
       toast({
-        title: `Running as ${body.cameraId}`,
-        description: body.warnings?.length
-          ? body.warnings.join("; ")
-          : (body.pausedCameras?.length
-              ? `Paused ${body.pausedCameras.length} live camera(s) for the run.`
-              : "Live cameras left running."),
+        title: `Running as ${body.cameraId} · ${body.alertType ?? "general-activity"}`,
+        description: body.warnings?.length ? body.warnings.join("; ") : paused,
       });
     },
     onError: (err: Error) =>
@@ -185,6 +207,29 @@ export function TestFootagePanel() {
         </p>
       </div>
 
+      {/* An interrupted run leaves the live cameras paused with nothing running
+          to explain it. Nothing else in the console shows this — the cameras
+          just look quiet — so surface it here with the one-click repair. */}
+      {abandonedPause && (
+        <div className="flex flex-wrap items-center gap-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900">
+          <span>
+            <strong>{orphanPaused.length} live camera(s) are paused</strong> with no test run to
+            explain it — a run was interrupted before it could resume them. Nothing is being
+            analysed on{" "}
+            <span className="font-mono">{orphanPaused.join(", ")}</span>.
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-xs ml-auto"
+            onClick={() => stopRun.mutate(undefined)}
+            disabled={stopRun.isPending}
+          >
+            Resume live cameras
+          </Button>
+        </div>
+      )}
+
       {/* Upload */}
       <div className="rounded-md border border-border p-4 space-y-3">
         <div className="flex items-center gap-3">
@@ -235,6 +280,25 @@ export function TestFootagePanel() {
               ))}
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <Label className="text-xs" htmlFor="tf-profile">
+              Scenario
+            </Label>
+            <select
+              id="tf-profile"
+              value={alertType}
+              onChange={(e) => setAlertType(e.target.value)}
+              className="rounded border border-border bg-background px-2 py-1 text-xs"
+            >
+              <option value="">general-activity (no scenario)</option>
+              {profiles.map((p) => (
+                <option key={p.alertType} value={p.alertType}>
+                  {p.alertType}
+                  {p.cameras.length ? ` — ${p.cameras.join(", ")}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"
@@ -244,6 +308,23 @@ export function TestFootagePanel() {
             Pause live cameras during the run
           </label>
         </div>
+
+        <p className="text-xs text-muted-foreground">
+          {selectedProfile ? (
+            <>
+              The VLM is given this camera prompt verbatim:{" "}
+              <span className="italic">&ldquo;{selectedProfile.prompt}&rdquo;</span> — so the clip
+              is judged exactly as {selectedProfile.cameras.join(", ") || "a live camera"} would
+              judge it, and the scenario keywords match against the same captions.
+            </>
+          ) : (
+            <>
+              With no scenario chosen the VLM is asked only for &ldquo;anything notable&rdquo;.
+              That confirms the pipeline runs, but it does not test a prompt or an alert rule —
+              pick a scenario to do that.
+            </>
+          )}
+        </p>
         <p className="text-xs text-muted-foreground">
           {pauseLive
             ? "The live cameras stop being analysed while the clip runs, so the GPU is dedicated to it and results are repeatable. Their recording is unaffected, and they resume when you stop."

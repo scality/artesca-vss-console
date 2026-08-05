@@ -17,6 +17,10 @@ const StartSchema = z.object({
   mode: z.enum(["loop", "once"]),
   /** Pause the live cameras' analysis so the GPU is dedicated to this run. */
   pauseLive: z.boolean(),
+  /** Scenario the clip is judged against — the alert_type + prompt handed to
+   *  the VLM. Omitted → the generic "anything notable" default. */
+  alertType: z.string().min(1).optional(),
+  prompt: z.string().min(1).optional(),
 });
 
 export const POST = withRequestContext(async (req: NextRequest) => {
@@ -38,6 +42,7 @@ export const POST = withRequestContext(async (req: NextRequest) => {
     await auditLog("test-footage-run-start", `footage/${parsed.data.fileName}`, {
       ...parsed.data,
       cameraId: res.cameraId,
+      alertType: res.alertType,
       pausedCameras: res.pausedCameras,
     });
     return NextResponse.json({ ok: true, ...res });
