@@ -284,13 +284,28 @@ const AddFeedSchema = z.object({
   fileBase64: z.string().min(1),
 });
 
-const AddCameraSchema = z.object({
-  cameraId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,31}$/),
-  role: z.string().optional(),
-  description: z.string().optional(),
-  rtspUrl: z.string().optional(), // explicit RTSP URL (used for docker/GCS path)
-  feeds: z.array(AddFeedSchema).min(1),
-});
+const AddCameraSchema = z
+  .object({
+    cameraId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,31}$/),
+    role: z.string().optional(),
+    description: z.string().optional(),
+    rtspUrl: z.string().optional(),
+    feeds: z.array(AddFeedSchema).optional(),
+  })
+  // Two ways to add a camera, and a real deployment needs both:
+  //   feeds[]  — upload footage to the camera-sim, which publishes it as RTSP.
+  //   rtspUrl  — a camera that already speaks RTSP (an IP camera on the store
+  //              LAN, or an existing sim stream). Requires no camera-sim at all.
+  // The showroom has no camera-sim host, so demanding feeds[] made Add Camera
+  // unusable there — its four real cameras had to be registered out-of-band.
+  .refine((v) => (v.feeds?.length ?? 0) > 0 || !!v.rtspUrl?.trim(), {
+    message: "Provide either an uploaded feed or an rtspUrl",
+    path: ["rtspUrl"],
+  })
+  .refine((v) => !v.rtspUrl?.trim() || /^rtsps?:\/\/\S+$/.test(v.rtspUrl.trim()), {
+    message: "rtspUrl must be an rtsp:// or rtsps:// URL",
+    path: ["rtspUrl"],
+  });
 
 export const POST = withRequestContext(async (req: NextRequest) => {
   const session = await auth();
@@ -309,10 +324,16 @@ export const POST = withRequestContext(async (req: NextRequest) => {
     );
   }
 
-  const { cameraId, role, description, feeds } = parsed.data;
+  const { cameraId, role, description } = parsed.data;
+  const feeds = parsed.data.feeds ?? [];
   const warnings: string[] = [];
 
+  // Direct-RTSP mode: nothing to upload and no camera-sim involved. Steps 1
+  // and 2 are skipped entirely rather than attempted-and-tolerated, so a
+  // deployment without a camera-sim never sees a spurious control-plane error.
   const primary = feeds[0];
+  const directRtsp = !primary;
+
   if (feeds.length > 1) {
     warnings.push(
       `Only the first feed is used — cluster schema is one source file per camera (dropped: ${feeds
@@ -322,33 +343,35 @@ export const POST = withRequestContext(async (req: NextRequest) => {
     );
   }
 
-  // 1. Upload the source file to /opt/camera-sim/data/ via the control-plane.
-  try {
-    const buf = Buffer.from(primary.fileBase64, "base64");
-    await camsimUploadFile(primary.fileName, buf);
-  } catch (err) {
-    const status = err instanceof CamsimControlError ? err.status : 502;
-    return NextResponse.json(
-      { error: `Upload failed: ${err instanceof Error ? err.message : String(err)}` },
-      { status },
-    );
-  }
+  if (!directRtsp) {
+    // 1. Upload the source file to /opt/camera-sim/data/ via the control-plane.
+    try {
+      const buf = Buffer.from(primary.fileBase64, "base64");
+      await camsimUploadFile(primary.fileName, buf);
+    } catch (err) {
+      const status = err instanceof CamsimControlError ? err.status : 502;
+      return NextResponse.json(
+        { error: `Upload failed: ${err instanceof Error ? err.message : String(err)}` },
+        { status },
+      );
+    }
 
-  // 2. Register with the camera-sim control-plane (rewrites cameras.yaml +
-  //    mediamtx.yml, restarts the stack).
-  try {
-    await camsimAddCamera({
-      name: cameraId,
-      source: primary.fileName,
-      description,
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const status = err instanceof CamsimControlError ? err.status : 502;
-    return NextResponse.json(
-      { error: `Control-plane add failed: ${msg}` },
-      { status },
-    );
+    // 2. Register with the camera-sim control-plane (rewrites cameras.yaml +
+    //    mediamtx.yml, restarts the stack).
+    try {
+      await camsimAddCamera({
+        name: cameraId,
+        source: primary.fileName,
+        description,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const status = err instanceof CamsimControlError ? err.status : 502;
+      return NextResponse.json(
+        { error: `Control-plane add failed: ${msg}` },
+        { status },
+      );
+    }
   }
 
   // 3a. k8s path: write-through to Firestore + reconcile apply.
