@@ -139,6 +139,14 @@ export async function suspendIngestion(
   return warnings.length ? { ok: false, warning: warnings.join("; ") } : { ok: true };
 }
 
+/** What the VLM is told to look for on a stream. Supplying this overrides the
+ *  camera's recorded spec — the case that needs it is a test-footage run, where
+ *  the operator chooses which scenario the clip should be judged against. */
+export interface IngestionOverride {
+  alertType?: string;
+  prompt?: string;
+}
+
 /** Turn VLM ingestion on or off for a camera.
  *  enable  → create a realtime rule (spec from the CM, stream id from VST).
  *  disable → delete every realtime rule bound to this camera's sensor name.
@@ -147,6 +155,7 @@ export async function setIngestion(
   cameraId: string,
   enabled: boolean,
   rtspUrl?: string,
+  override?: IngestionOverride,
 ): Promise<{ ok: boolean; warning?: string }> {
   if (!enabled) {
     const { rules, warning } = await listRealtimeRules();
@@ -175,8 +184,8 @@ export async function setIngestion(
       warning: `no stream URL for ${cameraId} (not in realtime-alert-rules CM and no rtspUrl)`,
     };
   }
-  const alertType = rule?.alert_type ?? "general-activity";
-  const prompt = rule?.prompt ?? "Alert on any notable or anomalous activity.";
+  const alertType = override?.alertType ?? rule?.alert_type ?? "general-activity";
+  const prompt = override?.prompt ?? rule?.prompt ?? "Alert on any notable or anomalous activity.";
   const sensorId = await resolveStreamId(cameraId);
   // Live VLM wins over the CM's recorded model id — see liveVlmModelId().
   const model = (await liveVlmModelId()) ?? doc?.model;
@@ -194,11 +203,20 @@ export async function setIngestion(
     numFramesPerSecondOrFixedFramesChunk: doc?.num_frames_per_second_or_fixed_frames_chunk,
     useFpsForChunking: doc?.use_fps_for_chunking,
   });
-  // Ensure the rule is present in the CM so the reconciler keeps it alive.
+  // Ensure the rule is present in the CM so the reconciler keeps it alive — and
+  // that it says what we just armed. The reconciler re-fires a rule roughly
+  // every two minutes from this spec, so a stale alert_type here would quietly
+  // revert an override on the next tick.
   if (res.ok && doc) {
     if (!doc.rules) doc.rules = [];
-    if (!doc.rules.some((r) => r.sensor === cameraId)) {
+    const existing = doc.rules.find((r) => r.sensor === cameraId);
+    if (!existing) {
       doc.rules.push({ sensor: cameraId, alert_type: alertType, prompt, stream_url: streamUrl });
+      await writeCmRules(doc, resourceVersion);
+    } else if (existing.alert_type !== alertType || existing.prompt !== prompt) {
+      existing.alert_type = alertType;
+      existing.prompt = prompt;
+      existing.stream_url = streamUrl;
       await writeCmRules(doc, resourceVersion);
     }
   }

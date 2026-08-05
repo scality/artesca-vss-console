@@ -11,7 +11,7 @@ import {
   sanitiseFilename,
   saveFootage,
 } from "@/lib/test-footage";
-import { listRuns } from "@/lib/test-footage-run";
+import { listAlertProfiles, listRuns, pausedSensors } from "@/lib/test-footage-run";
 
 export const dynamic = "force-dynamic";
 
@@ -23,11 +23,21 @@ export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [files, runs] = await Promise.all([
+  const [files, runs, alertProfiles, paused] = await Promise.all([
     listFootage().catch(() => []),
     listRuns().catch(() => []),
+    listAlertProfiles().catch(() => []),
+    pausedSensors().catch(() => []),
   ]);
-  return NextResponse.json({ files, runs, maxUploadBytes: MAX_UPLOAD_BYTES });
+  return NextResponse.json({
+    files,
+    runs,
+    alertProfiles,
+    // Non-empty with no run registered = an abandoned run left the live cameras
+    // paused. The panel surfaces this as a repair prompt.
+    pausedSensors: paused,
+    maxUploadBytes: MAX_UPLOAD_BYTES,
+  });
 }
 
 export const POST = withRequestContext(async (req: NextRequest) => {

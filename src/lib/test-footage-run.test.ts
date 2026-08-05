@@ -18,7 +18,7 @@ import { vstDeleteSensor, vstListSensors } from "@/lib/helpers/vst";
 import { setIngestion, suspendIngestion, listIngestingCameras } from "@/lib/helpers/ingestion";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { rolloutRestart } from "@/lib/k8s";
-import { startRun, stopRun } from "./test-footage-run";
+import { listAlertProfiles, pausedSensors, startRun, stopRun } from "./test-footage-run";
 
 const register = vi.mocked(registerSensorAndArm);
 const delSensor = vi.mocked(vstDeleteSensor);
@@ -62,7 +62,36 @@ describe("startRun", () => {
     );
     // Analysis on for the test camera — without this it records but never
     // produces a caption, so nothing can be judged.
-    expect(ingestion).toHaveBeenCalledWith("test-theft-lane-3", true, expect.any(String));
+    expect(ingestion).toHaveBeenCalledWith(
+      "test-theft-lane-3",
+      true,
+      expect.any(String),
+      expect.anything(),
+    );
+  });
+
+  it("judges the clip against the chosen scenario, not the generic default", async () => {
+    const res = await startRun({
+      fileName: "clip.mp4",
+      mode: "loop",
+      pauseLive: false,
+      alertType: "self-checkout-theft",
+      prompt: "Retail self-checkout area. Alert on a person concealing merchandise.",
+    });
+
+    expect(res.alertType).toBe("self-checkout-theft");
+    // The alert_type + prompt are what the VLM is actually told to look for.
+    // Scenarios only keyword-match the caption afterwards, so a run left on the
+    // default asks for "anything notable" and tests no scenario at all.
+    expect(ingestion).toHaveBeenCalledWith("test-clip", true, expect.any(String), {
+      alertType: "self-checkout-theft",
+      prompt: "Retail self-checkout area. Alert on a person concealing merchandise.",
+    });
+  });
+
+  it("reports the default profile when no scenario is chosen", async () => {
+    const res = await startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: false });
+    expect(res.alertType).toBe("general-activity");
   });
 
   it("pauses only the live cameras when asked, never itself", async () => {
@@ -139,6 +168,36 @@ describe("stopRun", () => {
     expect(ingestion).toHaveBeenCalledWith("checkout-1", true);
   });
 
+  it("resumes cameras the ConfigMap says are paused, not just the caller's list", async () => {
+    // The caller's list lives in the browser tab that started the run. When that
+    // tab is gone — the exact case that left the showroom analysing nothing —
+    // the ConfigMap marker is the only record of what was paused.
+    readCm.mockResolvedValue({
+      value: { rules: [], paused_sensors: ["pyramid-16-cam0", "pyramid-18-cam1"] },
+      raw: "{}",
+      resourceVersion: "1",
+    } as unknown as Awaited<ReturnType<typeof readConfigMapKey>>);
+
+    const res = await stopRun({ resume: [] });
+
+    expect(res.resumed.sort()).toEqual(["pyramid-16-cam0", "pyramid-18-cam1"]);
+    expect(ingestion).toHaveBeenCalledWith("pyramid-16-cam0", true);
+    expect(ingestion).toHaveBeenCalledWith("pyramid-18-cam1", true);
+  });
+
+  it("never tries to resume a test camera it just deleted", async () => {
+    readCm.mockResolvedValue({
+      value: { rules: [], paused_sensors: ["test-clip", "checkout-1"] },
+      raw: "{}",
+      resourceVersion: "1",
+    } as unknown as Awaited<ReturnType<typeof readConfigMapKey>>);
+
+    const res = await stopRun({ resume: [] });
+
+    expect(res.resumed).toEqual(["checkout-1"]);
+    expect(ingestion).not.toHaveBeenCalledWith("test-clip", true);
+  });
+
   it("cleans up every abandoned test camera when none is named", async () => {
     listSensors.mockResolvedValue({
       sensors: [
@@ -152,5 +211,71 @@ describe("stopRun", () => {
 
     expect(res.stopped.sort()).toEqual(["test-a", "test-b"]);
     expect(delSensor).not.toHaveBeenCalledWith("ul");
+  });
+});
+
+describe("listAlertProfiles", () => {
+  it("offers each configured alert type once, naming the cameras that use it", async () => {
+    readCm.mockResolvedValue({
+      value: {
+        rules: [
+          { sensor: "checkout-1", alert_type: "self-checkout-theft", prompt: "Theft prompt." },
+          { sensor: "pyramid-16-cam0", alert_type: "self-checkout-theft", prompt: "Theft prompt." },
+          { sensor: "pyramid-18-cam0", alert_type: "shelf-restock", prompt: "Restock prompt." },
+        ],
+      },
+      raw: "{}",
+      resourceVersion: "1",
+    } as unknown as Awaited<ReturnType<typeof readConfigMapKey>>);
+
+    const profiles = await listAlertProfiles();
+
+    expect(profiles.map((p) => p.alertType)).toEqual(["self-checkout-theft", "shelf-restock"]);
+    expect(profiles[0].cameras).toEqual(["checkout-1", "pyramid-16-cam0"]);
+    expect(profiles[0].prompt).toBe("Theft prompt.");
+  });
+
+  it("does not offer a previous run's ad-hoc choice back as production config", async () => {
+    readCm.mockResolvedValue({
+      value: {
+        rules: [
+          { sensor: "checkout-1", alert_type: "self-checkout-theft", prompt: "Theft prompt." },
+          { sensor: "test-clip", alert_type: "whatever-i-typed", prompt: "Ad-hoc." },
+        ],
+      },
+      raw: "{}",
+      resourceVersion: "1",
+    } as unknown as Awaited<ReturnType<typeof readConfigMapKey>>);
+
+    const profiles = await listAlertProfiles();
+    expect(profiles.map((p) => p.alertType)).toEqual(["self-checkout-theft"]);
+  });
+
+  it("falls back to the generic profile rather than an empty picker", async () => {
+    readCm.mockRejectedValue(new Error("configmap unreachable"));
+    const profiles = await listAlertProfiles();
+    expect(profiles).toEqual([
+      {
+        alertType: "general-activity",
+        prompt: "Alert on any notable or anomalous activity.",
+        cameras: [],
+      },
+    ]);
+  });
+});
+
+describe("pausedSensors", () => {
+  it("reports the marker so an abandoned pause is visible", async () => {
+    readCm.mockResolvedValue({
+      value: { rules: [], paused_sensors: ["checkout-1"] },
+      raw: "{}",
+      resourceVersion: "1",
+    } as unknown as Awaited<ReturnType<typeof readConfigMapKey>>);
+    expect(await pausedSensors()).toEqual(["checkout-1"]);
+  });
+
+  it("reports nothing rather than throwing when the ConfigMap cannot be read", async () => {
+    readCm.mockRejectedValue(new Error("nope"));
+    expect(await pausedSensors()).toEqual([]);
   });
 });
