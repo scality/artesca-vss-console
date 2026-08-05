@@ -156,6 +156,33 @@ describe("startRun", () => {
     expect(order.slice(1).every((s) => s.startsWith("suspend:"))).toBe(true);
   });
 
+  it("pauses every camera the ConfigMap wants live, not just those ingesting right now", async () => {
+    // checkout-1 has a desired spec but no live rule at this instant — mid
+    // re-seed, or a create that just failed. Observed on the showroom: it was
+    // seeded microseconds after the pause set was computed, so it was never
+    // marked paused and analysed alongside the clip for the whole run.
+    listIngesting.mockReset();
+    listIngesting
+      .mockResolvedValueOnce({ ingesting: new Set(["pyramid-16-cam0"]) })
+      .mockResolvedValue({ ingesting: new Set() });
+    readCm.mockResolvedValue({
+      value: { rules: [{ sensor: "checkout-1" }, { sensor: "pyramid-16-cam0" }] },
+      raw: "{}",
+      resourceVersion: "1",
+    } as unknown as Awaited<ReturnType<typeof readConfigMapKey>>);
+
+    const res = await startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: true });
+
+    expect(res.pausedCameras.sort()).toEqual(["checkout-1", "pyramid-16-cam0"]);
+    const withPaused = patchCm.mock.calls
+      .map((c) => String(c[3]))
+      .find((w) => w.includes("paused_sensors"));
+    expect(JSON.parse(withPaused as string).paused_sensors.sort()).toEqual([
+      "checkout-1",
+      "pyramid-16-cam0",
+    ]);
+  });
+
   it("stops the reconciler before suspending, and starts it again after", async () => {
     const order: string[] = [];
     quiesce.mockImplementation(async () => {
