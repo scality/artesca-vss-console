@@ -5,7 +5,21 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 1 – builder: full dev deps + Next.js standalone build
 # ──────────────────────────────────────────────────────────────────────────────
-FROM node:24-alpine AS builder
+# Node is pinned to an EXACT version, deliberately.
+#
+# `node:24-alpine` floats. The image running in the Pyramid showroom was built
+# on 24.18.0; a rebuild months later silently picked up 24.19.0, which aborts
+# the process on the first render of `/`:
+#
+#   void node::RemoveEnvironmentCleanupHook(...) at ../src/api/hooks.cc:142
+#   Assertion failed: (env) != nullptr        → SIGABRT, exit 134
+#
+# The console then crash-looped ~every few minutes with no JS error anywhere,
+# and the same source built against 24.18.0 is fine — so the runtime, not the
+# app, was the variable. Never widen this back to a floating tag: it makes the
+# deployed runtime a function of the build date, which is unreproducible and
+# cost a full day to bisect. Bump it consciously, and verify `GET /` afterwards.
+FROM node:24.18.0-alpine AS builder
 WORKDIR /app
 
 # Same toolchain required for npm ci (full devDeps includes @types/* etc., but
@@ -51,7 +65,8 @@ RUN --mount=type=secret,id=sentry_auth_token,env=SENTRY_AUTH_TOKEN,required=fals
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 2 – runner: minimal Alpine with runtime-only packages
 # ──────────────────────────────────────────────────────────────────────────────
-FROM node:24-alpine AS runner
+# Same pinned runtime as the builder — see the note above.
+FROM node:24.18.0-alpine AS runner
 WORKDIR /app
 
 # Runtime packages:
