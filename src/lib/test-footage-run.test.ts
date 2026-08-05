@@ -6,10 +6,15 @@ vi.mock("@/lib/helpers/ingestion", () => ({
   setIngestion: vi.fn(),
   listIngestingCameras: vi.fn(),
 }));
+vi.mock("@/lib/helpers/configmaps", () => ({
+  readConfigMapKey: vi.fn(),
+  patchConfigMapRawKey: vi.fn(),
+}));
 
 import { registerSensorAndArm } from "@/lib/helpers/vst-register";
 import { vstDeleteSensor, vstListSensors } from "@/lib/helpers/vst";
 import { setIngestion, listIngestingCameras } from "@/lib/helpers/ingestion";
+import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { startRun, stopRun } from "./test-footage-run";
 
 const register = vi.mocked(registerSensorAndArm);
@@ -17,6 +22,8 @@ const delSensor = vi.mocked(vstDeleteSensor);
 const listSensors = vi.mocked(vstListSensors);
 const ingestion = vi.mocked(setIngestion);
 const listIngesting = vi.mocked(listIngestingCameras);
+const readCm = vi.mocked(readConfigMapKey);
+const patchCm = vi.mocked(patchConfigMapRawKey);
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -27,6 +34,12 @@ beforeEach(() => {
   listSensors.mockResolvedValue({ sensors: [] } as unknown as Awaited<
     ReturnType<typeof vstListSensors>
   >);
+  readCm.mockResolvedValue({
+    value: { rules: [{ sensor: "checkout-1" }] },
+    raw: "{}",
+    resourceVersion: "1",
+  } as unknown as Awaited<ReturnType<typeof readConfigMapKey>>);
+  patchCm.mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof patchConfigMapRawKey>>);
 });
 
 describe("startRun", () => {
@@ -37,7 +50,7 @@ describe("startRun", () => {
     expect(register).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "test-theft-lane-3",
-        rtspUrl: "rtsp://127.0.0.1:8654/loop/theft-lane-3.mp4",
+        rtspUrl: "rtsp://test-footage-server.console.svc.cluster.local:8654/loop/theft-lane-3.mp4",
       }),
     );
     // Analysis on for the test camera — without this it records but never
@@ -51,6 +64,18 @@ describe("startRun", () => {
     expect(res.pausedCameras.sort()).toEqual(["checkout-1", "pyramid-16-cam0"]);
     expect(ingestion).toHaveBeenCalledWith("checkout-1", false);
     expect(ingestion).toHaveBeenCalledWith("pyramid-16-cam0", false);
+  });
+
+  it("records the paused set so the reconciler cannot re-seed them mid-run", async () => {
+    await startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: true });
+
+    const written = patchCm.mock.calls.map((c) => String(c[3]));
+    const withPaused = written.find((w) => w.includes("paused_sensors"));
+    expect(withPaused).toBeDefined();
+    expect(JSON.parse(withPaused as string).paused_sensors.sort()).toEqual([
+      "checkout-1",
+      "pyramid-16-cam0",
+    ]);
   });
 
   it("does not pause anything when pauseLive is false", async () => {
