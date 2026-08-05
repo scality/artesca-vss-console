@@ -121,7 +121,7 @@ export async function vstAddSensor(input: {
   sensorId: string;
   rtspUrl: string;
   description?: string;
-}): Promise<{ ok: boolean; warning?: string }> {
+}): Promise<{ ok: boolean; warning?: string; uuid?: string }> {
   // `username` is a REQUIRED field for sensor/add — omitting it registers the
   // sensor but the recorder never starts a pipeline (sensor comes up online but
   // never records). Empty string is valid. This is the difference between a
@@ -155,7 +155,19 @@ export async function vstAddSensor(input: {
       };
     }
 
-    return { ok: true };
+    // VST answers with the sensor's freshly-minted UUID. Return it: the
+    // recording pipeline is keyed by that UUID, not by the camera name, so
+    // arming with the name registers a proxy stream that never records.
+    // Re-registering mints a NEW UUID, which is why a stale one silently
+    // no-ops too.
+    const uuid = await resp
+      .json()
+      .then((b: { sensorId?: unknown }) =>
+        typeof b?.sensorId === "string" ? b.sensorId : undefined,
+      )
+      .catch(() => undefined);
+
+    return { ok: true, uuid };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, warning: `VST add failed for ${input.sensorId}: ${msg}` };

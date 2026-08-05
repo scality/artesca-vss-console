@@ -1,5 +1,6 @@
 import "server-only";
-import { vstDeleteSensor, vstAddSensor, vstStartStream } from "@/lib/helpers/vst";
+import { vstDeleteSensor } from "@/lib/helpers/vst";
+import { registerSensorAndArm } from "@/lib/helpers/vst-register";
 
 export interface RearmResult {
   ok: boolean;
@@ -27,14 +28,7 @@ export async function rearmRecording(
   const del = await vstDeleteSensor(streamId || name);
   if (!del.ok && del.warning) warnings.push(del.warning);
 
-  const add = await vstAddSensor({ sensorId: name, rtspUrl, description });
-  if (!add.ok) {
-    if (add.warning) warnings.push(add.warning);
-    return { ok: false, warnings };
-  }
-
-  const stream = await vstStartStream({ sensorId: name, rtspUrl });
-  if (!stream.ok && stream.warning) warnings.push(stream.warning);
-
-  return { ok: true, warnings };
+  const res = await registerSensorAndArm({ name, rtspUrl, description });
+  warnings.push(...res.warnings);
+  return { ok: res.ok, warnings };
 }
