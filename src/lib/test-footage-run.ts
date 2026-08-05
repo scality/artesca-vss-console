@@ -192,6 +192,33 @@ async function liveIngestingCameras(): Promise<string[]> {
 }
 
 /**
+ * Every non-test camera this deployment WANTS analysed, whether or not it
+ * happens to have a live rule right now.
+ *
+ * This, not the currently-ingesting list, is the correct pause target. The
+ * reconciler seeds from the ConfigMap, so a camera that is momentarily ruleless
+ * — mid-reseed, or after a failed create — is absent from the ingesting list,
+ * never gets marked paused, and is then legitimately re-seeded during the run.
+ * Observed exactly that: checkout-1 was seeded microseconds before the pause set
+ * was computed, so it analysed alongside the clip for the whole run.
+ */
+async function desiredLiveCameras(): Promise<string[]> {
+  const [ingesting, profiles] = await Promise.all([
+    liveIngestingCameras(),
+    readConfigMapKey<{ rules?: Array<{ sensor?: string }> }>(
+      CLUSTER.alertBridge.rulesNamespace,
+      CLUSTER.alertBridge.rulesConfigMap,
+      "rules.json",
+    )
+      .then(({ value }) =>
+        (value.rules ?? []).map((r) => r.sensor).filter((s): s is string => Boolean(s)),
+      )
+      .catch(() => [] as string[]),
+  ]);
+  return [...new Set([...ingesting, ...profiles])].filter((id) => !isFootageCamera(id));
+}
+
+/**
  * Bring a footage file up as a camera.
  *
  * The GPU is the binding constraint on the converged node — five live cameras
@@ -208,7 +235,7 @@ export async function startRun(req: RunRequest): Promise<RunResult> {
   const pausedCameras: string[] = [];
 
   if (req.pauseLive) {
-    const live = await liveIngestingCameras();
+    const live = await desiredLiveCameras();
     // Mark them paused first, so the reconciler will not want them back when it
     // comes up again.
     const markWarning = await setPausedSensors(live);
