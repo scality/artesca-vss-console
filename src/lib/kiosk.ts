@@ -5,6 +5,7 @@ export const KIOSK_HIDDEN_ROUTES = [
   "/scenarios",
   "/prompt",
   "/tuning",
+  "/test-footage",
   "/profiles",
   "/secrets",
   "/logs",

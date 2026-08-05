@@ -74,6 +74,11 @@ spec:
         volumeMounts:
         - name: console-data
           mountPath: /data
+        # Uploaded test footage. Written here by the console, read by the
+        # test-footage-server (same namespace, same node) which republishes each
+        # file as RTSP on demand. See 30-test-footage.yaml.
+        - name: test-footage
+          mountPath: /footage
         - name: camera-sim-ssh-key
           mountPath: /etc/camera-sim
           readOnly: true
@@ -118,6 +123,9 @@ spec:
       - name: console-data
         persistentVolumeClaim:
           claimName: console-data
+      - name: test-footage
+        persistentVolumeClaim:
+          claimName: test-footage-data
       - name: camera-sim-ssh-key
         secret:
           secretName: console-ssh
