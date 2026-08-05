@@ -1,7 +1,7 @@
 import "server-only";
 import { registerSensorAndArm } from "@/lib/helpers/vst-register";
 import { vstDeleteSensor, vstListSensors } from "@/lib/helpers/vst";
-import { setIngestion } from "@/lib/helpers/ingestion";
+import { setIngestion, suspendIngestion } from "@/lib/helpers/ingestion";
 import {
   footageCameraId,
   footageRtspUrl,
@@ -102,7 +102,11 @@ export async function startRun(req: RunRequest): Promise<RunResult> {
     const markWarning = await setPausedSensors(live);
     if (markWarning) warnings.push(markWarning);
     for (const id of live) {
-      const res = await setIngestion(id, false);
+      // suspend, NOT setIngestion(false): the latter also deletes the camera's
+      // desired spec from the ConfigMap, which is what a resume reads. The
+      // paused_sensors marker written above is what stops the reconciler
+      // re-seeding it while the run holds the GPU.
+      const res = await suspendIngestion(id);
       if (res.ok) {
         pausedCameras.push(id);
       } else if (res.warning) {

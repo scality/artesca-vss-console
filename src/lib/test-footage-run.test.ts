@@ -4,6 +4,7 @@ vi.mock("@/lib/helpers/vst-register", () => ({ registerSensorAndArm: vi.fn() }))
 vi.mock("@/lib/helpers/vst", () => ({ vstDeleteSensor: vi.fn(), vstListSensors: vi.fn() }));
 vi.mock("@/lib/helpers/ingestion", () => ({
   setIngestion: vi.fn(),
+  suspendIngestion: vi.fn(),
   listIngestingCameras: vi.fn(),
 }));
 vi.mock("@/lib/helpers/configmaps", () => ({
@@ -13,7 +14,7 @@ vi.mock("@/lib/helpers/configmaps", () => ({
 
 import { registerSensorAndArm } from "@/lib/helpers/vst-register";
 import { vstDeleteSensor, vstListSensors } from "@/lib/helpers/vst";
-import { setIngestion, listIngestingCameras } from "@/lib/helpers/ingestion";
+import { setIngestion, suspendIngestion, listIngestingCameras } from "@/lib/helpers/ingestion";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { startRun, stopRun } from "./test-footage-run";
 
@@ -22,12 +23,14 @@ const delSensor = vi.mocked(vstDeleteSensor);
 const listSensors = vi.mocked(vstListSensors);
 const ingestion = vi.mocked(setIngestion);
 const listIngesting = vi.mocked(listIngestingCameras);
+const suspend = vi.mocked(suspendIngestion);
 const readCm = vi.mocked(readConfigMapKey);
 const patchCm = vi.mocked(patchConfigMapRawKey);
 
 beforeEach(() => {
   vi.resetAllMocks();
   ingestion.mockResolvedValue({ ok: true });
+  suspend.mockResolvedValue({ ok: true });
   delSensor.mockResolvedValue({ ok: true });
   register.mockResolvedValue({ ok: true, uuid: "u1", warnings: [] });
   listIngesting.mockResolvedValue({ ingesting: new Set(["checkout-1", "pyramid-16-cam0"]) });
@@ -62,8 +65,12 @@ describe("startRun", () => {
     const res = await startRun({ fileName: "clip.mp4", mode: "once", pauseLive: true });
 
     expect(res.pausedCameras.sort()).toEqual(["checkout-1", "pyramid-16-cam0"]);
-    expect(ingestion).toHaveBeenCalledWith("checkout-1", false);
-    expect(ingestion).toHaveBeenCalledWith("pyramid-16-cam0", false);
+    // Suspend, not setIngestion(false): the latter deletes the camera's desired
+    // spec from the ConfigMap, which is exactly what a resume reads back.
+    expect(suspend).toHaveBeenCalledWith("checkout-1");
+    expect(suspend).toHaveBeenCalledWith("pyramid-16-cam0");
+    expect(ingestion).not.toHaveBeenCalledWith("checkout-1", false);
+    expect(ingestion).not.toHaveBeenCalledWith("pyramid-16-cam0", false);
   });
 
   it("records the paused set so the reconciler cannot re-seed them mid-run", async () => {
@@ -80,7 +87,7 @@ describe("startRun", () => {
 
   it("does not pause anything when pauseLive is false", async () => {
     await startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: false });
-    expect(ingestion).not.toHaveBeenCalledWith("checkout-1", false);
+    expect(suspend).not.toHaveBeenCalled();
   });
 
   it("restores the live cameras when registration fails", async () => {

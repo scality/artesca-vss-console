@@ -115,6 +115,30 @@ async function writeCmRules(doc: RulesDoc, resourceVersion?: string): Promise<vo
   }
 }
 
+/** Delete the LIVE alert-bridge rules for a camera, leaving the desired spec in
+ *  the ConfigMap untouched.
+ *
+ *  This is the right primitive for a TEMPORARY pause. setIngestion(false) also
+ *  strips the CM entry — correct when an operator turns a camera off for good,
+ *  destructive when the intent is "stop analysing for two minutes", because the
+ *  spec is what a resume rebuilds from. Pausing five cameras that way deleted
+ *  all five specs and left the showroom unable to resume. Callers that suspend
+ *  must also record the sensor in `paused_sensors` so the reconciler does not
+ *  re-seed a rule from the spec that is still there. */
+export async function suspendIngestion(
+  cameraId: string,
+): Promise<{ ok: boolean; warning?: string }> {
+  const { rules, warning } = await listRealtimeRules();
+  if (warning) return { ok: false, warning };
+  const mine = rules.filter((r) => r.sensor_name === cameraId && r.id);
+  const warnings: string[] = [];
+  for (const r of mine) {
+    const res = await deleteRealtimeRule(r.id);
+    if (!res.ok && res.warning) warnings.push(res.warning);
+  }
+  return warnings.length ? { ok: false, warning: warnings.join("; ") } : { ok: true };
+}
+
 /** Turn VLM ingestion on or off for a camera.
  *  enable  → create a realtime rule (spec from the CM, stream id from VST).
  *  disable → delete every realtime rule bound to this camera's sensor name.
