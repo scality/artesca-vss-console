@@ -12,7 +12,13 @@ import {
 import { createLogger } from "@/lib/logger";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
-import { quiesceDeployment, rolloutRestart, scaleDeployment, waitForRollout } from "@/lib/k8s";
+import {
+  deploymentExists,
+  quiesceDeployment,
+  rolloutRestart,
+  scaleDeployment,
+  waitForRollout,
+} from "@/lib/k8s";
 
 const log = createLogger("test-footage-run");
 
@@ -344,15 +350,39 @@ export async function startRun(req: RunRequest): Promise<RunResult> {
   };
 }
 
-/** Re-enable ingestion on cameras a run paused. Best-effort per camera so one
- *  failure cannot leave the rest off. */
+/**
+ * Re-enable ingestion on cameras a run paused.
+ *
+ * Where the reconciler is deployed, clearing the marker IS the resume: it owns
+ * rule creation and seeds every unpaused camera in the ConfigMap. The console
+ * deliberately does not also create the rules itself.
+ *
+ * It used to do both, and the two writers raced. Neither sees the other's
+ * create in time — the alert-bridge's rule index is eventually consistent, so
+ * each reads "no rule for this sensor" and posts one. Measured after a stop: 6
+ * rules with pyramid-16-cam0 twice, then 0, 2, 4, settling at 5 about two
+ * minutes later, with the reconciler logging `deduped extra rule` as it cleaned
+ * up after us. Duplicate rules mean a camera is analysed twice and the GPU
+ * budget is wrong, and the churn is indistinguishable from a fault to anyone
+ * watching the console.
+ *
+ * Deduping afterwards treats the symptom; one writer removes the race.
+ */
 async function restoreCameras(ids: string[]): Promise<string[]> {
   const warnings: string[] = [];
-  // Clear the marker first: the reconciler then re-seeds these itself, which is
-  // a second, independent path back to a healthy live pipeline if the explicit
-  // per-camera resume below fails.
+  // Clearing the marker also restarts the reconciler and waits for it, so the
+  // new pod reads the current document and seeds on its first tick.
   const clearWarning = await setPausedSensors([]);
   if (clearWarning) warnings.push(clearWarning);
+
+  if (await deploymentExists(CLUSTER.alertBridge.rulesNamespace, RECONCILER_DEPLOYMENT)) {
+    log.info("resume delegated to the reconciler", { cameras: ids });
+    return warnings;
+  }
+
+  // No reconciler on this profile — nothing else will create the rules, so the
+  // console has to. There is no second writer here, so no race either.
+  log.info("no reconciler deployed — resuming cameras directly", { cameras: ids });
   for (const id of ids) {
     const res = await setIngestion(id, true);
     if (!res.ok && res.warning) warnings.push(`could not resume ${id}: ${res.warning}`);

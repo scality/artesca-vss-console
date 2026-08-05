@@ -301,6 +301,17 @@ export async function waitForRollout(
   return false;
 }
 
+/** Whether a Deployment exists. Used to decide whether a controller is present
+ *  to own a piece of state, rather than assuming one way or the other. */
+export async function deploymentExists(namespace: string, name: string): Promise<boolean> {
+  try {
+    await appsV1().readNamespacedDeployment({ name, namespace });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Set a Deployment's replica count. */
 export async function scaleDeployment(
   namespace: string,
