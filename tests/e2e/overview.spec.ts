@@ -31,7 +31,6 @@ async function stubOverviewApis(page: Page) {
           rtvi: { total: 2, ready: 2, failed: 0 },
           agent: { total: 1, ready: 1, failed: 0 },
           alerts: { total: 1, ready: 1, failed: 0 },
-          "demo-data": { total: 1, ready: 1, failed: 0 },
           "pyramid-ingress": { total: 1, ready: 1, failed: 0 },
         },
         nim: { ready: true, warmupPct: 100, queueDepth: 0 },

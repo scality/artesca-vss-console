@@ -104,8 +104,8 @@ export function watchedNamespaces(): string[] {
   const legacy = process.env.CONSOLE_LEGACY_NAMESPACES === "1";
   const vssNs = process.env.VSS_NAMESPACE ?? "vss-base";
   const defaultNs = legacy
-    ? "vst,rtvi,agent,alerts,demo-data,pyramid-ingress"
-    : `${vssNs},demo-data,pyramid-ingress`;
+    ? "vst,rtvi,agent,alerts,pyramid-ingress"
+    : `${vssNs},pyramid-ingress`;
   const raw = process.env.KUBE_NAMESPACES ?? defaultNs;
   return raw.split(",").map((ns) => ns.trim()).filter(Boolean);
 }

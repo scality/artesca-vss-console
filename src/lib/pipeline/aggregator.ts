@@ -108,8 +108,6 @@ const DEPLOY_TO_NODE: Record<string, string> = CLUSTER.legacy
       "alert-worker":        "alert-worker",
       "nvidia-vss-agent":    "agent",
       "agent":               "agent",
-      "demo-producer":       "demo-data-producer",
-      "demo-data-producer":  "demo-data-producer",
       "redpanda":            "kafka",
     }
   : {
@@ -120,8 +118,6 @@ const DEPLOY_TO_NODE: Record<string, string> = CLUSTER.legacy
       "nvidia-nemotron-nano-9b-v2":  "nim-nemotron-nano",
       "vss-video-analytics-api":     "vss-video-analytics-api",
       "vss-agent":                   "vss-agent",
-      "demo-producer":               "demo-data-producer",
-      "demo-data-producer":          "demo-data-producer",
       "kafka":                       "kafka",
       "redis":                       "vss-redis",
     };
@@ -938,8 +934,6 @@ function buildEdges(
     alertRedisUp === true ? "flowing" : alertRedisUp === false ? "error" : "unknown"
   );
 
-  // demo-data-producer → kafka
-  edge("demo-data-producer", "kafka", "Kafka", null, "unknown");
 
   // console → artesca-s3 (clip playback, dormant/dashed)
   edge("console", "artesca-s3", "S3 GET", null, "idle");

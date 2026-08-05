@@ -13,7 +13,6 @@ export const dynamic = "force-dynamic";
 // Component whitelist is centralized in cluster-refs.ts.
 // Real names verified against k8s/ manifests:
 //   - "nvidia-vss-agent" (not "agent") — k8s/nvidia-vss/agent/20-nvidia-vss-agent.yaml
-//   - "demo-producer" (not "demo-data-producer") — k8s/nvidia-vss/demo-data/20-producer.yaml
 //   - "cosmos-reason2-8b" as StatefulSet (not "nim-cosmos-reason2" Deployment)
 const { restartable: RESTARTABLE } = CLUSTER;
 const COMPOSE_PROJECT = process.env.COMPOSE_PROJECT_NAME ?? "mdx";
@@ -25,7 +24,6 @@ const DOCKER_SERVICE_NAMES: Record<string, string> = {
   "streamprocessing-ms": "streamprocessing-ms-dev",
   "nvidia-vss-agent": "vss-agent",
   "alert-worker": "vss-video-analytics-api-alerts",
-  "demo-producer": CLUSTER.demoData.dockerContainer,
 };
 
 export const POST = withRequestContext(async (

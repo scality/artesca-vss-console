@@ -47,13 +47,11 @@ vi.mock("@/lib/cluster-refs", () => {
   const RESTARTABLE: Record<string, { namespace: string; kind: string; name: string }> = {
     "rtvi-vlm": { namespace: "rtvi", kind: "Deployment", name: "rtvi-vlm" },
     "alert-worker": { namespace: "alerts", kind: "Deployment", name: "alert-worker" },
-    "demo-producer": { namespace: "demo-data", kind: "Deployment", name: "demo-producer" },
     "cosmos-reason2-8b": { namespace: "rtvi", kind: "StatefulSet", name: "cosmos-reason2-8b" },
   };
   return {
     CLUSTER: {
       restartable: RESTARTABLE,
-      demoData: { dockerContainer: "vss-demo-producer" },
       alertsTuning: { cooldownKey: "COOLDOWN_SECONDS", slackConfiguredKey: "SLACK_CONFIGURED" },
       rtvi: { nimMaxNumSeqsKey: "MAX_NUM_SEQS", nimKvCacheKey: "KV_CACHE_PERCENT", nimMaxModelLenKey: "MAX_MODEL_LEN" },
     },

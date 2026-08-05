@@ -26,7 +26,6 @@ vi.mock("@/lib/cluster-refs", () => ({
     scenarios: {},
     alertsTuning: {},
     cameras: {},
-    demoData: {},
     s3: {},
     restartableComponents: {},
   },

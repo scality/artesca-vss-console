@@ -29,12 +29,10 @@ function buildFallbackRbac(vssNamespace: string, legacy: boolean): RbacSummary {
           { namespace: "rtvi", role: "console-writer" },
           { namespace: "agent", role: "console-writer" },
           { namespace: "alerts", role: "console-writer" },
-          { namespace: "demo-data", role: "console-writer" },
           { namespace: "pyramid-ingress", role: "console-writer" },
         ]
       : [
           { namespace: vssNamespace, role: "console-writer" },
-          { namespace: "demo-data", role: "console-writer" },
           { namespace: "pyramid-ingress", role: "console-writer" },
         ],
   };

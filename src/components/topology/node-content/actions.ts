@@ -14,7 +14,6 @@ import {
   AlertWorkerActionsRenderer,
   AgentActionsRenderer,
   MediamtxActionsRenderer,
-  DemoDataActionsRenderer,
   getFeedActionsContent,
   VssViosSensorActionsRenderer,
   VssViosStreamActionsRenderer,
@@ -84,8 +83,5 @@ export const ACTIONS_CONTENT: NodeContentMap = {
   // Common
   mediamtx: {
     actions: MediamtxActionsRenderer,
-  },
-  "demo-data-producer": {
-    actions: DemoDataActionsRenderer,
   },
 };

@@ -62,7 +62,6 @@ vi.mock("@/lib/cluster-refs", () => {
   return {
     CLUSTER: {
       restartable: RESTARTABLE,
-      demoData: { dockerContainer: "vss-demo-producer" },
       alertsTuning: { cooldownKey: "COOLDOWN_SECONDS", slackConfiguredKey: "SLACK_CONFIGURED" },
       rtvi: { nimMaxNumSeqsKey: "MAX_NUM_SEQS", nimKvCacheKey: "KV_CACHE_PERCENT", nimMaxModelLenKey: "MAX_MODEL_LEN" },
     },

@@ -47,7 +47,7 @@ interface TopologyEdge {
 // Well-known node IDs (used by frontend agents and the pipeline aggregator):
 //   camera-sim, mediamtx, vss-vios-sensor, vss-vios-streamprocessing,
 //   vss-rtvi-vlm, nim-nemotron-nano, kafka, vss-video-analytics-api,
-//   vss-agent, demo-data-producer, artesca-s3, vst-local-cache,
+//   vss-agent, artesca-s3, vst-local-cache,
 //   vss-vios-postgres, vss-redis.
 const COMPONENTS: Array<{
   id: string;
@@ -69,7 +69,6 @@ const COMPONENTS: Array<{
       { id: "kafka",                label: "Kafka (Redpanda)",                     namespace: "rtvi",      type: "service",   deploymentName: "redpanda",              position: { x: 750, y: 520 } },
       { id: "alert-worker",         label: "alert-worker",                         namespace: "alerts",    type: "service",   deploymentName: "alert-worker",          position: { x: 960, y: 380 } },
       { id: "agent",                label: "Agent UI",                             namespace: "agent",     type: "service",   deploymentName: "nvidia-vss-agent",      position: { x: 960, y: 180 } },
-      { id: "demo-data-producer",   label: "demo-data-producer",                   namespace: "demo-data", type: "service",   deploymentName: "demo-producer",         position: { x: 550, y: 620 } },
       { id: "artesca-s3",           label: `ARTESCA S3 (${RECORDINGS_BUCKET})`,        namespace: "storage",   type: "storage",   position: { x: 1180, y: 500 } },
       { id: "vst-local-cache",      label: "VST local cache",                      namespace: "vst",       type: "storage",   position: { x: 640,  y: 500 } },
       { id: "vst-postgres",         label: "VST Postgres",                         namespace: "vst",       type: "database",  deploymentName: "postgres",              position: { x: 280, y: 560 } },
@@ -87,7 +86,6 @@ const COMPONENTS: Array<{
       { id: "kafka",                       label: "Kafka (Confluent)",                     namespace: VSS_NS,     type: "service",   deploymentName: "kafka",                      position: { x: 750, y: 520 } },
       { id: "vss-video-analytics-api",     label: "vss-video-analytics-api",               namespace: VSS_NS,     type: "service",   deploymentName: "vss-video-analytics-api",    position: { x: 960, y: 380 } },
       { id: "vss-agent",                   label: "vss-agent",                             namespace: VSS_NS,     type: "service",   deploymentName: "vss-agent",                  position: { x: 960, y: 180 } },
-      { id: "demo-data-producer",          label: "demo-data-producer",                    namespace: "demo-data",type: "service",   deploymentName: "demo-producer",              position: { x: 550, y: 620 } },
       { id: "artesca-s3",                  label: `ARTESCA S3 (${RECORDINGS_BUCKET})`,         namespace: "storage",  type: "storage",   position: { x: 1180, y: 500 } },
       { id: "vst-local-cache",             label: "VST local cache",                       namespace: VSS_NS,     type: "storage",   position: { x: 640,  y: 500 } },
       { id: "vss-vios-postgres",           label: "vss-vios-postgres",                     namespace: VSS_NS,     type: "database",  deploymentName: "vss-vios-postgres",          position: { x: 280, y: 560 } },
@@ -110,7 +108,6 @@ const _LEGACY_STATIC_EDGES: TopologyEdge[] = [
   { id: "edge:agent->sensor-ms", source: "agent", target: "sensor-ms", label: "HTTP", protocol: "http" },
   { id: "edge:rtvi-vlm->kafka", source: "rtvi-vlm", target: "kafka", label: "Kafka", protocol: "kafka" },
   { id: "edge:kafka->alert-worker", source: "kafka", target: "alert-worker", label: "Kafka", protocol: "kafka" },
-  { id: "edge:demo-data-producer->kafka", source: "demo-data-producer", target: "kafka", label: "Kafka", protocol: "kafka" },
   { id: "edge:sensor-ms->vst-local-cache", source: "sensor-ms", target: "vst-local-cache", label: "write", protocol: "file" },
   { id: "edge:vst-local-cache->artesca-s3", source: "vst-local-cache", target: "artesca-s3", label: "S3 PUT", protocol: "s3" },
   { id: "edge:sensor-ms->vst-postgres", source: "sensor-ms", target: "vst-postgres", label: "metadata", protocol: "postgres" },
@@ -135,7 +132,6 @@ const _HELM_STATIC_EDGES: TopologyEdge[] = [
   // Kafka paths
   { id: "edge:vss-rtvi-vlm->kafka",                 source: "vss-rtvi-vlm",             target: "kafka",                 label: "Kafka",     protocol: "kafka" },
   { id: "edge:kafka->vss-video-analytics-api",      source: "kafka",                    target: "vss-video-analytics-api",label: "Kafka",   protocol: "kafka" },
-  { id: "edge:demo-data-producer->kafka",           source: "demo-data-producer",       target: "kafka",                 label: "Kafka",     protocol: "kafka" },
   // Storage paths
   { id: "edge:vss-vios-sensor->vst-local-cache",    source: "vss-vios-sensor",          target: "vst-local-cache",       label: "write",     protocol: "file" },
   { id: "edge:vst-local-cache->artesca-s3",         source: "vst-local-cache",          target: "artesca-s3",            label: "S3 PUT",    protocol: "s3" },
