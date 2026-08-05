@@ -190,6 +190,35 @@ export interface RunResult {
   warnings: string[];
 }
 
+/**
+ * Drop a previous registration of the same test camera: its live rule, its
+ * ConfigMap entry, and the VST sensor itself (by UUID — VST keys removal on the
+ * UUID, and deleting by name silently does nothing).
+ *
+ * Best-effort: a failure here is reported but does not stop the run, because
+ * the registration that follows will fail loudly if this mattered.
+ */
+async function removeExistingRun(cameraId: string, warnings: string[]): Promise<void> {
+  try {
+    const { sensors } = await vstListSensors();
+    const existing = sensors.find((s) => s.sensor_id === cameraId);
+    if (!existing) return;
+
+    await setIngestion(cameraId, false);
+    const uuid = String((existing as { streamId?: unknown }).streamId ?? "") || cameraId;
+    const del = await vstDeleteSensor(uuid);
+    if (!del.ok && del.warning) {
+      warnings.push(`could not clear the previous ${cameraId}: ${del.warning}`);
+      return;
+    }
+    log.info("cleared a previous registration before starting", { cameraId, uuid });
+  } catch (err) {
+    warnings.push(
+      `could not check for a previous ${cameraId}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
 /** Cameras currently being analysed that are NOT test footage. */
 async function liveIngestingCameras(): Promise<string[]> {
   const { listIngestingCameras } = await import("@/lib/helpers/ingestion");
@@ -318,6 +347,21 @@ export async function startRun(req: RunRequest): Promise<RunResult> {
 
     log.info("paused live cameras for a footage run", { pausedCameras, reSeeded, cameraId });
   }
+
+  // Clear any leftover registration for this clip before registering.
+  //
+  // VST rejects an add whose STREAM URL already exists — and reports it against
+  // the existing sensor's name, not the one being added:
+  //
+  //     400 InvalidParameterError
+  //     "Sensor exists already, sensorId: 90904d05-..., sensorName: test-checkout-1"
+  //
+  // So a run interrupted after the add (a failed arm, a pod restart) left the
+  // camera registered and every later run of that clip failed to start, with
+  // each attempt leaving the state a little worse. A test camera is disposable
+  // by definition, so remove and re-register rather than adopting one whose
+  // recorder may be armed against a UUID nothing else knows about.
+  await removeExistingRun(cameraId, warnings);
 
   const reg = await registerSensorAndArm({
     name: cameraId,

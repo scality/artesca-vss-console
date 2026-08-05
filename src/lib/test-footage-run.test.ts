@@ -447,3 +447,42 @@ describe("restore ownership", () => {
     expect(ingestion).toHaveBeenCalledWith("checkout-1", true);
   });
 });
+
+describe("starting over a leftover registration", () => {
+  it("clears a previous registration of the same clip before registering", async () => {
+    // VST rejects an add whose stream URL already exists, so without this a run
+    // interrupted after the add made every later run of that clip unstartable.
+    listSensors.mockResolvedValue({
+      sensors: [{ sensor_id: "test-clip", streamId: "stale-uuid" }],
+    } as unknown as Awaited<ReturnType<typeof vstListSensors>>);
+
+    await startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: false });
+
+    expect(ingestion).toHaveBeenCalledWith("test-clip", false);
+    // By UUID — VST keys removal on it, and a delete by name silently does nothing.
+    expect(delSensor).toHaveBeenCalledWith("stale-uuid");
+    expect(register).toHaveBeenCalled();
+  });
+
+  it("does not touch VST when there is no previous registration", async () => {
+    listSensors.mockResolvedValue({ sensors: [] } as unknown as Awaited<
+      ReturnType<typeof vstListSensors>
+    >);
+
+    await startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: false });
+
+    expect(delSensor).not.toHaveBeenCalled();
+  });
+
+  it("still attempts the run when clearing fails, and says so", async () => {
+    listSensors.mockResolvedValue({
+      sensors: [{ sensor_id: "test-clip", streamId: "stale-uuid" }],
+    } as unknown as Awaited<ReturnType<typeof vstListSensors>>);
+    delSensor.mockResolvedValue({ ok: false, warning: "VST delete returned HTTP 500" });
+
+    const res = await startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: false });
+
+    expect(res.warnings.join(" ")).toMatch(/could not clear the previous test-clip/);
+    expect(register).toHaveBeenCalled();
+  });
+});
