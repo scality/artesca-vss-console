@@ -12,8 +12,12 @@ import {
 import { createLogger } from "@/lib/logger";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
+import { rolloutRestart } from "@/lib/k8s";
 
 const log = createLogger("test-footage-run");
+
+/** The watcher that re-seeds alert rules from the ConfigMap. */
+const RECONCILER_DEPLOYMENT = process.env.VLM_RECONCILER_DEPLOYMENT ?? "vlm-stream-reconciler";
 
 /**
  * Record (or clear) the sensors a run has paused, in the same rules ConfigMap
@@ -25,6 +29,13 @@ const log = createLogger("test-footage-run");
  * still competed for the GPU. The reconciler skips anything listed here.
  */
 async function setPausedSensors(sensors: string[]): Promise<string | undefined> {
+  // Writing the marker is not enough on its own. The reconciler reads the rules
+  // document from a MOUNTED ConfigMap, and a mount takes 60-90s to reflect an
+  // edit — so within its 15s tick it re-seeded the cameras from the stale copy
+  // and the pause evaporated. Restarting it makes the new pod read the current
+  // document immediately. It must keep RUNNING during the run (not be scaled to
+  // zero): the VLM ends a looping clip's caption task about every two minutes,
+  // and the reconciler is what re-fires it — the test stream needs that too.
   try {
     const { value, resourceVersion } = await readConfigMapKey<Record<string, unknown>>(
       CLUSTER.alertBridge.rulesNamespace,
@@ -40,6 +51,13 @@ async function setPausedSensors(sensors: string[]): Promise<string | undefined> 
       JSON.stringify(doc),
       resourceVersion,
     );
+    try {
+      await rolloutRestart("Deployment", CLUSTER.alertBridge.rulesNamespace, RECONCILER_DEPLOYMENT);
+    } catch (err) {
+      return `paused set written but the reconciler could not be restarted, so it may re-seed from its stale mounted copy: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
     return undefined;
   } catch (err) {
     return `could not record the paused set (the reconciler may resume the live cameras mid-run): ${

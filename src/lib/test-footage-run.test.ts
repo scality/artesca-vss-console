@@ -11,11 +11,13 @@ vi.mock("@/lib/helpers/configmaps", () => ({
   readConfigMapKey: vi.fn(),
   patchConfigMapRawKey: vi.fn(),
 }));
+vi.mock("@/lib/k8s", () => ({ rolloutRestart: vi.fn() }));
 
 import { registerSensorAndArm } from "@/lib/helpers/vst-register";
 import { vstDeleteSensor, vstListSensors } from "@/lib/helpers/vst";
 import { setIngestion, suspendIngestion, listIngestingCameras } from "@/lib/helpers/ingestion";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
+import { rolloutRestart } from "@/lib/k8s";
 import { startRun, stopRun } from "./test-footage-run";
 
 const register = vi.mocked(registerSensorAndArm);
@@ -26,6 +28,7 @@ const listIngesting = vi.mocked(listIngestingCameras);
 const suspend = vi.mocked(suspendIngestion);
 const readCm = vi.mocked(readConfigMapKey);
 const patchCm = vi.mocked(patchConfigMapRawKey);
+const restart = vi.mocked(rolloutRestart);
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -43,6 +46,7 @@ beforeEach(() => {
     resourceVersion: "1",
   } as unknown as Awaited<ReturnType<typeof readConfigMapKey>>);
   patchCm.mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof patchConfigMapRawKey>>);
+  restart.mockResolvedValue(undefined);
 });
 
 describe("startRun", () => {
@@ -83,6 +87,9 @@ describe("startRun", () => {
       "checkout-1",
       "pyramid-16-cam0",
     ]);
+    // The marker alone is not enough: the reconciler reads a mounted copy that
+    // lags 60-90s, so it must be restarted to see it before the next tick.
+    expect(restart).toHaveBeenCalledWith("Deployment", expect.any(String), "vlm-stream-reconciler");
   });
 
   it("does not pause anything when pauseLive is false", async () => {
