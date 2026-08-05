@@ -81,13 +81,20 @@ export function FeedList({ cameraId, feeds, eip }: FeedListProps) {
                 unregistered
               </Badge>
             )}
+            {/* Replay = the mediamtx HLS path, unrelated to VST registration.
+                A bare "not ready" next to the VST badge read as "VST is
+                broken" — it is neither VST nor an error, so name the subject. */}
             {feed.replayReady ? (
               <Badge variant="outline" className="text-xs bg-emerald-50 border-emerald-200 text-emerald-700">
                 replay ready
               </Badge>
             ) : (
-              <Badge variant="outline" className="text-xs border-muted-foreground text-muted-foreground">
-                not ready
+              <Badge
+                variant="outline"
+                className="text-xs border-muted-foreground text-muted-foreground"
+                title="HLS replay of this feed is not cached yet. Live analysis and recording are unaffected."
+              >
+                replay not cached
               </Badge>
             )}
             {feed.bitrateMbps && (

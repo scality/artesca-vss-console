@@ -32,6 +32,28 @@ interface RulesDoc {
   }>;
 }
 
+/** The model id the live RT-VLM actually serves, or undefined if it can't be
+ *  read. The rules CM carries a build-versioned name that drifts from the
+ *  deployed VLM (and may be a placeholder such as "resolved-live-from-vlm");
+ *  the alert-bridge answers a name it doesn't serve with 400 "No such model",
+ *  which reaches the console only as an opaque 502 and leaves the camera
+ *  registered but never analyzed. Prefer what the VLM reports, exactly as the
+ *  vlm-stream-reconciler's seed path does. */
+export async function liveVlmModelId(): Promise<string | undefined> {
+  try {
+    const resp = await fetch(CLUSTER.alertBridge.vlmModelsUrl, {
+      signal: AbortSignal.timeout(5_000),
+      cache: "no-store",
+    });
+    if (!resp.ok) return undefined;
+    const body = (await resp.json()) as { data?: Array<{ id?: unknown }> };
+    const id = body.data?.[0]?.id;
+    return typeof id === "string" && id ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Set of camera ids (= VST sensor names) that currently have an active
  *  realtime rule. Fail-soft: empty set + warning on any error. */
 export async function listIngestingCameras(): Promise<{
@@ -132,6 +154,8 @@ export async function setIngestion(
   const alertType = rule?.alert_type ?? "general-activity";
   const prompt = rule?.prompt ?? "Alert on any notable or anomalous activity.";
   const sensorId = await resolveStreamId(cameraId);
+  // Live VLM wins over the CM's recorded model id — see liveVlmModelId().
+  const model = (await liveVlmModelId()) ?? doc?.model;
   const res = await addRealtimeRule({
     streamUrl,
     alertType,
@@ -139,7 +163,7 @@ export async function setIngestion(
     sensorName: cameraId,
     sensorId,
     systemPrompt: doc?.system_prompt,
-    model: doc?.model,
+    model,
     chunkDuration: doc?.chunk_duration,
     chunkOverlapDuration: doc?.chunk_overlap_duration,
     enableReasoning: doc?.enable_reasoning,
