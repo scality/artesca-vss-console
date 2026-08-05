@@ -259,6 +259,48 @@ export async function rolloutRestart(
   }
 }
 
+/**
+ * Block until a Deployment has finished rolling: the controller has observed
+ * the current generation and every replica is updated and available — i.e. the
+ * OLD pods are gone.
+ *
+ * Needed whenever a restart exists to make a pod re-read changed config and the
+ * caller then acts on the assumption that it has. A restart alone does not give
+ * that: the outgoing pod keeps running its loop for the seconds the rollout
+ * takes, and a controller-style workload will happily undo whatever the caller
+ * does in that window from its stale view.
+ *
+ * Returns false on timeout rather than throwing — the caller usually wants to
+ * proceed with a warning, not fail the whole operation.
+ */
+export async function waitForRollout(
+  namespace: string,
+  name: string,
+  timeoutMs = 90_000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const dep = await appsV1().readNamespacedDeployment({ name, namespace });
+      const generation = dep.metadata?.generation ?? 0;
+      const status = dep.status ?? {};
+      const desired = dep.spec?.replicas ?? 1;
+      if (
+        (status.observedGeneration ?? -1) >= generation &&
+        (status.updatedReplicas ?? 0) === desired &&
+        (status.availableReplicas ?? 0) === desired &&
+        (status.replicas ?? 0) === desired // no surviving old replica
+      ) {
+        return true;
+      }
+    } catch {
+      // Transient API error — keep waiting; the deadline is the real bound.
+    }
+    await new Promise((r) => setTimeout(r, 2_000));
+  }
+  return false;
+}
+
 const LIST_PODS_PAGE_SIZE = 500;
 const LIST_PODS_MAX_PAGES = 10;
 

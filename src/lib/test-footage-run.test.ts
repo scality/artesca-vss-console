@@ -11,13 +11,13 @@ vi.mock("@/lib/helpers/configmaps", () => ({
   readConfigMapKey: vi.fn(),
   patchConfigMapRawKey: vi.fn(),
 }));
-vi.mock("@/lib/k8s", () => ({ rolloutRestart: vi.fn() }));
+vi.mock("@/lib/k8s", () => ({ rolloutRestart: vi.fn(), waitForRollout: vi.fn() }));
 
 import { registerSensorAndArm } from "@/lib/helpers/vst-register";
 import { vstDeleteSensor, vstListSensors } from "@/lib/helpers/vst";
 import { setIngestion, suspendIngestion, listIngestingCameras } from "@/lib/helpers/ingestion";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
-import { rolloutRestart } from "@/lib/k8s";
+import { rolloutRestart, waitForRollout } from "@/lib/k8s";
 import { listAlertProfiles, pausedSensors, startRun, stopRun } from "./test-footage-run";
 
 const register = vi.mocked(registerSensorAndArm);
@@ -29,6 +29,7 @@ const suspend = vi.mocked(suspendIngestion);
 const readCm = vi.mocked(readConfigMapKey);
 const patchCm = vi.mocked(patchConfigMapRawKey);
 const restart = vi.mocked(rolloutRestart);
+const waitRollout = vi.mocked(waitForRollout);
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -36,7 +37,11 @@ beforeEach(() => {
   suspend.mockResolvedValue({ ok: true });
   delSensor.mockResolvedValue({ ok: true });
   register.mockResolvedValue({ ok: true, uuid: "u1", warnings: [] });
-  listIngesting.mockResolvedValue({ ingesting: new Set(["checkout-1", "pyramid-16-cam0"]) });
+  // First call = the cameras to pause; the verification call that follows sees
+  // them gone, which is the normal case (the pause took).
+  listIngesting
+    .mockResolvedValueOnce({ ingesting: new Set(["checkout-1", "pyramid-16-cam0"]) })
+    .mockResolvedValue({ ingesting: new Set() });
   listSensors.mockResolvedValue({ sensors: [] } as unknown as Awaited<
     ReturnType<typeof vstListSensors>
   >);
@@ -47,6 +52,7 @@ beforeEach(() => {
   } as unknown as Awaited<ReturnType<typeof readConfigMapKey>>);
   patchCm.mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof patchConfigMapRawKey>>);
   restart.mockResolvedValue(undefined);
+  waitRollout.mockResolvedValue(true);
 });
 
 describe("startRun", () => {
@@ -119,6 +125,43 @@ describe("startRun", () => {
     // The marker alone is not enough: the reconciler reads a mounted copy that
     // lags 60-90s, so it must be restarted to see it before the next tick.
     expect(restart).toHaveBeenCalledWith("Deployment", expect.any(String), "vlm-stream-reconciler");
+  });
+
+  it("waits for the reconciler restart to finish before suspending anything", async () => {
+    const order: string[] = [];
+    waitRollout.mockImplementation(async () => {
+      order.push("waited");
+      return true;
+    });
+    suspend.mockImplementation(async (id: string) => {
+      order.push(`suspend:${id}`);
+      return { ok: true };
+    });
+
+    await startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: true });
+
+    // Restarting without waiting is what actually broke the pause on the live
+    // showroom: the outgoing pod keeps ticking every 15s against its stale
+    // mount, so it re-seeded the cameras seconds after they were suspended.
+    expect(order[0]).toBe("waited");
+    expect(order.slice(1).every((s) => s.startsWith("suspend:"))).toBe(true);
+  });
+
+  it("says so when the restart does not complete, instead of claiming the pause holds", async () => {
+    waitRollout.mockResolvedValue(false);
+    const res = await startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: true });
+    expect(res.warnings.join(" ")).toMatch(/did not finish restarting/);
+  });
+
+  it("re-pauses a camera the reconciler re-seeded, and reports it", async () => {
+    listIngesting.mockReset();
+    listIngesting.mockResolvedValue({ ingesting: new Set(["checkout-1", "pyramid-16-cam0"]) });
+
+    const res = await startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: true });
+
+    // Both were suspended, then found live again on the verification read.
+    expect(suspend.mock.calls.filter((c) => c[0] === "checkout-1")).toHaveLength(2);
+    expect(res.warnings.join(" ")).toMatch(/re-paused .*checkout-1/);
   });
 
   it("does not pause anything when pauseLive is false", async () => {
