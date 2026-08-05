@@ -173,7 +173,7 @@ describe("watchedNamespaces", () => {
     process.env.VSS_NAMESPACE = "vss-base";
     const ns = watchedNamespaces();
     expect(ns).toContain("vss-base");
-    expect(ns).toContain("demo-data");
+    expect(ns).toContain("pyramid-ingress");
     expect(ns).toContain("pyramid-ingress");
     delete process.env.VSS_NAMESPACE;
   });
@@ -182,7 +182,7 @@ describe("watchedNamespaces", () => {
     delete process.env.KUBE_NAMESPACES;
     process.env.CONSOLE_LEGACY_NAMESPACES = "1";
     const ns = watchedNamespaces();
-    expect(ns).toEqual(["vst", "rtvi", "agent", "alerts", "demo-data", "pyramid-ingress"]);
+    expect(ns).toEqual(["vst", "rtvi", "agent", "alerts", "pyramid-ingress"]);
     delete process.env.CONSOLE_LEGACY_NAMESPACES;
   });
 

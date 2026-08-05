@@ -51,7 +51,6 @@ const KAFKA_TOPICS = LEGACY
       visionLlmErrors: process.env.KAFKA_TOPIC_VISION_LLM_ERRORS ?? "vision-llm-errors",
       embedMessages: process.env.KAFKA_TOPIC_EMBED_MESSAGES ?? "vision-embed-messages",
       embedErrors: process.env.KAFKA_TOPIC_EMBED_ERRORS ?? "vision-embed-errors",
-      demoData: process.env.KAFKA_TOPIC_DEMO_DATA ?? "vision-llm-messages",
     } as const)
   : ({
       visionLlm: process.env.KAFKA_TOPIC_VISION_LLM ?? "mdx-vlm",
@@ -59,7 +58,6 @@ const KAFKA_TOPICS = LEGACY
       visionLlmErrors: process.env.KAFKA_TOPIC_VISION_LLM_ERRORS ?? "vision-llm-errors",
       embedMessages: process.env.KAFKA_TOPIC_EMBED_MESSAGES ?? "vision-embed-messages",
       embedErrors: process.env.KAFKA_TOPIC_EMBED_ERRORS ?? "vision-embed-errors",
-      demoData: process.env.KAFKA_TOPIC_DEMO_DATA ?? "mdx-vlm",
     } as const);
 
 // ─── Redis ────────────────────────────────────────────────────────────────────
@@ -442,17 +440,6 @@ const CAMERAS = {
   registerJobPrefix: "register-cameras",
 } as const;
 
-// ─── Demo-data ────────────────────────────────────────────────────────────────
-// Unchanged — demo-data namespace is operator-authored, not part of the Helm chart.
-const DEMO_DATA = {
-  namespace: "demo-data",
-  deployment: "demo-producer",
-  envConfigMap: "demo-producer-env",
-  tickSecondsEnv: "TICK_SECONDS",
-  matchProbabilityEnv: "MATCH_PROBABILITY",
-  dockerContainer: process.env.DEMO_PRODUCER_CONTAINER ?? "demo-producer",
-} as const;
-
 // ─── S3 ──────────────────────────────────────────────────────────────────────
 // Three-bucket model: recordings (VST writes), alert-clips (materializer
 // writes + console replay reads), agent-corpus (optional forensic Q&A).
@@ -615,11 +602,6 @@ export const RESTARTABLE: Record<string, ComponentSpec> = LEGACY
         kind: "Deployment",
         name: "nvidia-vss-agent",
       },
-      "demo-producer": {
-        namespace: "demo-data",
-        kind: "Deployment",
-        name: "demo-producer",
-      },
       "cosmos-reason2-8b": {
         namespace: "rtvi",
         kind: "StatefulSet",
@@ -656,11 +638,6 @@ export const RESTARTABLE: Record<string, ComponentSpec> = LEGACY
         namespace: VSS_NS,
         kind: "Deployment",
         name: "vss-agent",
-      },
-      "demo-producer": {
-        namespace: "demo-data",
-        kind: "Deployment",
-        name: "demo-producer",
       },
       "nvidia-nemotron-nano-9b-v2": {
         namespace: VSS_NS,
@@ -774,7 +751,6 @@ export const CLUSTER = {
   scenarios: SCENARIOS,
   alertsTuning: ALERTS_TUNING,
   cameras: CAMERAS,
-  demoData: DEMO_DATA,
   s3: S3,
   /** vLLM+LMCache KV-cache demo backend (ISVD-331 Phase C) — /kvcache page LIVE mode. */
   kvcache: KVCACHE,

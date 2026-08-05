@@ -1,6 +1,6 @@
 // GET /api/kafka/[topic]
 // SSE: consume a Kafka topic and emit each message as an SSE event.
-// Allowed topics: vision-llm-responses, incidents, alerts-demo-data.
+// Allowed topics: vision-llm-responses, incidents.
 // Query params:
 //   from    "earliest" (default) | "latest"
 //   replay  N — emit N most-recent messages (from beginning) before going live

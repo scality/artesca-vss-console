@@ -63,7 +63,6 @@ const NAV_GROUPS: Array<{
       { href: "/prompt", label: "VLM Prompt", icon: MessageSquare },
       { href: "/tuning", label: "Tuning", icon: Sliders },
       { href: "/agent", label: "Agent", icon: Cog },
-      { href: "/demo-data", label: "Demo Data", icon: Database },
       { href: "/profiles", label: "Profiles", icon: BookmarkCheck },
     ],
   },

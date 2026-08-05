@@ -9,7 +9,6 @@ describe("KIOSK_HIDDEN_ROUTES", () => {
       "/scenarios",
       "/prompt",
       "/tuning",
-      "/demo-data",
       "/profiles",
       "/secrets",
       "/logs",
@@ -112,10 +111,6 @@ describe("isKioskAllowed — middleware page guard", () => {
 
   it("blocks /diagnostics", () => {
     expect(isKioskAllowed("/diagnostics")).toBe(false);
-  });
-
-  it("blocks /demo-data", () => {
-    expect(isKioskAllowed("/demo-data")).toBe(false);
   });
 
   it("blocks /profiles", () => {

@@ -12,7 +12,7 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/k8s", () => ({
   coreV1: vi.fn(() => ({})),
   appsV1: vi.fn(() => ({})),
-  watchedNamespaces: vi.fn(() => ["vss-base", "demo-data", "pyramid-ingress"]),
+  watchedNamespaces: vi.fn(() => ["vss-base", "pyramid-ingress"]),
   listAllPodsInNs: vi.fn().mockResolvedValue([]),
 }));
 
@@ -51,7 +51,7 @@ import { GET } from "@/app/api/topology/route";
 beforeEach(() => {
   vi.mocked(auth).mockReset().mockResolvedValue({ user: { name: "operator" } } as never);
   vi.mocked(watchedNamespaces).mockReset().mockReturnValue([
-    "vss-base", "demo-data", "pyramid-ingress",
+    "vss-base", "pyramid-ingress",
   ]);
   vi.mocked(listAllPodsInNs).mockReset().mockResolvedValue([]);
   fetchMock.mockReset().mockResolvedValue({

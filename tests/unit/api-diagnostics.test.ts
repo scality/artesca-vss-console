@@ -12,7 +12,7 @@ vi.mock("@/lib/k8s", () => ({
     listNode: vi.fn().mockResolvedValue({ items: [] }),
   })),
   appsV1: vi.fn(() => ({})),
-  watchedNamespaces: vi.fn(() => ["vst", "rtvi", "agent", "alerts", "demo-data", "pyramid-ingress"]),
+  watchedNamespaces: vi.fn(() => ["vst", "rtvi", "agent", "alerts", "pyramid-ingress"]),
   listAllPodsInNs: vi.fn().mockResolvedValue([]),
 }));
 
