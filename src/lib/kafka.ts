@@ -27,6 +27,11 @@ function kafkaLogCreator() {
 
 const globalForKafka = globalThis as unknown as { __kafka?: Kafka | null };
 
+/** Consecutive consumer crashes tolerated before a topic is abandoned. Enough
+ *  to ride out a broker restart, few enough that an unreachable broker stops
+ *  producing log noise within seconds. */
+const MAX_CONSUMER_RESTARTS = 5;
+
 export type KafkaStatus = "connected" | "disconnected";
 
 interface KafkaShape {
@@ -72,12 +77,33 @@ export async function consumeTopic(
   }
 
   const groupId = `console-${topic}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const consumer: Consumer = instance.consumer({ groupId });
+
+  // Give up after a few consecutive crashes instead of reconnecting forever.
+  // kafkajs restarts a crashed consumer by default, so a broker that can never
+  // be reached — e.g. one advertising an address this namespace cannot resolve
+  // (ISVD-506) — produced a ~300ms restart loop that ran for the pod's lifetime
+  // and buried every other line in the log. A consumer that cannot connect is
+  // not something retrying will fix; report it once and stop.
+  let crashes = 0;
+  const consumer: Consumer = instance.consumer({
+    groupId,
+    retry: {
+      restartOnFailure: async (err: Error) => {
+        crashes += 1;
+        if (crashes <= MAX_CONSUMER_RESTARTS) return true;
+        log.error(
+          `consumer for ${topic} gave up after ${crashes} restarts — not retrying`,
+          { err: err.message },
+        );
+        return false;
+      },
+    },
+  });
 
   await consumer.connect();
 
   consumer.on(consumer.events.CRASH, (event) => {
-    log.error("consumer crashed", { err: event.payload?.error });
+    log.error("consumer crashed", { topic, restarts: crashes, err: event.payload?.error });
   });
 
   await consumer.subscribe({ topic, fromBeginning: false });

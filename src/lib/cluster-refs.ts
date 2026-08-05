@@ -34,6 +34,13 @@ const VSS_NS = process.env.VSS_NAMESPACE ?? "vss-base";
 // ─── Kafka ────────────────────────────────────────────────────────────────────
 // Helm:   kafka-kafka StatefulSet in vss-<profile> (Confluent Kafka, not Redpanda).
 //         Service name verified on live cluster: kafka-kafka.vss-alerts.svc.cluster.local:9092
+//         The FQDN here is necessary but not sufficient: the chart makes the
+//         broker ADVERTISE the bare `kafka-kafka`, so a client outside the VSS
+//         namespace bootstraps on this address, is handed the bare name back in
+//         the cluster metadata, and cannot resolve it. The overlay Job
+//         k8s/nvidia-vss-helm-overlay/70-kafka-advertised-listener-patch-job.yaml
+//         re-advertises the FQDN — without it, no console consumer ever
+//         connects (ISVD-506).
 // Legacy: redpanda StatefulSet in namespace rtvi.
 const KAFKA_BROKERS = LEGACY
   ? (process.env.KAFKA_BROKERS ?? "redpanda.rtvi.svc.cluster.local:9092")
