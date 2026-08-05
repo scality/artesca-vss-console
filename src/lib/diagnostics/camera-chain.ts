@@ -4,7 +4,7 @@ import { vstListSensors } from "@/lib/helpers/vst";
 import { probeRecording } from "@/lib/helpers/recording-health";
 import { listRealtimeRules } from "@/lib/helpers/alert-bridge";
 import { liveVlmModelId } from "@/lib/helpers/ingestion";
-import { collectStoragePreflight, type StoragePreflight } from "./storage-preflight";
+import { collectStoragePreflightCached, type StoragePreflight } from "./storage-preflight";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger("camera-chain");
@@ -253,7 +253,7 @@ export async function collectCameraChains(input: {
   const checkedAt = new Date().toISOString();
 
   const [storage, sensorsRes, rulesRes, liveModel] = await Promise.all([
-    collectStoragePreflight().catch((err) => {
+    collectStoragePreflightCached().catch((err) => {
       warnings.push(`storage preflight failed: ${String(err)}`);
       return {
         state: "unknown" as const,
