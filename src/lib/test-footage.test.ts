@@ -64,8 +64,8 @@ describe("footageCameraId", () => {
 
 describe("footageRtspUrl", () => {
   it("maps the mode onto the matching mediamtx path", () => {
-    expect(footageRtspUrl("clip.mp4", "loop")).toBe("rtsp://127.0.0.1:8654/loop/clip.mp4");
-    expect(footageRtspUrl("clip.mp4", "once")).toBe("rtsp://127.0.0.1:8654/once/clip.mp4");
+    expect(footageRtspUrl("clip.mp4", "loop")).toBe("rtsp://test-footage-server.console.svc.cluster.local:8654/loop/clip.mp4");
+    expect(footageRtspUrl("clip.mp4", "once")).toBe("rtsp://test-footage-server.console.svc.cluster.local:8654/once/clip.mp4");
   });
 
   it("produces a URL that parses", () => {

@@ -14,8 +14,8 @@
 # No process management anywhere. mediamtx serves two REGEX paths and starts an
 # ffmpeg on demand when a client connects, killing it once nobody is reading:
 #
-#   rtsp://<node>:8654/loop/<file>   looping   (prompt iteration)
-#   rtsp://<node>:8654/once/<file>   one pass  (scoring a single clip)
+#   rtsp://test-footage-server.console.svc.cluster.local:8654/loop/<file>
+#   rtsp://test-footage-server.console.svc.cluster.local:8654/once/<file>
 #
 # So "start a test run" is just: register a VST camera pointing at one of those
 # URLs. Nothing to reconcile, and a crashed run cannot leak an ffmpeg.
@@ -111,11 +111,12 @@ spec:
       labels:
         app: test-footage-server
     spec:
-      # hostNetwork so VST (also hostNetwork, same converged node) can pull
-      # rtsp://127.0.0.1:8654/... — the same reason the camera-sim replay path
-      # uses it.
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      # NOT hostNetwork. On this Helm profile vss-rtvi-vlm and the vios pods run
+      # on the pod network (hostNetwork is unset — the note about hostNetwork in
+      # console/CLAUDE.md describes the legacy raw-manifest layout), so a
+      # loopback URL would point at each consumer's own pod. They reach this
+      # server by Service DNS instead, which needs no node-IP knowledge and
+      # keeps working if the topology changes.
       containers:
       - name: mediamtx
         # The -ffmpeg variant bundles the ffmpeg binary runOnDemand invokes.
@@ -153,3 +154,17 @@ spec:
       - name: footage
         persistentVolumeClaim:
           claimName: test-footage-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-footage-server
+  namespace: console
+spec:
+  selector:
+    app: test-footage-server
+  ports:
+  - name: rtsp
+    port: 8654
+    targetPort: 8654
+    protocol: TCP

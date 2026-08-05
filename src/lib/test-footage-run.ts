@@ -10,8 +10,43 @@ import {
   type PlaybackMode,
 } from "@/lib/test-footage";
 import { createLogger } from "@/lib/logger";
+import { CLUSTER } from "@/lib/cluster-refs";
+import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 
 const log = createLogger("test-footage-run");
+
+/**
+ * Record (or clear) the sensors a run has paused, in the same rules ConfigMap
+ * the vlm-stream-reconciler converges from.
+ *
+ * Without this the pause does not hold: the reconciler treats every sensor in
+ * the CM as desired and re-seeds a rule for it within one 15 s tick, so the
+ * live cameras were analysing again seconds after being paused and the clip
+ * still competed for the GPU. The reconciler skips anything listed here.
+ */
+async function setPausedSensors(sensors: string[]): Promise<string | undefined> {
+  try {
+    const { value, resourceVersion } = await readConfigMapKey<Record<string, unknown>>(
+      CLUSTER.alertBridge.rulesNamespace,
+      CLUSTER.alertBridge.rulesConfigMap,
+      "rules.json",
+    );
+    const doc = { ...value, paused_sensors: sensors };
+    if (sensors.length === 0) delete (doc as { paused_sensors?: unknown }).paused_sensors;
+    await patchConfigMapRawKey(
+      CLUSTER.alertBridge.rulesNamespace,
+      CLUSTER.alertBridge.rulesConfigMap,
+      "rules.json",
+      JSON.stringify(doc),
+      resourceVersion,
+    );
+    return undefined;
+  } catch (err) {
+    return `could not record the paused set (the reconciler may resume the live cameras mid-run): ${
+      err instanceof Error ? err.message : String(err)
+    }`;
+  }
+}
 
 // Starting a run means putting the file through exactly the path a real camera
 // takes, so nothing about the test is special-cased downstream:
@@ -61,7 +96,12 @@ export async function startRun(req: RunRequest): Promise<RunResult> {
   const pausedCameras: string[] = [];
 
   if (req.pauseLive) {
-    for (const id of await liveIngestingCameras()) {
+    const live = await liveIngestingCameras();
+    // Mark them paused first: between removing a rule and writing the marker,
+    // the reconciler would re-seed it.
+    const markWarning = await setPausedSensors(live);
+    if (markWarning) warnings.push(markWarning);
+    for (const id of live) {
       const res = await setIngestion(id, false);
       if (res.ok) {
         pausedCameras.push(id);
@@ -96,6 +136,11 @@ export async function startRun(req: RunRequest): Promise<RunResult> {
  *  failure cannot leave the rest off. */
 async function restoreCameras(ids: string[]): Promise<string[]> {
   const warnings: string[] = [];
+  // Clear the marker first: the reconciler then re-seeds these itself, which is
+  // a second, independent path back to a healthy live pipeline if the explicit
+  // per-camera resume below fails.
+  const clearWarning = await setPausedSensors([]);
+  if (clearWarning) warnings.push(clearWarning);
   for (const id of ids) {
     const res = await setIngestion(id, true);
     if (!res.ok && res.warning) warnings.push(`could not resume ${id}: ${res.warning}`);

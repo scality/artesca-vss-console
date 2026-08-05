@@ -17,10 +17,14 @@ import { Readable } from "node:stream";
 /** Directory the test-footage PVC is mounted at inside the console pod. */
 export const FOOTAGE_DIR = process.env.TEST_FOOTAGE_DIR ?? "/footage";
 
-/** Host VST dials for the replay stream. The replay server shares the node's
- *  network namespace with VST on the converged node, so loopback is correct;
- *  overridable for a split-node topology. */
-const RTSP_HOST = process.env.TEST_FOOTAGE_RTSP_HOST ?? "127.0.0.1";
+/** Host the VLM and VST dial for the replay stream.
+ *
+ *  Service DNS, not loopback: on the Helm profile those pods run on the POD
+ *  network (hostNetwork unset), so `127.0.0.1` resolved to each consumer's own
+ *  pod and every rule creation failed with a 502. Overridable for a topology
+ *  where the replay server is addressed differently. */
+const RTSP_HOST =
+  process.env.TEST_FOOTAGE_RTSP_HOST ?? "test-footage-server.console.svc.cluster.local";
 const RTSP_PORT = process.env.TEST_FOOTAGE_RTSP_PORT ?? "8654";
 
 /** Container formats ffmpeg can remux into RTSP with `-c copy`. */
