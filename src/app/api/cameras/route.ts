@@ -393,7 +393,10 @@ export const POST = withRequestContext(async (req: NextRequest) => {
       const msg = err instanceof ReconcileContextError ? err.message : String(err);
       warnings.push(`config store write failed (camera created on camera-sim): ${msg}`);
     }
-    await auditLog("camera-add", `camera/${cameraId}`, { cameraId, source: primary.fileName });
+    await auditLog("camera-add", `camera/${cameraId}`, {
+      cameraId,
+      source: directRtsp ? parsed.data.rtspUrl : primary.fileName,
+    });
     return NextResponse.json({ ok: true, cameraId, warnings });
   }
 
@@ -416,7 +419,7 @@ export const POST = withRequestContext(async (req: NextRequest) => {
 
   await auditLog("camera-add", `camera/${cameraId}`, {
     cameraId,
-    source: primary.fileName,
+    source: directRtsp ? parsed.data.rtspUrl : primary.fileName,
   });
 
   return NextResponse.json({ ok: true, cameraId, warnings });
