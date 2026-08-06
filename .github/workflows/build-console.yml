@@ -19,7 +19,22 @@ name: build-console
 # without touching a path above. The directory is deliberately not wildcarded:
 # `build-and-push` republishes `:latest` on every matching push to main, and a
 # diagram-generator edit should not hand the labs a new image.
+# `workflow_dispatch` exists because a push is otherwise the only trigger, and a
+# push is not always available when you need a run. During the GitHub Actions
+# outage of 2026-08-06 every queued run for seven consecutive commits was
+# cancelled with zero steps executed, and there was then no way to re-run CI for
+# the commit that had shipped without manufacturing an empty commit to move a
+# path in the list below. Dispatch runs against a ref, so `--ref main` covers
+# whatever is currently HEAD.
+#
+# A dispatched run performs `ci` only. `build-and-push` is gated on
+# `github.event_name == 'push'`, so no image is published and `:latest` does not
+# move — deliberately, since a tag that shifts without a commit behind it is
+# hard to reason about later. Dispatch answers "does this pass", not "give me an
+# image"; for an image, push, or build it laptop-side with
+# isv-labs:scripts/build-console-image.sh.
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
