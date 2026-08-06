@@ -50,7 +50,7 @@ using `ensure-console-iam.sh`. The three secrets it creates in ns `console` are:
 
 | Secret | Keys |
 |--------|------|
-| `console-auth` | `CONSOLE_PASSWORD`, `NEXTAUTH_SECRET` |
+| `console-auth` | `CONSOLE_PASSWORD`, `AUTH_SECRET` |
 | `console-aws` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `VSS_INSTANCE_SG_ID`, `AWS_REGION` |
 | `console-ssh` | `id_ed25519` (camera-sim PEM) |
 

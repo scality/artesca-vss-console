@@ -124,9 +124,10 @@ data:
   # SENTRY_DSN: "https://<key>@o4511336023326720.ingest.de.sentry.io/<projectId>"
   # NEXT_PUBLIC_SENTRY_DSN: "https://<key>@o4511336023326720.ingest.de.sentry.io/<projectId>"
 
-  # ── NextAuth ──────────────────────────────────────────────────────────────────
-  # Must be reachable from inside the pod for callbacks.
-  NEXTAUTH_URL: "http://console.console.svc.cluster.local:8800"
+  # ── Auth.js ───────────────────────────────────────────────────────────────────
+  # Must be reachable from inside the pod for callbacks. The cookie-signing
+  # secret is AUTH_SECRET, and it comes from the console-auth Secret, not here.
+  AUTH_URL: "http://console.console.svc.cluster.local:8800"
   CONSOLE_DISABLE_AUTH: "true"
   # Auth.js v5 behind the tunnel/ingress: trust the incoming host (no UntrustedHost 500)
   AUTH_TRUST_HOST: "true"

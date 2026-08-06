@@ -211,7 +211,7 @@ yellow "==> creating fake secrets in ns:$NS"
 # --dry-run | apply makes this idempotent.
 kubectl --context "$CONTEXT" -n "$NS" create secret generic console-auth \
   --from-literal=CONSOLE_PASSWORD=smoke-test \
-  --from-literal=NEXTAUTH_SECRET=smoke-test-secret-32-bytes-padding \
+  --from-literal=AUTH_SECRET=smoke-test-secret-32-bytes-padding \
   --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f -
 
 kubectl --context "$CONTEXT" -n "$NS" create secret generic console-aws \

@@ -28,8 +28,8 @@ npm start       # serves :8800 from .next/standalone (prod / in-cluster pod)
 docker build -t console:local .
 docker run -p 8800:8800 \
   -e CONSOLE_PASSWORD=changeme \
-  -e NEXTAUTH_SECRET=devsecret \
-  -e NEXTAUTH_URL=http://localhost:8800 \
+  -e AUTH_SECRET=devsecret \
+  -e AUTH_URL=http://localhost:8800 \
   console:local
 ```
 
@@ -49,7 +49,7 @@ docker run -p 8800:8800 \
 | `/profiles` | Load/save named config profiles (snapshot + restore tuning state) |
 | `/secrets` | S3 credentials and cloud-storage fields — the fields excluded from `/tuning` |
 | `/logs` | Structured log viewer with namespace + pod filter |
-| `/settings` | Console settings (auth, NEXTAUTH_URL, theme) |
+| `/settings` | Console settings (auth, AUTH_URL, theme) |
 
 ## Tests
 

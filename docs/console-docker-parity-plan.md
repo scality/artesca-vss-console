@@ -388,7 +388,7 @@ The only action for this workgroup is to:
    in docker mode (integration test or manual verify on Brev).
 2. If the route constructs the fetch URLs from hardcoded localhost, confirm they
    resolve correctly inside the console container (use relative paths or
-   `NEXTAUTH_URL`).
+   `AUTH_URL`).
 
 **Acceptance criteria**
 

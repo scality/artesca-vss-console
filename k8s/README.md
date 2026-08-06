@@ -30,7 +30,9 @@ Three secrets are required (all gitignored, never committed):
 ```bash
 cp k8s/console/10-secrets.yaml.example k8s/console/10-secrets.yaml
 # Edit 10-secrets.yaml — fill in every <...> placeholder:
-#   console-auth  : CONSOLE_PASSWORD + NEXTAUTH_SECRET
+#   console-auth  : CONSOLE_PASSWORD + AUTH_SECRET  (Auth.js reads AUTH_SECRET;
+#                   a Secret carrying only the NEXTAUTH_-prefixed spelling
+#                   leaves the pod refusing every request)
 #   console-aws   : AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
 #                   VSS_INSTANCE_SG_ID, AWS_REGION
 #   console-ssh   : id_ed25519 (raw PEM, trailing newline required)

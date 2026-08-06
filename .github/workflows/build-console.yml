@@ -117,6 +117,22 @@ jobs:
           # running on Vercel. The webServer here is a plain `npm run start` on
           # localhost:8800, so without this the whole E2E suite fails at sign-in.
           AUTH_TRUST_HOST: "true"
+          # The specs reach pages behind `src/proxy.ts`, which redirects to
+          # /sign-in unless `req.auth` is set. They stub `/api/auth/session` with
+          # `page.route`, and that is a browser-level intercept the middleware
+          # never sees — so the bypass is what actually makes those pages
+          # reachable, exactly as it does for a local run. auth.spec.ts still
+          # covers the real sign-in page, which is a PUBLIC_PATH and renders
+          # either way; no spec exercises a genuine session, here or locally.
+          CONSOLE_DISABLE_AUTH: "true"
+          # A throwaway value: it signs cookies for a localhost server that is
+          # torn down with the job, and nothing it protects outlives the run.
+          # It has to be set all the same. Auth.js requires a secret under
+          # NODE_ENV=production, which `next start` sets, and answers a missing
+          # one by refusing every request — so leaving it unset makes the run
+          # depend on how a given @auth/core version handles the failure rather
+          # than on the app.
+          AUTH_SECRET: "e2e-only-not-a-real-secret-torn-down-with-the-job"
 
       - name: Upload Playwright report
         if: always()
