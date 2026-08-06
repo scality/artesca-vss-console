@@ -34,8 +34,8 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   await import("../sentry.server.config");
 
-  const { filterUrlParseDeprecation } = await import("@/lib/deprecation-filter");
-  filterUrlParseDeprecation();
+  const { filterKnownUpstreamWarnings } = await import("@/lib/deprecation-filter");
+  filterKnownUpstreamWarnings();
 
   if (globalForInstrumentation.__started) return;
   globalForInstrumentation.__started = true;

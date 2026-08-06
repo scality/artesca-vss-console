@@ -7,7 +7,7 @@ const startCaptionBridge = vi.fn();
 vi.mock("@/lib/reconcile-agent", () => ({ startReconcileLoop }));
 vi.mock("@/lib/camera-restore-watcher", () => ({ startCameraRestoreWatcher }));
 vi.mock("@/lib/caption-bridge", () => ({ startCaptionBridge }));
-vi.mock("@/lib/deprecation-filter", () => ({ filterUrlParseDeprecation: vi.fn() }));
+vi.mock("@/lib/deprecation-filter", () => ({ filterKnownUpstreamWarnings: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ createLogger: () => ({ info: vi.fn(), warn: vi.fn() }) }));
 
 beforeEach(() => {
