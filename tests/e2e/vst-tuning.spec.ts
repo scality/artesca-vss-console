@@ -97,12 +97,13 @@ test.describe("tuning page — VST recording (phase 11)", () => {
       page.locator("text=VST Recording Tuning")
     ).toBeVisible({ timeout: 8_000 });
 
-    // Recording mode radio — "always" should be checked
-    const alwaysRadio = page.locator('input[type="radio"][value="always"]');
-    await expect(alwaysRadio).toBeChecked({ timeout: 6_000 });
+    // Recording mode — the control is a role="radio" button carrying
+    // aria-checked (see components/ui/radio-group.tsx), not an
+    // <input type="radio">, so address it by its id.
+    await expect(page.locator("#recording-mode-always")).toBeChecked({ timeout: 6_000 });
 
     // GoP input shows the mock value (60)
-    const gopInput = page.locator('input[type="number"]').first();
+    const gopInput = page.getByLabel("default_gov_length");
     if (await gopInput.isVisible({ timeout: 4_000 }).catch(() => false)) {
       await expect(gopInput).toHaveValue("60");
     }
@@ -116,7 +117,7 @@ test.describe("tuning page — VST recording (phase 11)", () => {
     }
 
     // Save + Restart button exists
-    const saveBtn = page.locator("button", { hasText: /save\s*\+\s*restart/i });
+    const saveBtn = page.getByRole("button", { name: /save vst recording tuning/i });
     await expect(saveBtn).toBeVisible({ timeout: 5_000 });
 
     // No crash
@@ -160,7 +161,7 @@ test.describe("tuning page — VST recording (phase 11)", () => {
     await page.goto("/tuning");
 
     // Wait for the form to mount (GoP input visible)
-    const gopInput = page.locator('input[type="number"]').first();
+    const gopInput = page.getByLabel("default_gov_length");
     if (!(await gopInput.isVisible({ timeout: 8_000 }).catch(() => false))) {
       test.skip(); // VstRecordingForm not yet rendered — skip gracefully
       return;
@@ -170,7 +171,7 @@ test.describe("tuning page — VST recording (phase 11)", () => {
     await gopInput.fill("120");
 
     // Save + Restart button should now be enabled
-    const saveBtn = page.locator("button", { hasText: /save\s*\+\s*restart/i });
+    const saveBtn = page.getByRole("button", { name: /save vst recording tuning/i });
     await expect(saveBtn).toBeEnabled({ timeout: 4_000 });
     await saveBtn.click();
 
@@ -256,7 +257,7 @@ test.describe("tuning page — VST recording (phase 11)", () => {
     ).toBeVisible({ timeout: 4_000 });
 
     // Attempt to click Save + Restart
-    const saveBtn = page.locator("button", { hasText: /save\s*\+\s*restart/i });
+    const saveBtn = page.getByRole("button", { name: /save vst recording tuning/i });
     // If the button is disabled, perfect; if enabled, click and expect no PATCH
     const isDisabled = await saveBtn.isDisabled({ timeout: 2_000 }).catch(() => true);
     if (!isDisabled) {
@@ -288,7 +289,7 @@ test.describe("tuning page — VST recording (phase 11)", () => {
       return;
     }
 
-    const saveBtn = page.locator("button", { hasText: /save\s*\+\s*restart/i });
+    const saveBtn = page.getByRole("button", { name: /save vst recording tuning/i });
     await expect(saveBtn).toBeDisabled({ timeout: 4_000 });
   });
 

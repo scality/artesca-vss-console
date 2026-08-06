@@ -122,6 +122,7 @@ export function AlertsTuningForm() {
         </div>
         <Button
           size="sm"
+          aria-label="Save alert worker tuning and restart the video analytics service"
           disabled={!isDirty || saving}
           onClick={() => setConfirmOpen(true)}
         >

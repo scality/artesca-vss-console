@@ -132,6 +132,14 @@ test.describe("logs page — Phase 6", () => {
     const filterInput = page.getByLabel("Filter (regex)");
     await expect(filterInput).toBeVisible({ timeout: 8_000 });
 
+    // The bar is disabled until a pod is selected (`disabled={!selection}`), and
+    // PodPicker reports a selection only once a container is resolved — so pick
+    // a namespace and a pod, which auto-selects that pod's first container.
+    const selects = page.locator("select");
+    await selects.nth(0).selectOption("vst");
+    await selects.nth(1).selectOption("vst-sensor-ms-7d4f9b-x2kqp");
+    await expect(filterInput).toBeEnabled({ timeout: 5_000 });
+
     // Type a regex pattern
     await filterInput.fill("WARN");
     // No crash after typing

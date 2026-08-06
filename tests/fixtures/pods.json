@@ -7,7 +7,10 @@
     "restarts": 0,
     "age": "4h23m",
     "node": "artesca-node-1",
-    "gpus": 0
+    "gpus": 0,
+    "containers": [
+      "sensor-ms"
+    ]
   },
   {
     "namespace": "vst",
@@ -17,7 +20,10 @@
     "restarts": 0,
     "age": "4h23m",
     "node": "artesca-node-1",
-    "gpus": 0
+    "gpus": 0,
+    "containers": [
+      "streamprocessing-ms"
+    ]
   },
   {
     "namespace": "rtvi",
@@ -27,7 +33,11 @@
     "restarts": 0,
     "age": "4h20m",
     "node": "artesca-node-1",
-    "gpus": 1
+    "gpus": 1,
+    "containers": [
+      "rtvi-vlm",
+      "sidecar"
+    ]
   },
   {
     "namespace": "alerts",
@@ -36,6 +46,9 @@
     "ready": true,
     "restarts": 0,
     "age": "4h18m",
-    "node": "artesca-node-1"
+    "node": "artesca-node-1",
+    "containers": [
+      "alert-worker"
+    ]
   }
 ]

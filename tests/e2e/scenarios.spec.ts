@@ -47,9 +47,13 @@ test.describe("scenarios page — Phase 4", () => {
 
     await expect(page.locator("body")).not.toContainText("Application error");
 
-    // Fixture has 3 scenarios: theft, crowd, slip
-    await expect(page.locator("text=Shoplifting Detection")).toBeVisible({ timeout: 8_000 });
-    await expect(page.locator("text=Crowd Density Alert")).toBeVisible({ timeout: 8_000 });
+    // Fixture has 3 scenarios: theft, crowd, slip. The table renders each name
+    // in an editable "Scenario name" textbox, so the name is an input value and
+    // not text content — text= cannot match it. Rows render in fixture order, so
+    // indexing also pins the ordering.
+    const names = page.getByRole("textbox", { name: "Scenario name" });
+    await expect(names.nth(0)).toHaveValue("Shoplifting Detection", { timeout: 8_000 });
+    await expect(names.nth(1)).toHaveValue("Crowd Density Alert", { timeout: 8_000 });
   });
 
   test("enabled scenario shows enabled state; disabled shows disabled", async ({ page }) => {
@@ -160,8 +164,10 @@ test.describe("scenarios page — Phase 4", () => {
 
     await page.goto("/scenarios");
 
-    // Page loaded correctly
-    await expect(page.locator("text=Shoplifting Detection")).toBeVisible({ timeout: 8_000 });
+    // Page loaded correctly — the name lives in an input value, not text.
+    await expect(
+      page.getByRole("textbox", { name: "Scenario name" }).first()
+    ).toHaveValue("Shoplifting Detection", { timeout: 8_000 });
   });
 
   test.fixme(

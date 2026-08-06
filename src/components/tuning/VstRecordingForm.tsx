@@ -278,6 +278,7 @@ export function VstRecordingForm() {
         </div>
         <Button
           size="sm"
+          aria-label="Save VST recording tuning and restart the VST sensor and stream processor"
           disabled={!isDirty || saving}
           onClick={() => setConfirmOpen(true)}
         >
@@ -449,8 +450,9 @@ export function VstRecordingForm() {
             </div>
 
             <div className="space-y-1">
-              <Label>default_gov_length</Label>
+              <Label htmlFor="vst-default-gov-length">default_gov_length</Label>
               <Input
+                id="vst-default-gov-length"
                 type="number"
                 min={1}
                 max={300}

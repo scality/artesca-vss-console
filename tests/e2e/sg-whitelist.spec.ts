@@ -68,8 +68,11 @@ async function stubSettingsApis(page: Page) {
     })
   );
 
-  // Stub "My IP" external service — AddCidrDialog fetches api.ipify.org?format=json
-  await page.route("https://api.ipify.org**", (route) =>
+  // Stub "My IP" external service — AddCidrDialog fetches api.ipify.org?format=json.
+  // Matched by regex, not a glob: the glob "https://api.ipify.org**" did not
+  // intercept the real request, so the dialog reached the live service and the
+  // field was filled with the machine's actual public IP instead of the fixture.
+  await page.route(/api\.ipify\.org/, (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -177,26 +180,22 @@ test.describe("settings — SG whitelist", () => {
     await stubSettingsApis(page);
     await page.goto("/settings");
 
-    const addBtn = page.locator("button", { hasText: /add cidr/i });
-    await addBtn.click();
+    // Only the page's own Add CIDR button exists at this point; the dialog adds
+    // a second one with the same name once open.
+    await page.getByRole("button", { name: "Add CIDR" }).click();
 
-    const dialog = page.locator('[role="dialog"]');
+    const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible({ timeout: 5_000 });
 
-    // Look for "My IP" button in the dialog
-    const myIpBtn = dialog.locator("button", { hasText: /my ip|use my ip/i });
-    if (await myIpBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await myIpBtn.click();
-      await page.waitForTimeout(1_000);
+    await dialog.getByRole("button", { name: /my ip/i }).click();
 
-      // The CIDR field should be populated with "203.0.113.42" (from stubbed ipify.org)
-      const cidrInput = dialog.locator('input[type="text"]').first();
-      const value = await cidrInput.inputValue().catch(() => "");
-      // Value might be the IP or IP/32
-      if (value) {
-        expect(value).toContain("203.0.113.42");
-      }
-    }
-    await expect(page.locator("body")).not.toContainText("Application error");
+    // Assert unconditionally. The guards this replaced meant a missing button or
+    // an unmatched input selector skipped the assertion entirely, which is how
+    // the unstubbed request went unnoticed. toHaveValue retries, so the dialog's
+    // fetch needs no fixed sleep.
+    await expect(dialog.getByRole("textbox", { name: "CIDR" })).toHaveValue(
+      "203.0.113.42/32",
+      { timeout: 5_000 }
+    );
   });
 });

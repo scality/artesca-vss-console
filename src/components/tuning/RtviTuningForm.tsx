@@ -173,6 +173,7 @@ export function RtviTuningForm() {
         </div>
         <Button
           size="sm"
+          aria-label="Save VLM tuning and restart the VLM"
           disabled={!isDirty || saving}
           onClick={() => setConfirmOpen(true)}
         >
