@@ -17,6 +17,15 @@ function stubAuth(page: Page) {
   );
 }
 
+// NOTE ON WHAT THESE STUBS CAN AND CANNOT DO.
+//
+// The overview page is a server component. OverviewAutoRefresh fetches
+// /api/status/overview only as a trigger and then calls router.refresh(), which
+// re-runs the server render — so the numbers and sections on screen always come
+// from collectOverviewSnapshot() on the server, never from the stub below.
+// Stubbing this route keeps the client island quiet and off the network; it does
+// not put fixture data on the page. An assertion about rendered cluster content
+// therefore needs a reachable cluster, not a richer stub.
 async function stubOverviewApis(page: Page) {
   await stubAuth(page);
   // These stubs intercept client-side refetch requests from OverviewAutoRefresh
@@ -136,7 +145,12 @@ test.describe("overview page — Phase 1", () => {
     await expect(page.locator("h1")).toHaveText("Overview");
   });
 
-  test("namespace section header is visible", async ({ page }) => {
+  // Needs a reachable cluster: the Namespaces section renders only when the
+  // server-side snapshot has namespaces, and per the note above the stub cannot
+  // supply them. This passes on a laptop with cluster access and fails in CI,
+  // which is the worse of the two outcomes — it read as green while asserting
+  // nothing the suite controls.
+  test.fixme("namespace section header is visible", async ({ page }) => {
     await stubOverviewApis(page);
     await gotoOverview(page);
 
