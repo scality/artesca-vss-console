@@ -128,12 +128,19 @@ Errors + tracing + masked session replay report to Sentry org **scality-3i**, pr
 - **Source maps + releases**: uploaded **inside the image's `next build`** — [`Dockerfile`](Dockerfile) takes `SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_RELEASE` build args + `SENTRY_AUTH_TOKEN` as a BuildKit secret. Both build drivers ([`scripts/build-console-image.sh`](scripts/build-console-image.sh) laptop-sideload — the path that reaches Pyramid — and [`.github/workflows/build-console.yml`](.github/workflows/build-console.yml) CI GHCR) pull `isv-labs-sentry-build-env` from Secret Manager, fail-soft. `SENTRY_PROJECT` is fixed to `scality-vss-console-ui` (the shared secret's value is the deployer's).
 - **Verify**: `GET /api/sentry-verify` throws deliberately — `kubectl -n console exec deploy/console -- curl -s http://localhost:8800/api/sentry-verify`, then check the issue shows frames at `src/app/api/sentry-verify/route.ts`.
 
-## Architecture sheet (ISV-ARCH-05)
+## Architecture sheets (ISV-ARCH-05, ISV-ARCH-06)
 
 ```bash
 node scripts/diagrams/dump-model.mjs > model.json
 node scripts/diagrams/build-console.mjs model.json ../isv-presentations/diagrams/sheets/vss-console.excalidraw
+
+node --conditions=react-server scripts/diagrams/dump-flow.mjs > flow.json
+node scripts/diagrams/build-flow.mjs flow.json ../isv-presentations/diagrams/sheets/vss-flow.excalidraw
 ```
+
+**ISV-ARCH-06** follows one frame from the lens to the operator — the three paths it takes at once, the carrier at each boundary, and where each lands on ARTESCA. It **imports** [`cluster-refs.ts`](src/lib/cluster-refs.ts) rather than parsing it, since those values are computed from `process.env` with defaults and a regex would read the source of a name instead of the name. Two consequences: the dumper must run under `--conditions=react-server`, because `cluster-refs.ts` opens with `import "server-only"` whose default entry throws by design; and it emits an explicit allowlist rather than the `CLUSTER` object, which carries live credentials (`CLUSTER.grafana.password` among them) onto a sheet that gets published.
+
+**ISV-ARCH-05** draws the operator surface.
 
 Draws the operator surface: the 22 pages by what kiosk mode does to each, the Firestore documents shared with the deployer, and what the 67 API routes reach. Everything on it is read from source at run time — pages from [`Nav.tsx`](src/components/Nav.tsx), kiosk state from [`lib/kiosk.ts`](src/lib/kiosk.ts), shared state from the `ConfigStore` contract, backend reach from a walk of each route's `@/lib` imports. The scene builder is shared with the other sheets and lives in `scality/isv-presentations` (clone it next to this repository); the generator stays here, because it can only read this repo's source from inside it.
 
