@@ -84,11 +84,25 @@ async function stubOverviewApis(page: Page) {
   );
 }
 
+// Navigate to / and wait for the shell heading.
+//
+// Deliberately not waitForLoadState("networkidle"): the overview holds a
+// ConnectivityStrip probing six backends and an auto-refresh, both on 5 s
+// timers, so there is no 500 ms window with nothing in flight.
+async function gotoOverview(page: Page) {
+  await page.goto("/");
+  await expect(page.locator("h1")).toBeVisible({ timeout: 20_000 });
+}
+
 test.describe("overview page — Phase 1", () => {
+
+  // Cold SSR of / runs the cluster probes, which all have to time out when no
+  // cluster is reachable — measured ~10 s, and CI has no cluster either. The
+  // 15 s suite default leaves nothing for the assertions after the navigation.
+  test.beforeEach(() => test.setTimeout(45_000));
   test("overview page renders without crashing (happy path)", async ({ page }) => {
     await stubOverviewApis(page);
-    await page.goto("/");
-    await page.waitForLoadState("networkidle");
+    await gotoOverview(page);
 
     await expect(page.locator("body")).not.toContainText("Application error");
     // Page title should be present
@@ -104,8 +118,7 @@ test.describe("overview page — Phase 1", () => {
     await page.route("/api/status/pods", (route) =>
       route.fulfill({ status: 503, body: "" })
     );
-    await page.goto("/");
-    await page.waitForLoadState("networkidle");
+    await gotoOverview(page);
 
     await expect(page.locator("body")).not.toContainText("Application error");
     // Should show a no-data warning or still render the shell
@@ -114,23 +127,22 @@ test.describe("overview page — Phase 1", () => {
 
   test("overview page includes page title Scality VSS Console", async ({ page }) => {
     await stubOverviewApis(page);
-    await page.goto("/");
-    await page.waitForLoadState("networkidle");
+    await gotoOverview(page);
 
-    // The h1 contains "Scality VSS Console" per the page.tsx
-    const heading = page.locator("h1");
-    await expect(heading).toBeVisible({ timeout: 8_000 });
-    const text = await heading.textContent();
-    expect(text).toMatch(/VSS|Console|Demo/i);
+    // Assert the document title, which is what this test is named for. The h1
+    // is "Overview" in operator mode and only reads "Scality VSS Console" in
+    // kiosk mode, so asserting it here tested the wrong element.
+    await expect(page).toHaveTitle(/Scality VSS Console/);
+    await expect(page.locator("h1")).toHaveText("Overview");
   });
 
   test("namespace section header is visible", async ({ page }) => {
     await stubOverviewApis(page);
-    await page.goto("/");
-    await page.waitForLoadState("networkidle");
+    await gotoOverview(page);
 
-    // "Namespaces" section is always rendered (even with no pod data)
-    const nsHeader = page.locator("text=Namespaces");
+    // Target the section heading by role: a bare text= match is a substring
+    // match and resolves to more than one element on this page.
+    const nsHeader = page.getByRole("heading", { name: "Namespaces", exact: true });
     await expect(nsHeader).toBeVisible({ timeout: 8_000 });
   });
 
@@ -139,8 +151,7 @@ test.describe("overview page — Phase 1", () => {
     await page.context().addCookies([
       { name: "kiosk", value: "1", domain: "localhost", path: "/" },
     ]);
-    await page.goto("/");
-    await page.waitForLoadState("networkidle");
+    await gotoOverview(page);
 
     await expect(page.locator("body")).not.toContainText("Application error");
     // KIOSK badge appears when kiosk is active
@@ -150,8 +161,7 @@ test.describe("overview page — Phase 1", () => {
 
   test("camera-sim card shows running state when data is available", async ({ page }) => {
     await stubOverviewApis(page);
-    await page.goto("/");
-    await page.waitForLoadState("networkidle");
+    await gotoOverview(page);
 
     // The running state comes from the stub data — may appear if SSR data loads OR
     // client-side refresh fires. Either way, page should not crash.
@@ -180,8 +190,7 @@ test.describe("overview page — Phase 1", () => {
     await page.route("/api/status/pods", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
     );
-    await page.goto("/");
-    await page.waitForLoadState("networkidle");
+    await gotoOverview(page);
 
     await expect(page.locator("body")).not.toContainText("Application error");
   });

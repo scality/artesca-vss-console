@@ -14,12 +14,26 @@ async function setKioskCookie(page: Page, value: boolean) {
   ]);
 }
 
+// Navigate to / and wait for the shell heading.
+//
+// Deliberately not waitForLoadState("networkidle"): the overview holds a
+// ConnectivityStrip probing six backends and an auto-refresh, both on 5 s
+// timers, so there is no 500 ms window with nothing in flight.
+async function gotoOverview(page: Page) {
+  await page.goto("/");
+  await expect(page.locator("h1")).toBeVisible({ timeout: 20_000 });
+}
+
 test.describe("kiosk mode — Phase 0", () => {
+
+  // Cold SSR of / runs the cluster probes, which all have to time out when no
+  // cluster is reachable — measured ~10 s, and CI has no cluster either. The
+  // 15 s suite default leaves nothing for the assertions after the navigation.
+  test.beforeEach(() => test.setTimeout(45_000));
   test("kiosk=1 cookie hides operator nav links", async ({ page }) => {
     await setKioskCookie(page, true);
     await page.goto("/");
     // Use networkidle to allow client-side JS to settle
-    await page.waitForLoadState("networkidle");
 
     const navLinks = page.locator("nav a");
     // Wait for nav to be present
@@ -78,12 +92,10 @@ test.describe("kiosk mode — Phase 0", () => {
 
   test("kiosk cookie is present after reload", async ({ page }) => {
     await setKioskCookie(page, true);
-    await page.goto("/");
-    await page.waitForLoadState("networkidle");
+    await gotoOverview(page);
 
     // Reload the page
     await page.reload();
-    await page.waitForLoadState("networkidle");
 
     // After reload, check cookie is still there
     const cookies = await page.context().cookies();
@@ -95,8 +107,7 @@ test.describe("kiosk mode — Phase 0", () => {
 
   test("kiosk-visible route / is accessible in kiosk mode without error", async ({ page }) => {
     await setKioskCookie(page, true);
-    await page.goto("/");
-    await page.waitForLoadState("networkidle");
+    await gotoOverview(page);
     await expect(page.locator("body")).not.toContainText("Application error");
     // Should land on / (not redirect away from root)
     expect(page.url()).toMatch(/\/$/);
@@ -104,8 +115,7 @@ test.describe("kiosk mode — Phase 0", () => {
 
   test("kiosk=0: nav has more than 3 links", async ({ page }) => {
     await setKioskCookie(page, false);
-    await page.goto("/");
-    await page.waitForLoadState("networkidle");
+    await gotoOverview(page);
 
     const navLinks = page.locator("nav a");
     await expect(navLinks.first()).toBeVisible({ timeout: 8_000 });
