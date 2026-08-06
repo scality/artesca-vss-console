@@ -72,6 +72,34 @@ test.describe("Monaco is served by the app", () => {
     ).toEqual([]);
   });
 
+  // `src/components/monaco.ts` re-exports two editors, and `DiffEditor` is the
+  // one `ScenarioDiffDialog.tsx` depends on. Toggling `/prompt` into diff mode
+  // reaches that export far more cheaply than driving the scenarios page.
+  //
+  // A *swapped* re-export is already caught by `tsc`, not by this: the diff
+  // options (`renderSideBySide`, `originalEditable`) do not exist on the plain
+  // editor's props, so the build fails. What this covers is the runtime half —
+  // that the diff editor loads and renders from the local copy at all.
+  test("the diff editor renders with cdn.jsdelivr.net unreachable", async ({ page }) => {
+    test.setTimeout(MONACO_BUDGET_MS);
+    const cdnAttempts = await promptPageWithoutCdn(page);
+    await page.locator(".monaco-editor").first().waitFor({ timeout: 20_000 });
+
+    // Asserted absent first, so a locator that matched any editor — or a click
+    // that did nothing — cannot pass this quietly.
+    const diff = page.locator(".monaco-diff-editor");
+    await expect(diff).toHaveCount(0);
+
+    await page.getByRole("button", { name: /^diff$/i }).click();
+
+    await expect(diff).toBeVisible({ timeout: 20_000 });
+    await expect(diff.locator(".view-lines").first()).toContainText(
+      "retail security VLM"
+    );
+
+    expect(cdnAttempts).toEqual([]);
+  });
+
   test("a language service worker answers", async ({ page }) => {
     test.setTimeout(MONACO_BUDGET_MS);
     const cdnAttempts = await promptPageWithoutCdn(page);
