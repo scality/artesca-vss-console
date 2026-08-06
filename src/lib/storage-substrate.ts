@@ -77,6 +77,23 @@ function statsSWR(bucket: string): { stats: BucketStats | null; refreshing: bool
   return { stats: null, refreshing: true };
 }
 
+/**
+ * Non-blocking bucket stats for callers outside the /storage page — the overview
+ * collector, which renders the kiosk display and must never block on a bucket
+ * walk. Returns whatever is cached (possibly stale, possibly null on a cold
+ * cache) and kicks a background refresh when one is due.
+ *
+ * Sharing this module's cache is the point: the recordings bucket is scanned
+ * once and both surfaces read the same result, instead of each paying its own
+ * ~197 sequential round-trips.
+ */
+export function bucketStatsCached(bucket: string): {
+  stats: BucketStats | null;
+  refreshing: boolean;
+} {
+  return statsSWR(bucket);
+}
+
 export interface BucketSubstrate {
   key: string;
   label: string;

@@ -15,7 +15,7 @@ import {
   type ComposeContainer,
 } from "@/lib/helpers/docker-sock";
 import { getKafka } from "@/lib/kafka";
-import { s3Stats } from "@/lib/aws";
+import { bucketStatsCached } from "@/lib/storage-substrate";
 import { s3BucketForRecordings, describeS3Error } from "@/lib/s3";
 import { promQuery } from "@/lib/helpers/prometheus";
 import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
@@ -170,14 +170,16 @@ async function collectDockerOverview(
       const bucket = s3BucketForRecordings();
       const capacity = CLUSTER.s3.capacityBytes;
       if (!s3Configured) return { bucket: bucket || "", objectCount: 0, bytesTotal: 0, growth24h: 0, bytesCapacity: capacity };
+      // Same cached read as the k8s path. This used to race s3Stats against a 5 s
+      // timeout, which bounded the latency by discarding the numbers — on a bucket
+      // this size the walk never finished inside 5 s, so the tile read zero.
       try {
-        const stats = await Promise.race([
-          s3Stats(bucket),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(Object.assign(new Error("s3Stats timeout"), { code: "ETIMEOUT" })), 5_000)
-          ),
-        ]);
-        return { ...stats, growth24h: stats.bytesLast24h, bytesCapacity: capacity };
+        const { stats, refreshing } = bucketStatsCached(bucket);
+        if (stats) {
+          return { ...stats, growth24h: stats.bytesLast24h, bytesCapacity: capacity };
+        }
+        if (refreshing) warnings.push("S3 stats still loading (first bucket scan in flight)");
+        return { bucket, objectCount: 0, bytesTotal: 0, growth24h: 0, bytesCapacity: capacity };
       } catch (err) {
         warnings.push(`S3 stats failed: ${describeS3Error(err)}`);
         return { bucket, objectCount: 0, bytesTotal: 0, growth24h: 0, bytesCapacity: capacity };
@@ -411,9 +413,20 @@ async function collectK8sOverview(
     growth24h: 0,
     bytesCapacity: CLUSTER.s3.capacityBytes,
   };
+  // Read the cached stats rather than walking the bucket here. Counting objects
+  // means listing them — S3 has no O(1) count — so this was ~197 sequential
+  // round-trips at 196k objects, and it grew with the recordings. Sequential
+  // with every other section, it made this collector 22 s on pyramid-showroom
+  // against a 5 s auto-refresh, on the page the kiosk display renders (ISVD-593).
   try {
-    const stats = await s3Stats(bucket);
-    s3 = { ...stats, growth24h: stats.bytesLast24h, bytesCapacity: CLUSTER.s3.capacityBytes };
+    const { stats, refreshing } = bucketStatsCached(bucket);
+    if (stats) {
+      s3 = { ...stats, growth24h: stats.bytesLast24h, bytesCapacity: CLUSTER.s3.capacityBytes };
+    } else if (refreshing) {
+      // Cold cache: the scan is running. Zeros for one refresh cycle, then real
+      // numbers — rather than a 22 s wait for the whole page.
+      warnings.push("S3 stats still loading (first bucket scan in flight)");
+    }
   } catch (err) {
     warnings.push(`S3 stats failed: ${describeS3Error(err)}`);
   }

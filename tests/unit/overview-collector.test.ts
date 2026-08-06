@@ -24,7 +24,7 @@ const {
   mockListAllPodsInNs,
   mockCoreV1,
   mockWatchedNamespaces,
-  mockS3Stats,
+  mockBucketStatsCached,
   mockGetKafka,
   mockPromQuery,
   mockMediamtxListPaths,
@@ -39,7 +39,7 @@ const {
   const mockCoreV1 = vi.fn(() => ({}));
   const mockWatchedNamespaces = vi.fn(() => ["vst", "rtvi", "agent"]);
 
-  const mockS3Stats = vi.fn();
+  const mockBucketStatsCached = vi.fn();
   const mockGetKafka = vi.fn();
   const mockPromQuery = vi.fn();
   const mockMediamtxListPaths = vi.fn();
@@ -54,7 +54,7 @@ const {
     mockListAllPodsInNs,
     mockCoreV1,
     mockWatchedNamespaces,
-    mockS3Stats,
+    mockBucketStatsCached,
     mockGetKafka,
     mockPromQuery,
     mockMediamtxListPaths,
@@ -76,8 +76,8 @@ vi.mock("@/lib/k8s", () => ({
   listAllPodsInNs: mockListAllPodsInNs,
 }));
 
-vi.mock("@/lib/aws", () => ({
-  s3Stats: mockS3Stats,
+vi.mock("@/lib/storage-substrate", () => ({
+  bucketStatsCached: mockBucketStatsCached,
 }));
 
 vi.mock("@/lib/kafka", () => ({
@@ -224,12 +224,15 @@ function setupK8sHappyPath() {
     instance: { admin: vi.fn(() => admin) },
   });
 
-  // S3 — successful.
-  mockS3Stats.mockResolvedValue({
-    bucket: "test-bucket",
-    objectCount: 42,
-    bytesTotal: 1_000_000,
-    bytesLast24h: 100_000,
+  // S3 — a fresh cached value.
+  mockBucketStatsCached.mockReturnValue({
+    stats: {
+      bucket: "test-bucket",
+      objectCount: 42,
+      bytesTotal: 1_000_000,
+      bytesLast24h: 100_000,
+    },
+    refreshing: false,
   });
 
   // Camera-sim / mediamtx — working (docker path only).
@@ -274,11 +277,14 @@ function setupDockerHappyPath() {
   mockInspectContainer.mockResolvedValue(null);
   mockRunOneShotGpuContainer.mockResolvedValue(null);
 
-  mockS3Stats.mockResolvedValue({
-    bucket: "test-bucket",
-    objectCount: 10,
-    bytesTotal: 500_000,
-    bytesLast24h: 50_000,
+  mockBucketStatsCached.mockReturnValue({
+    stats: {
+      bucket: "test-bucket",
+      objectCount: 10,
+      bytesTotal: 500_000,
+      bytesLast24h: 50_000,
+    },
+    refreshing: false,
   });
 
   mockMediamtxListPaths.mockResolvedValue({
@@ -386,7 +392,9 @@ describe("collectOverviewSnapshot — degraded-snapshot contract (k8s mode)", ()
   });
 
   it("S3 probe throws → returns result with S3 warning, s3 fields are zero/default", async () => {
-    mockS3Stats.mockRejectedValue(new Error("s3 boom"));
+    mockBucketStatsCached.mockImplementation(() => {
+      throw new Error("s3 boom");
+    });
 
     const result = await collectOverviewSnapshot();
 
@@ -475,7 +483,9 @@ describe("collectOverviewSnapshot — degraded-snapshot contract (k8s mode)", ()
     });
 
     // S3 fails.
-    mockS3Stats.mockRejectedValue(new Error("s3 down"));
+    mockBucketStatsCached.mockImplementation(() => {
+      throw new Error("s3 down");
+    });
 
     // mediamtx fails.
     mockMediamtxListPaths.mockRejectedValue(new Error("mediamtx down"));
