@@ -71,6 +71,11 @@ jobs:
         run: npm run test:e2e
         env:
           CI: "1"
+          # Auth.js v5 refuses any host it was not told to trust, and rejects
+          # every /api/auth/session call with UntrustedHost when it is not
+          # running on Vercel. The webServer here is a plain `npm run start` on
+          # localhost:8800, so without this the whole E2E suite fails at sign-in.
+          AUTH_TRUST_HOST: "true"
 
       - name: Upload Playwright report
         if: always()
