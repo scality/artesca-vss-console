@@ -3,9 +3,9 @@
 #
 # Prerequisites:
 #   - kubectl works against the local ARTESCA MetalK8s cluster.
-#   - k8s/console/10-secrets.yaml exists and has been filled in.
+#   - k8s/10-secrets.yaml exists and has been filled in.
 #     Copy from 10-secrets.yaml.example and populate every <...> field:
-#       cp k8s/console/10-secrets.yaml.example k8s/console/10-secrets.yaml
+#       cp k8s/10-secrets.yaml.example k8s/10-secrets.yaml
 #     Then edit it before running this script.
 #
 # The script is idempotent: re-running it re-applies the manifests and
@@ -25,7 +25,7 @@ source "$SCRIPT_DIR/lib-paths.sh" "$@"
 vss_init_action_log "console-deploy"
 set -- "${VSS_ARGS[@]:-}"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-CONSOLE_DIR="$REPO_ROOT/k8s/console"
+CONSOLE_DIR="$REPO_ROOT/k8s"
 SECRETS_EXAMPLE="$CONSOLE_DIR/10-secrets.yaml.example"
 SECRETS_FILE="$CONSOLE_DIR/10-secrets.yaml"
 
@@ -254,7 +254,7 @@ EOF
 fi
 
 # Mirror the secrets YAML into the per-instance dir so backup-state.sh can
-# include it in GCS state backups (k8s/console/10-secrets.yaml is gitignored).
+# include it in GCS state backups (k8s/10-secrets.yaml is gitignored).
 if [[ -n "${VSS_INSTANCE_DIR:-}" && -d "$VSS_INSTANCE_DIR" ]]; then
   cp -f "$SECRETS_FILE" "$VSS_INSTANCE_DIR/console-secrets.yaml"
   chmod 600 "$VSS_INSTANCE_DIR/console-secrets.yaml"
@@ -458,7 +458,7 @@ echo "==> CONSOLE_LEGACY_NAMESPACES=$CONSOLE_LEGACY_NAMESPACES (VSS_DEPLOY_PATH=
 # Resolve workload-namespace list and ensure each namespace exists.
 # Then generate console-writer Role + RoleBinding in each workload namespace
 # so console-sa can patch Deployments, ConfigMaps, and Jobs there.
-# These are NOT in the static k8s/console/01-rbac.yaml (which carries only
+# These are NOT in the static k8s/01-rbac.yaml (which carries only
 # the cluster-scoped console-reader) to avoid namespace-mismatch errors when
 # VSS_NAMESPACE differs from a compile-time literal.
 # ---------------------------------------------------------------------------
@@ -622,7 +622,7 @@ echo "=== Console deployed"
 echo "==================================================================="
 echo
 echo "  Access:   http://${NODE_IP}:8800"
-echo "  Login:    CONSOLE_PASSWORD from k8s/console/10-secrets.yaml"
+echo "  Login:    CONSOLE_PASSWORD from k8s/10-secrets.yaml"
 echo "  Kiosk:    http://${NODE_IP}:8800?mode=kiosk  (check box at login)"
 echo
 echo "Run scripts/validate-console.sh to confirm the deployment is healthy."

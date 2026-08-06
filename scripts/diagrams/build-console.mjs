@@ -10,7 +10,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const LIB = '../../../../isv-presentations/diagrams/lib/excalidraw-lib.mjs';
+const LIB = '../../../isv-presentations/diagrams/lib/excalidraw-lib.mjs';
 let createScene, PALETTE, findOverlaps;
 try {
   ({ createScene, PALETTE, findOverlaps } = await import(LIB));

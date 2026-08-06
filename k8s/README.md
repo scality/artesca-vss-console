@@ -3,7 +3,7 @@
 Next.js 16 operator dashboard for the ARTESCA × VSS stack. Single browser tab
 at `:8800` covering service health, live logs, Kafka streams, GPU state, camera
 management, VLM prompt editing, and scenario configuration. Phase 0 of
-[`docs/console-design.md`](../../docs/console-design.md).
+[`docs/console-design.md`](../docs/console-design.md).
 
 ## Layout
 

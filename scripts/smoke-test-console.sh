@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local manifest smoke-test for k8s/console/ against OrbStack K8s.
+# Local manifest smoke-test for k8s/ against OrbStack K8s.
 #
 # Purpose:
 #   Catch manifest-level bugs (missing ConfigMap keys, broken Service DNS,
