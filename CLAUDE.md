@@ -126,6 +126,22 @@ Errors + tracing + masked session replay report to Sentry org **scality-3i**, pr
 - **Source maps + releases**: uploaded **inside the image's `next build`** — [`Dockerfile`](Dockerfile) takes `SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_RELEASE` build args + `SENTRY_AUTH_TOKEN` as a BuildKit secret. Both build drivers ([`../scripts/build-console-image.sh`](../scripts/build-console-image.sh) laptop-sideload — the path that reaches Pyramid — and [`../.github/workflows/build-console.yml`](../.github/workflows/build-console.yml) CI GHCR) pull `isv-labs-sentry-build-env` from Secret Manager, fail-soft. `SENTRY_PROJECT` is fixed to `scality-vss-console-ui` (the shared secret's value is the deployer's).
 - **Verify**: `GET /api/sentry-verify` throws deliberately — `kubectl -n console exec deploy/console -- curl -s http://localhost:8800/api/sentry-verify`, then check the issue shows frames at `src/app/api/sentry-verify/route.ts`.
 
+## Architecture sheet (ISV-ARCH-05)
+
+```bash
+node scripts/diagrams/dump-model.mjs > model.json
+node scripts/diagrams/build-console.mjs model.json ../../isv-presentations/diagrams/sheets/vss-console.excalidraw
+```
+
+Draws the operator surface: the 22 pages by what kiosk mode does to each, the Firestore documents shared with the deployer, and what the 67 API routes reach. Everything on it is read from source at run time — pages from [`Nav.tsx`](src/components/Nav.tsx), kiosk state from [`lib/kiosk.ts`](src/lib/kiosk.ts), shared state from the `ConfigStore` contract, backend reach from a walk of each route's `@/lib` imports. The scene builder is shared with the other sheets and lives in `scality/isv-presentations` (clone it next to `isv-labs`); the generator stays here, because it can only read this repo's source from inside it.
+
+⚠ **The import walk follows `await import()` as well as `from`.** The reconcile context is reached dynamically at all 16 of its call sites, so a static-only walk concludes that no route touches Firestore — which is exactly backwards, since that path is how cameras, prompt and scenarios are written.
+
+Two things the walk surfaces, both still open:
+
+- **Four nav links break in kiosk mode.** `/search`, `/analytics`, `/evidence` and `/storage` are in neither `KIOSK_HIDDEN_ROUTES` nor `KIOSK_ALLOWED_ROUTES`. `Nav.tsx` filters only the hidden list so the links render; [`proxy.ts`](src/proxy.ts) serves only the allowed list so the paths redirect to `/`. A showroom visitor clicks and lands back on the overview. Whichever list they belong in, they belong in one.
+- **Seven mutating routes outlive their own page.** `proxy.ts` states that "mutating API routes are already guarded by `rejectIfKiosk()` in each handler", and 17 of 33 are. The other 16 include seven under a page kiosk hides — `/api/cameras/[id]` (PUT/PATCH/DELETE), `/api/cameras/[id]/restart`, the three `sync-gcs` routes and `/api/diagnostics/[test]`. `/api/cameras/[id]` DELETE is the sharpest: the sibling collection route `/api/cameras` POST *does* guard, so the asymmetry is within one resource. `/api/settings/kiosk` is exempt by design and named as such in the dumper — it is the exit from kiosk mode, and guarding it would trap the session.
+
 ## Pointers
 
 - Top-level platform: [`../CLAUDE.md`](../CLAUDE.md)
