@@ -30,9 +30,10 @@ spec:
         fsGroup: 1001
       containers:
       - name: console
-        # CI bumps this tag via kustomize image override on every push to main.
-        # Pin to a specific sha-<short-sha> tag for production rollouts.
-        image: ghcr.io/scality/isv-nvidia-nvidia-vss/console:latest
+        # Overridden at deploy time — deploy-console.sh sideloads the image onto
+        # the node and rewrites this to a console.local: tag with
+        # imagePullPolicy: Never. Pin a :sha-<short-sha> for a registry pull.
+        image: ghcr.io/scality/artesca-vss-console:latest
         ports:
         - name: http
           containerPort: 8800

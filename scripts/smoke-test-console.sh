@@ -157,7 +157,7 @@ patches:
 # Kustomize image override — mirrors production kustomization.yaml pattern
 # but points at the placeholder instead of the CI-built GHCR image.
 images:
-- name: ghcr.io/scality/isv-nvidia-nvidia-vss/console
+- name: ghcr.io/scality/artesca-vss-console
   newName: docker.io/library/nginx
   newTag: alpine
 EOF

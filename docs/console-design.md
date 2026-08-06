@@ -425,9 +425,9 @@ Role `console-writer` in each of the 6 namespaces (`vst`, `rtvi`, `agent`,
 
 ### Build workflow
 
-- `.github/workflows/build-console.yml` — builds on push to `main` touching
-  `console/**` or the workflow, pushes
-  `ghcr.io/scality/isv-nvidia-nvidia-vss/console:sha-<short>` + `:latest`.
+- `.github/workflows/build-console.yml` — lints, unit-tests, type-checks and
+  runs the Playwright suite, then on push to `main` pushes
+  `ghcr.io/scality/artesca-vss-console:sha-<short>` + `:latest`.
 - SHA-pinned actions (checkout@v4, setup-node@v4, docker/setup-buildx-action@v3,
   docker/login-action@v3, docker/build-push-action@v6).
 - Multi-stage Dockerfile: deps → build → runner. Final image runs as uid 1001.

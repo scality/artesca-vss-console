@@ -1,8 +1,10 @@
-# Apply with:  scripts/deploy-console.sh (not kubectl apply -k directly — the
-# script creates workload namespaces and generates per-namespace console-writer
-# Role + RoleBinding before calling kustomize).
+# Apply with isv-labs' scripts/deploy-console.sh, not kubectl apply -k directly:
+# the script creates the workload namespaces, generates the per-namespace
+# console-writer Role + RoleBinding, and substitutes the image and the node,
+# camera-sim and S3 placeholders before calling kustomize.
 # Prerequisites:
-#   - 10-secrets.yaml filled in (cp 10-secrets.yaml.example 10-secrets.yaml && edit)
+#   - the console Secrets present in the cluster (deploy-console.sh generates
+#     them into the lab instance's own directory on first deploy)
 #   - AWS credentials + EC2 SG ID available for console-aws Secret
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -20,9 +22,9 @@ labels:
     scality.com/component: console
   includeSelectors: false
 
-# CI bumps the newTag field on every push to main touching console/** or
-# .github/workflows/build-console.yml.  Do not edit by hand in production —
-# use the CI-generated sha-<short-sha> tags.
+# This repository's CI publishes :latest and :sha-<short-sha> on every push to
+# main. deploy-console.sh replaces the image outright with a sideloaded
+# console.local: tag, so this pins what a direct `kubectl apply -k` would pull.
 images:
-- name: ghcr.io/scality/isv-nvidia-nvidia-vss/console
+- name: ghcr.io/scality/artesca-vss-console
   newTag: latest
