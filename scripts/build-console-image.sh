@@ -13,7 +13,7 @@
 # nothing but the existing SSO + SSH credentials.
 #
 # Idempotent: the image tag is derived from the current git state of the
-# console/ tree. Reruns with no source changes short-circuit at the
+# repository tree. Reruns with no source changes short-circuit at the
 # "already present" check on the node.
 #
 # Env:
@@ -73,14 +73,14 @@ fi
 # Image naming: use a repo-local name that is never fetched remotely. Tag
 # from git so reruns skip unchanged builds.
 IMAGE_REPO="${IMAGE_REPO:-console.local}"
-# Last commit that touched console/. Fall back to a timestamp if not a git
+# Last commit in the repository. Fall back to a timestamp if not a git
 # worktree (CI or tarball). Add "-dirty" if there are uncommitted changes
-# under console/ so WIP builds don't collide with the previous tag.
-TAG_HASH="$(git -C "$REPO_ROOT" log -1 --format=%h -- console/ 2>/dev/null || true)"
+# in the tree so WIP builds don't collide with the previous tag.
+TAG_HASH="$(git -C "$REPO_ROOT" log -1 --format=%h -- . 2>/dev/null || true)"
 if [[ -z "$TAG_HASH" ]]; then
   TAG_HASH="$(date +%Y%m%d-%H%M%S)"
 fi
-if [[ -n "$(git -C "$REPO_ROOT" status --porcelain -- console/ 2>/dev/null)" ]]; then
+if [[ -n "$(git -C "$REPO_ROOT" status --porcelain -- . 2>/dev/null)" ]]; then
   TAG_HASH="${TAG_HASH}-dirty"
 fi
 FULL_IMAGE="${IMAGE_REPO}:${TAG_HASH}"

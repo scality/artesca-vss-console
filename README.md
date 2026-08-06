@@ -2,7 +2,7 @@
 
 Operator console for the ARTESCA × Pyramid × NVIDIA VSS stack. Single-pane-of-glass for service status, live metrics, camera management, scenario editing, VLM prompt tuning, and incident playback.
 
-Deploys as a K8s `Deployment` in namespace `console` on the ARTESCA MetalK8s node — not to Vercel. See `../docs/console-design.md` for the full design rationale.
+Deploys as a K8s `Deployment` in namespace `console` on the ARTESCA MetalK8s node — not to Vercel. See `docs/console-design.md` for the full design rationale.
 
 ## Local dev
 
@@ -60,7 +60,7 @@ npm run test:e2e  # playwright
 
 ## K8s deploy
 
-Manifests live in `../k8s/console/` (owned by a parallel agent). The console Deployment mounts:
+Manifests live in `k8s/` (owned by a parallel agent). The console Deployment mounts:
 - `console-auth` Secret → `CONSOLE_PASSWORD`
 - `console-aws` Secret → AWS credentials
 - `console-data` PVC at `/data` → SQLite (`console-data.db`)
