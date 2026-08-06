@@ -184,6 +184,39 @@ test.describe("incidents + clip playback — Phase 6", () => {
     }
   });
 
+  // The raw payload is the operator's way of seeing what the VLM actually
+  // emitted, and nothing opened this editor before.
+  //
+  // The content assertion is the load-bearing one — blanking the payload was
+  // measured to fail it. The height check is a floor, not a guard against
+  // ISVD-604's collapse: that needed an editor sizing itself from its container,
+  // and this one takes `height` as a prop, so Monaco stays 192px even if the
+  // wrapper is collapsed to zero (measured — the mutation passed). Should that
+  // prop ever be dropped in favour of a container-derived height, the floor is
+  // what would catch it.
+  test("incident detail shows the raw payload in a readable editor", async ({ page }) => {
+    test.setTimeout(45_000);
+    await stubIncidentsApis(page);
+    await page.goto("/incidents");
+
+    await expect(page.locator("text=Shoplifting Detection")).toBeVisible({ timeout: 8_000 });
+    await page.locator("tbody tr, [data-incident-row]").first().click();
+
+    const dialog = page.locator('[role="dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+    await expect(dialog.getByText("Raw Payload")).toBeVisible({ timeout: 10_000 });
+
+    const editor = dialog.locator(".monaco-editor").first();
+    await expect(editor).toBeVisible({ timeout: 20_000 });
+
+    const box = await editor.boundingBox();
+    expect(box, "the raw payload editor has no box at all").not.toBeNull();
+    expect(box!.height, `raw payload editor is ${box!.height}px tall`).toBeGreaterThan(100);
+
+    // Whatever the fixture put in `raw` has to be legible in it.
+    await expect(editor.locator(".view-lines").first()).toContainText("{");
+  });
+
   test.fixme(
     "hls.js attaches to video element and plays (real NIM clip)",
     async () => {
