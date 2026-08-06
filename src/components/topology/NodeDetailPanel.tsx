@@ -149,11 +149,17 @@ export function NodeDetailPanel({
         role="dialog"
         aria-modal="true"
         aria-label={`Node detail: ${nodeLabel}`}
+        aria-hidden={!open}
+        // The panel stays mounted so it can slide. Without inert + visibility,
+        // a closed panel keeps its bounding box: it stays in the tab order and
+        // is still announced as an open dialog. visibility is transitioned
+        // alongside transform so it only takes effect once the slide-out ends.
+        inert={!open}
         className={[
           "fixed inset-y-0 right-0 z-40 flex w-[420px] flex-col",
           "bg-background border-l border-border shadow-xl",
-          "transition-transform duration-200 ease-in-out",
-          open ? "translate-x-0" : "translate-x-full",
+          "transition-[transform,visibility] duration-200 ease-in-out",
+          open ? "visible translate-x-0" : "invisible translate-x-full",
         ].join(" ")}
       >
         {/* ── Header ── */}
