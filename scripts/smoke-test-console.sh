@@ -69,12 +69,18 @@ SCRATCH_DIR="$(mktemp -d -t console-smoke-XXXXXX)"
 trap 'rm -rf "$SCRATCH_DIR"' EXIT
 yellow "==> scratch overlay: $SCRATCH_DIR"
 
-# Copy base manifests, skipping 10-secrets.yaml (may or may not exist, has
-# real creds) and 15-storage.yaml (MetalK8s-specific static PV). We swap in
-# OrbStack's default local-path StorageClass by patching the PVC.
-for f in 00-namespace.yaml 01-rbac.yaml 11-configmap-env.yaml 12-pvc.yaml 20-console.yaml; do
-  cp "$CONSOLE_DIR/$f" "$SCRATCH_DIR/$f"
-done
+# Render the real kustomization and patch that, rather than listing the manifest
+# files again here. This script used to carry its own copy of the resource list —
+# in two places, the copy loop and the overlay's `resources:` — and both had
+# fallen a file behind k8s/kustomization.yaml. A smoke test whose input is a
+# hand-maintained subset cannot catch a mistake in the kustomization, which is
+# most of what it exists to catch (ISVD-596).
+#
+# 10-secrets.yaml is not in the kustomization (real creds, applied imperatively),
+# so it is excluded for free. 15-storage.yaml's static MetalK8s PV comes through
+# and stays Available and unbound, because the PVC patch below moves console-data
+# onto OrbStack's default local-path class.
+kubectl kustomize "$CONSOLE_DIR" > "$SCRATCH_DIR/base.yaml"
 
 # Patch 12-pvc.yaml to use OrbStack's default StorageClass instead of the
 # MetalK8s-static `console-local` class (which doesn't exist here).
@@ -116,6 +122,13 @@ cat > "$SCRATCH_DIR/deploy-patch.yaml" <<EOF
   value:
     runAsNonRoot: true
     runAsUser: 101
+# All three probe types, because the placeholder serves neither :8800 nor
+# /api/health/self and any surviving probe fails the pod. startupProbe was added
+# to 20-console.yaml after this patch was written and was not removed here, so
+# the pod stayed unhealthy even once it scheduled. Kubernetes defines exactly
+# these three, so this list is complete rather than merely current.
+- op: remove
+  path: /spec/template/spec/containers/0/startupProbe
 - op: remove
   path: /spec/template/spec/containers/0/readinessProbe
 - op: remove
@@ -134,11 +147,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-- 00-namespace.yaml
-- 01-rbac.yaml
-- 11-configmap-env.yaml
-- 12-pvc.yaml
-- 20-console.yaml
+- base.yaml
 
 patches:
 - path: pvc-patch.yaml

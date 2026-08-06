@@ -16,6 +16,11 @@ resources:
 - 12-pvc.yaml
 - 15-storage.yaml
 - 20-console.yaml
+# Not optional, despite being a feature: 20-console.yaml mounts the
+# test-footage-data PVC this file declares, and Kubernetes has no optional PVC
+# volume — so the console pod does not schedule without it. Leaving it out is
+# what made the manifest smoke-test unable to pass (ISVD-596).
+- 30-test-footage.yaml
 
 labels:
 - pairs:
