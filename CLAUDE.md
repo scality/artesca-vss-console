@@ -132,10 +132,10 @@ Errors + tracing + masked session replay report to Sentry org **scality-3i**, pr
 
 ```bash
 node scripts/diagrams/dump-model.mjs > model.json
-node scripts/diagrams/build-console.mjs model.json ../../isv-presentations/diagrams/sheets/vss-console.excalidraw
+node scripts/diagrams/build-console.mjs model.json ../isv-presentations/diagrams/sheets/vss-console.excalidraw
 ```
 
-Draws the operator surface: the 22 pages by what kiosk mode does to each, the Firestore documents shared with the deployer, and what the 67 API routes reach. Everything on it is read from source at run time — pages from [`Nav.tsx`](src/components/Nav.tsx), kiosk state from [`lib/kiosk.ts`](src/lib/kiosk.ts), shared state from the `ConfigStore` contract, backend reach from a walk of each route's `@/lib` imports. The scene builder is shared with the other sheets and lives in `scality/isv-presentations` (clone it next to `isv-labs`); the generator stays here, because it can only read this repo's source from inside it.
+Draws the operator surface: the 22 pages by what kiosk mode does to each, the Firestore documents shared with the deployer, and what the 67 API routes reach. Everything on it is read from source at run time — pages from [`Nav.tsx`](src/components/Nav.tsx), kiosk state from [`lib/kiosk.ts`](src/lib/kiosk.ts), shared state from the `ConfigStore` contract, backend reach from a walk of each route's `@/lib` imports. The scene builder is shared with the other sheets and lives in `scality/isv-presentations` (clone it next to this repository); the generator stays here, because it can only read this repo's source from inside it.
 
 ⚠ **The import walk follows `await import()` as well as `from`.** The reconcile context is reached dynamically at all 16 of its call sites, so a static-only walk concludes that no route touches Firestore — which is exactly backwards, since that path is how cameras, prompt and scenarios are written.
 
