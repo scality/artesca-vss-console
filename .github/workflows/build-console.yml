@@ -7,12 +7,22 @@ name: build-console
 # Two tags on push to main:
 #   :latest
 #   :sha-<7-char short SHA>
+# The test sources and their configs are in the path list because this workflow
+# is what runs them: without them a test-only change never triggers the job that
+# would have checked it, and the suite's own state goes unverified until the next
+# src/ commit happens to carry it.
 on:
   push:
     branches:
       - main
     paths:
       - "src/**"
+      - "tests/**"
+      - "playwright.config.ts"
+      - "vitest.config.ts"
+      - "tsconfig.json"
+      - "eslint.config.mjs"
+      - "next.config.js"
       - "package.json"
       - "package-lock.json"
       - "Dockerfile"
@@ -20,6 +30,12 @@ on:
   pull_request:
     paths:
       - "src/**"
+      - "tests/**"
+      - "playwright.config.ts"
+      - "vitest.config.ts"
+      - "tsconfig.json"
+      - "eslint.config.mjs"
+      - "next.config.js"
       - "package.json"
       - "package-lock.json"
       - "Dockerfile"
