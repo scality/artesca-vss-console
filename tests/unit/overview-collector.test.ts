@@ -118,6 +118,12 @@ vi.mock("@/lib/s3", () => ({
   s3Endpoint: vi.fn(() => undefined),
   s3Region: vi.fn(() => "us-west-2"),
   isAwsNativeEndpoint: vi.fn(() => true),
+  // The collector formats every S3 warning through this. Omitting it does not
+  // fail the suite — the call throws, the fail-soft catch swallows it, and a
+  // warning still lands, so the degraded-path test below reaches its assertion
+  // through the missing export rather than through the error it means to
+  // simulate. The recognisable prefix is what lets that test tell the two apart.
+  describeS3Error: vi.fn((err: unknown) => `described:${String(err)}`),
 }));
 
 // cluster-refs imports "server-only" — the global setup already mocks that.
@@ -401,6 +407,14 @@ describe("collectOverviewSnapshot — degraded-snapshot contract (k8s mode)", ()
     expect(result).toBeDefined();
     const s3Warning = result.warnings.find((w) => w.toLowerCase().includes("s3"));
     expect(s3Warning).toBeDefined();
+
+    // Matching the formatted text, not just the letters "s3": the warning has
+    // to be the one the S3 branch writes, carrying the thrown error through
+    // describeS3Error. A warning produced by that formatting step itself
+    // failing also contains "s3", and is what this test used to accept.
+    expect(s3Warning).toContain("S3 stats failed:");
+    expect(s3Warning).toContain("described:");
+    expect(s3Warning).toContain("s3 boom");
 
     // S3 fields should fall back to degraded values.
     expect(result.snapshot.s3.objectCount).toBe(0);
