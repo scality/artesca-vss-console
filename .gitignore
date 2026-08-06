@@ -9,3 +9,6 @@ next-env.d.ts
 playwright-report/
 test-results/
 .console-data/
+# Monaco's AMD build, copied out of node_modules by scripts/copy-monaco.mjs.
+# Derived from the pinned monaco-editor dependency, not source.
+public/monaco/

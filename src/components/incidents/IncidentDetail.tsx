@@ -19,7 +19,7 @@ import type { Incident } from "@/lib/types";
 
 // Monaco is heavy — load it lazily so the incidents table renders fast
 const MonacoEditor = dynamic(
-  () => import("@monaco-editor/react").then((m) => m.default),
+  () => import("@/components/monaco").then((m) => m.MonacoEditor),
   { ssr: false, loading: () => <div className="h-48 animate-pulse rounded bg-muted" /> }
 );
 

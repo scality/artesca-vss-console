@@ -1,4 +1,7 @@
 node_modules
+# Regenerated inside the image by the `prebuild` hook, from the image's own
+# node_modules — so it matches package-lock rather than whatever the host had.
+public/monaco
 .next
 .next/dev
 .next/cache

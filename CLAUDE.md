@@ -99,13 +99,22 @@ On the docker path, `bootstrap-compose-console.sh` auto-restores cameras + promp
 
 Two producers, and they are not interchangeable. This repository's CI ([`.github/workflows/build-console.yml`](.github/workflows/build-console.yml)) publishes `ghcr.io/scality/artesca-vss-console:latest` + `:sha-<short>` on every push to `main` — that is the image a lab deploy pulls when the operator has no checkout. For the edit-and-redeploy loop, `isv-labs:scripts/build-console-image.sh` builds **this checkout** laptop-side with a Docker-compatible daemon (OrbStack, Docker Desktop) and sideloads the result onto the node; it picks the two apart by `CONSOLE_SOURCE_MODE`. Persistent buildx layer cache at `${TMPDIR:-/tmp}/nvidia-vss-console-buildx-cache` (outside the repo; bust with `rm -rf`, override with `BUILDX_CACHE_DIR`). Warm rebuilds drop from ~30s to under 10s when source is unchanged.
 
+**Monaco is served by the app, not by a CDN, and that costs a build step.** `@monaco-editor/react` fetches Monaco from `cdn.jsdelivr.net` unless told otherwise — and resolves whatever version the CDN currently serves, not the pinned one — so on a node without egress the editor never loads. [`scripts/copy-monaco.mjs`](scripts/copy-monaco.mjs) copies `monaco-editor/min/vs` into `public/monaco/vs` (gitignored, ~13 MB) from the `prebuild`, `predev` and `pretest:e2e` hooks; Playwright spawns `npx next dev` directly rather than through `npm run dev`, which is why `predev` alone is not enough. `postinstall` would cover all three and is deliberately unused — the Dockerfile installs with `--ignore-scripts`.
+
+Two rules follow, both silent when broken:
+
+- **Import the editors from [`src/components/monaco.ts`](src/components/monaco.ts), never from `@monaco-editor/react`.** A direct import gets the CDN back. [`tests/unit/monaco-single-entry.test.ts`](tests/unit/monaco-single-entry.test.ts) fails if one appears.
+- **`paths.vs` must be origin-qualified**, not the bare `/monaco/vs`. Monaco runs each language service in a worker created from a blob URL, which has no base for a relative path to resolve against. The editor still renders and still accepts typing either way — what disappears is JSON validation, formatting and hover on the two `language="json"` editors.
+
+[`tests/e2e/monaco.spec.ts`](tests/e2e/monaco.spec.ts) holds both ends of that: it aborts every request to the CDN, then asserts the editor renders *and* that a language worker answers. Neither failure is visible on a laptop, which has egress.
+
 The host-ctr import flow on Rocky 8 nodes is fragile (libdl.so.2-class glibc 2.28 mismatches with importer containers). Catch breakages locally with [`isv-labs:scripts/verify-ctr-compat.sh`](isv-labs:scripts/verify-ctr-compat.sh) — spins up (or reuses) a Rocky 8 amd64 VM `nvidia-vss-ctr-lab`, installs containerd, and reproduces the bind-mount flow with a tiny amd64 tarball. First provision ~35s; reruns ~6s. Override `IMPORTER_IMAGE=...`; `alpine:3.19` is a reliable failure canary.
 
 ## Smoke testing
 
 [`scripts/smoke-test-console.sh`](scripts/smoke-test-console.sh) applies [`k8s/`](k8s/) against OrbStack's built-in K8s (`context: orbstack`) with the image swapped to `nginxinc/nginx-unprivileged:alpine`, probes removed, PVC rebound to `local-path`, and dummy Secrets created in-script. It is the only script here, because it is the only one that tests **this repository's** own artifacts. It catches manifest-level bugs (missing ConfigMap/Secret refs, broken Service selectors, PVC stuck Pending, RBAC binding to non-existent ns, port-name collisions) in ~30s, against the ~10 min remote rebuild+scp+apply cycle. Idempotent, cleans up via `kubectl delete ns`.
 
-⚠ It does not currently pass, for a reason unrelated to any change you are making: the rendered stack mounts a `test-footage-data` PVC that `k8s/kustomization.yaml` never creates, because `30-test-footage.yaml` is not in its `resources` list. Tracked as ISVD-596.
+It exits 0 against OrbStack (verified 2026-08-06). A `test-footage-data` PVC that nothing creates is what used to make it unpassable, so `30-test-footage.yaml` is in `k8s/kustomization.yaml`'s `resources` list and has to stay there: `20-console.yaml` mounts that PVC, and Kubernetes has no optional PVC volume, so the pod does not schedule without it.
 
 Caveat: it does **not** test app behavior. End-to-end testing needs a real deploy.
 

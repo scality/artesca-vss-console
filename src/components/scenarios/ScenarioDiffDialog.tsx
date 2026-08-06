@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 
 const DiffEditor = dynamic(
-  () => import("@monaco-editor/react").then((m) => m.DiffEditor),
+  () => import("@/components/monaco").then((m) => m.DiffEditor),
   { ssr: false, loading: () => <div className="h-80 flex items-center justify-center text-muted-foreground text-sm">Loading editor...</div> }
 );
 

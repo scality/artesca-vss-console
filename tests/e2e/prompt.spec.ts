@@ -51,6 +51,50 @@ async function stubPromptApis(page: Page, overrides: Record<string, unknown> = {
   );
 }
 
+/** Monaco is served from the image, but it is still a large AMD tree fetched
+ *  and compiled on demand — more than the suite-wide 15 s allows for on a cold
+ *  `next dev`. */
+const MONACO_BUDGET_MS = 45_000;
+
+/**
+ * One of the two side-by-side editors, chosen by its visible pane label.
+ *
+ * The label is the only thing that distinguishes them: Monaco 0.52.2 marks
+ * neither the read-only container nor its textarea as read-only, so the two are
+ * identical in the DOM (verified, not assumed). `.monaco-editor.first()` is the
+ * read-only pane — which is why the original version of these tests could not
+ * have worked even with a local Monaco: it typed into the pane that ignores
+ * input.
+ */
+function promptPane(page: Page, label: "Current (read-only)" | "Proposed (editable)") {
+  return page
+    .getByText(label, { exact: true })
+    .locator("xpath=following-sibling::div")
+    .locator(".monaco-editor");
+}
+
+/** Waits for the editor's model to be rendered, not just its container. */
+async function renderedPane(page: Page, label: Parameters<typeof promptPane>[1]) {
+  const editor = promptPane(page, label);
+  await expect(editor).toBeVisible({ timeout: 20_000 });
+  await expect(editor.locator(".view-lines")).not.toBeEmpty();
+  return editor;
+}
+
+/**
+ * Types into the editable pane the way an operator does.
+ *
+ * Not `fill()`: Monaco derives its model from key and composition events, not
+ * from a textarea's value, so setting the value leaves the model — and the
+ * dirty state the Save button reads — untouched.
+ */
+async function replaceProposedText(page: Page, text: string) {
+  const editor = await renderedPane(page, "Proposed (editable)");
+  await editor.click();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type(text);
+}
+
 test.describe("prompt page — Phase 3 (read + editor)", () => {
   test("prompt page renders without crashing", async ({ page }) => {
     await stubPromptApis(page);
@@ -59,25 +103,19 @@ test.describe("prompt page — Phase 3 (read + editor)", () => {
     await expect(page.locator("body")).not.toContainText("Application error");
   });
 
-  // Blocked on ISVD-586: Monaco is loaded from cdn.jsdelivr.net at runtime, so
-  // this test depends on a public CDN inside a gating CI run, and
-  // locator("textarea") resolves to Monaco's hidden readonly ime-text-area,
-  // which fill() can never satisfy. Re-enable once Monaco is served from the
-  // image and the editor can be driven through its own input area.
-  test.fixme("current prompt text is visible in editor area", async ({ page }) => {
+  test("current prompt text is visible in editor area", async ({ page }) => {
+    test.setTimeout(MONACO_BUDGET_MS);
     await stubPromptApis(page);
     await page.goto("/prompt");
 
-    // The editor (Monaco or textarea) should contain the prompt text
-    const promptText = "retail security VLM";
-    // Try Monaco editor container or plain textarea
-    const monacoContainer = page.locator(".monaco-editor, .cm-editor, textarea");
-    await expect(monacoContainer.first()).toBeVisible({ timeout: 8_000 });
-
-    // The text may be in Monaco shadow DOM — check the whole page content
-    const content = await page.content();
-    expect(content).toContain(promptText);
+    const current = await renderedPane(page, "Current (read-only)");
+    // Monaco renders only the visible lines, and the prompt is line 1.
+    await expect(current.locator(".view-lines")).toContainText("retail security VLM");
   });
+
+  // That Monaco is served by the app rather than by cdn.jsdelivr.net, and that
+  // its language workers start, is asserted in tests/e2e/monaco.spec.ts — it is
+  // a fact about Monaco, not about this page.
 
   test("Save + Restart button is disabled when prompt is clean (no edits)", async ({ page }) => {
     await stubPromptApis(page);
@@ -105,79 +143,56 @@ test.describe("prompt page — Phase 3 (read + editor)", () => {
 });
 
 test.describe("prompt page — Phase 4 (write path)", () => {
-  // Blocked on ISVD-586: Monaco is loaded from cdn.jsdelivr.net at runtime, so
-  // this test depends on a public CDN inside a gating CI run, and
-  // locator("textarea") resolves to Monaco's hidden readonly ime-text-area,
-  // which fill() can never satisfy. Re-enable once Monaco is served from the
-  // image and the editor can be driven through its own input area.
-  test.fixme("edit prompt → Save + Restart button becomes enabled", async ({ page }) => {
+  test("edit prompt → Save + Restart button becomes enabled", async ({ page }) => {
+    test.setTimeout(MONACO_BUDGET_MS);
     await stubPromptApis(page);
     await page.goto("/prompt");
 
-    // Try to trigger a change in the editor (textarea fallback)
-    const textarea = page.locator("textarea").first();
-    if (await textarea.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await textarea.fill("Modified prompt content for testing purposes.");
-      const saveBtn = page.locator("button", { hasText: /save\s*\+\s*restart/i });
-      if (await saveBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-        await expect(saveBtn).toBeEnabled();
-      }
-    }
+    const saveBtn = page.locator("button", { hasText: /save\s*\+\s*restart/i });
+    await expect(saveBtn).toBeDisabled();
+
+    await replaceProposedText(page, "Modified prompt content for testing purposes.");
+
+    await expect(saveBtn).toBeEnabled();
   });
 
-  // Blocked on ISVD-586: Monaco is loaded from cdn.jsdelivr.net at runtime, so
-  // this test depends on a public CDN inside a gating CI run, and
-  // locator("textarea") resolves to Monaco's hidden readonly ime-text-area,
-  // which fill() can never satisfy. Re-enable once Monaco is served from the
-  // image and the editor can be driven through its own input area.
-  test.fixme("save → PATCH called → confirm dialog with restart warning appears", async ({ page }) => {
+  test("save → PATCH called → confirm dialog with restart warning appears", async ({ page }) => {
+    test.setTimeout(MONACO_BUDGET_MS);
     let patchCalled = false;
-    await stubAuth(page);
+    await stubPromptApis(page);
+    // Registered after, so it wins; GET falls back to the stub above rather
+    // than being restated here, and /api/models stays stubbed too — the page
+    // has to render before the editor can be typed into.
     await page.route("/api/prompt", async (route) => {
-      if (route.request().method() === "PATCH") {
-        patchCalled = true;
-        return route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      }
+      if (route.request().method() !== "PATCH") return route.fallback();
+      patchCalled = true;
       return route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          prompt: "You are a retail security VLM.",
-          model: "cosmos-reason2-8b",
-        }),
+        body: JSON.stringify({ ok: true }),
       });
     });
 
     await page.goto("/prompt");
 
-    // Attempt edit via textarea (Monaco may not be interactive without the full build)
-    const textarea = page.locator("textarea").first();
-    if (await textarea.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await textarea.fill("Edited: You are a retail security VLM. Detect theft.");
+    await replaceProposedText(page, "Edited: You are a retail security VLM. Detect theft.");
 
-      const saveBtn = page.locator("button", { hasText: /save\s*\+\s*restart/i });
-      if (await saveBtn.isEnabled({ timeout: 3_000 }).catch(() => false)) {
-        await saveBtn.click();
+    const saveBtn = page.locator("button", { hasText: /save\s*\+\s*restart/i });
+    await expect(saveBtn).toBeEnabled();
+    await saveBtn.click();
 
-        // Confirm dialog should appear with restart warning
-        const dialog = page.locator('[role="dialog"]');
-        await expect(dialog).toBeVisible({ timeout: 5_000 });
-        await expect(dialog).toContainText(/restart|rtvi-vlm/i);
+    // Saving restarts the VLM worker, so it is behind a confirmation that has
+    // to say so.
+    const dialog = page.locator('[role="dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+    await expect(dialog).toContainText(/restart|rtvi-vlm/i);
 
-        // Click confirm
-        const confirmBtn = dialog.locator("button", { hasText: /save\s*\+\s*restart|confirm/i });
-        if (await confirmBtn.isEnabled({ timeout: 2_000 }).catch(() => false)) {
-          await confirmBtn.click();
-          // PATCH should have been called
-          await page.waitForTimeout(1_000);
-          expect(patchCalled).toBe(true);
-        }
-      }
-    }
+    const confirmBtn = dialog.locator("button", {
+      hasText: /save\s*\+\s*restart|confirm/i,
+    });
+    await confirmBtn.click();
+
+    await expect.poll(() => patchCalled, { timeout: 5_000 }).toBe(true);
   });
 
   test.fixme(

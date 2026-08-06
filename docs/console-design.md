@@ -126,7 +126,7 @@ not to Vercel).
 | `ssh2` or `node-ssh` | — | Writes to `/opt/camera-sim/cameras.yaml` + `mediamtx.yml` + `systemctl restart` on the camera-sim instance |
 | `@aws-sdk/client-s3` | — | Count `nvidia-vss-video` objects, compute growth rate |
 | `@xyflow/react` (React Flow) | Recharts alone | Interactive topology graph with live status on each node |
-| `@monaco-editor/react` | Textareas | VLM prompt editor with YAML/Markdown syntax highlight + diff view |
+| `@monaco-editor/react` + `monaco-editor` | Textareas | VLM prompt editor with YAML/Markdown syntax highlight + diff view. Monaco is served out of the image (`public/monaco/vs`), not from `cdn.jsdelivr.net` — the showroom node's egress is not guaranteed and prompt editing is a core demo action |
 | `eventsource-parser` + Next.js Route Handlers streaming | WebSockets | Server-Sent Events for logs + Kafka stream — simpler than WS, one-way, plays nicely with Next.js Route Handlers |
 | `next-auth@5` credentials provider | Clerk | One shared password from a K8s `Secret`; internal tool on a SG-whitelisted network |
 

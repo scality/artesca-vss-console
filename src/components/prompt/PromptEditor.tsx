@@ -6,12 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Columns2, FileText } from "lucide-react";
 
 const MonacoEditor = dynamic(
-  () => import("@monaco-editor/react").then((m) => m.default),
+  () => import("@/components/monaco").then((m) => m.MonacoEditor),
   { ssr: false, loading: () => <EditorSkeleton /> }
 );
 
 const DiffEditor = dynamic(
-  () => import("@monaco-editor/react").then((m) => m.DiffEditor),
+  () => import("@/components/monaco").then((m) => m.DiffEditor),
   { ssr: false, loading: () => <EditorSkeleton /> }
 );
 
