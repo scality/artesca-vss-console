@@ -48,32 +48,26 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        working-directory: console
         run: npm ci
 
       - name: Lint
-        working-directory: console
         run: npm run lint
 
       - name: Unit tests (vitest CI mode)
-        working-directory: console
         run: npm run test -- --run
 
       # `next build` with output: "standalone" also performs tsc type-checking.
       # A non-zero exit here catches TS errors before the Docker build.
       - name: Build (type-check + Next.js build)
-        working-directory: console
         run: npm run build
 
       # playwright.config.ts webServer boots `npm run start` in CI (port :8800)
       # using the .next output from the preceding build step — no separate server
       # start needed.
       - name: Install Playwright browsers
-        working-directory: console
         run: npx playwright install --with-deps chromium
 
       - name: Playwright E2E
-        working-directory: console
         run: npm run test:e2e
         env:
           CI: "1"
