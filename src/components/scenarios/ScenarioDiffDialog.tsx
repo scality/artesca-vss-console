@@ -50,7 +50,13 @@ export function ScenarioDiffDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 min-h-0 h-96 rounded border border-border overflow-hidden">
+        {/* A definite height, and not a flex-grown one. `flex-1` sets
+            flex-basis: 0%, which takes precedence over `height` for a flex
+            item's main size, and DialogContent is a content-sized column
+            (max-h only, no definite height) so there is no free space to grow
+            into — the editor resolved to 844x0 and the dialog showed an empty
+            box. Same shape as PromptEditor's container, which works. */}
+        <div className="h-96 rounded border border-border overflow-hidden">
           <DiffEditor
             original={originalStr}
             modified={modifiedStr}

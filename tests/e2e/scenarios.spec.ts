@@ -170,6 +170,41 @@ test.describe("scenarios page — Phase 4", () => {
     ).toHaveValue("Shoplifting Detection", { timeout: 8_000 });
   });
 
+  // The Review Changes dialog is the last thing an operator sees before writing
+  // scenarios to the cluster, and its diff was rendering 844x0 — the dialog
+  // opened with an empty box where the diff should be. Nothing asserted the
+  // editor was *visible*, only that Monaco mounted, so it shipped that way.
+  //
+  // Height is asserted rather than visibility alone: `toBeVisible()` is what
+  // caught this, but a 1px-tall editor would satisfy a laxer check while being
+  // just as useless to read a diff in.
+  test("Save opens a Review Changes dialog with a readable diff", async ({ page }) => {
+    test.setTimeout(45_000);
+    await stubScenariosApis(page);
+    await page.goto("/scenarios");
+
+    const names = page.getByRole("textbox", { name: "Scenario name" });
+    await expect(names.first()).toHaveValue("Shoplifting Detection", { timeout: 8_000 });
+
+    // Save is gated on a dirty edit, so make one first.
+    await names.first().fill("Shoplifting Detection EDITED");
+    const save = page.getByRole("button", { name: /^save$/i });
+    await expect(save).toBeEnabled({ timeout: 5_000 });
+    await save.click();
+
+    await expect(page.getByRole("dialog")).toContainText("Review Changes");
+
+    const diff = page.locator(".monaco-diff-editor");
+    await expect(diff).toBeVisible({ timeout: 20_000 });
+
+    const box = await diff.boundingBox();
+    expect(box, "the diff editor has no box at all").not.toBeNull();
+    expect(box!.height, `diff editor is ${box!.height}px tall`).toBeGreaterThan(200);
+
+    // The edit is what an operator opened the dialog to check.
+    await expect(diff.locator(".view-lines").first()).toContainText("Shoplifting");
+  });
+
   test.fixme(
     "edit in UI → kubectl get configmap shows the change → alert worker picks it up",
     async () => {
