@@ -97,27 +97,28 @@ On the docker path, `bootstrap-compose-console.sh` auto-restores cameras + promp
 
 ## Build pipeline
 
-Image build happens **laptop-side** ([`scripts/build-console-image.sh`](scripts/build-console-image.sh)) using a Docker-compatible daemon (OrbStack on this laptop; Docker Desktop also supported). Persistent buildx layer cache at `${TMPDIR:-/tmp}/nvidia-vss-console-buildx-cache` (outside the repo; bust with `rm -rf`). Override via `BUILDX_CACHE_DIR`. Warm rebuilds drop from ~30s to under 10s when source is unchanged.
+Two producers, and they are not interchangeable. This repository's CI ([`.github/workflows/build-console.yml`](.github/workflows/build-console.yml)) publishes `ghcr.io/scality/artesca-vss-console:latest` + `:sha-<short>` on every push to `main` — that is the image a lab deploy pulls when the operator has no checkout. For the edit-and-redeploy loop, `isv-labs:scripts/build-console-image.sh` builds **this checkout** laptop-side with a Docker-compatible daemon (OrbStack, Docker Desktop) and sideloads the result onto the node; it picks the two apart by `CONSOLE_SOURCE_MODE`. Persistent buildx layer cache at `${TMPDIR:-/tmp}/nvidia-vss-console-buildx-cache` (outside the repo; bust with `rm -rf`, override with `BUILDX_CACHE_DIR`). Warm rebuilds drop from ~30s to under 10s when source is unchanged.
 
 The host-ctr import flow on Rocky 8 nodes is fragile (libdl.so.2-class glibc 2.28 mismatches with importer containers). Catch breakages locally with [`isv-labs:scripts/verify-ctr-compat.sh`](isv-labs:scripts/verify-ctr-compat.sh) — spins up (or reuses) a Rocky 8 amd64 VM `nvidia-vss-ctr-lab`, installs containerd, and reproduces the bind-mount flow with a tiny amd64 tarball. First provision ~35s; reruns ~6s. Override `IMPORTER_IMAGE=...`; `alpine:3.19` is a reliable failure canary.
 
 ## Smoke testing
 
-[`scripts/smoke-test-console.sh`](scripts/smoke-test-console.sh) applies [`k8s/console/`](k8s/) against OrbStack's built-in K8s (`context: orbstack`) with the image swapped to `nginxinc/nginx-unprivileged:alpine`, probes removed, PVC rebound to `local-path`, and dummy Secrets created in-script. Catches **manifest-level** bugs (missing ConfigMap/Secret refs, broken Service selectors, PVC stuck Pending, RBAC binding to non-existent ns, port-name collisions) in ~30s — vs the ~10 min remote rebuild+scp+apply cycle. Idempotent, cleans up via `kubectl delete ns`.
+[`scripts/smoke-test-console.sh`](scripts/smoke-test-console.sh) applies [`k8s/`](k8s/) against OrbStack's built-in K8s (`context: orbstack`) with the image swapped to `nginxinc/nginx-unprivileged:alpine`, probes removed, PVC rebound to `local-path`, and dummy Secrets created in-script. It is the only script here, because it is the only one that tests **this repository's** own artifacts. It catches manifest-level bugs (missing ConfigMap/Secret refs, broken Service selectors, PVC stuck Pending, RBAC binding to non-existent ns, port-name collisions) in ~30s, against the ~10 min remote rebuild+scp+apply cycle. Idempotent, cleans up via `kubectl delete ns`.
 
-Caveat: this smoke test does **not** test app behavior. End-to-end testing still needs `deploy-console.sh` against the EC2 cluster.
+⚠ It does not currently pass, for a reason unrelated to any change you are making: the rendered stack mounts a `test-footage-data` PVC that `k8s/kustomization.yaml` never creates, because `30-test-footage.yaml` is not in its `resources` list. Tracked as ISVD-596.
+
+Caveat: it does **not** test app behavior. End-to-end testing needs a real deploy.
 
 ## Deploy + validate
 
-```bash
-# Build laptop-side, scp, host-ctr import on the node, kubectl apply.
-scripts/deploy-console.sh
+Both live in **isv-labs**, because both are coupled to a lab instance — they resolve its directory, SSH to its node, and read its state:
 
-# Smoke-validate: pod Ready + /api/health/self returns 200.
-scripts/validate-console.sh
+```bash
+isv-labs:scripts/deploy-console.sh   --instance <name>   # build or pull, sideload, kubectl apply
+isv-labs:scripts/validate-console.sh --instance <name>   # pod Ready + /api/health/self + recording canary
 ```
 
-The flow is idempotent — reruns re-apply the manifests and pick up image-tag changes.
+The flow is idempotent — reruns re-apply the manifests and pick up image-tag changes. Nothing in this repository deploys itself; copies of those scripts lived here until ISVD-564 and none of them ran, because they source libraries only isv-labs has.
 
 ## Observability (Sentry)
 
@@ -125,7 +126,7 @@ Errors + tracing + masked session replay report to Sentry org **scality-3i**, pr
 
 - **Init files**: [`src/instrumentation-client.ts`](src/instrumentation-client.ts) (browser), [`sentry.server.config.ts`](sentry.server.config.ts) (Node), [`sentry.edge.config.ts`](sentry.edge.config.ts) (edge) — loaded from [`src/instrumentation.ts`](src/instrumentation.ts) ahead of the reconcile loop / background watchers; `onRequestError` captures unhandled route errors; [`src/app/global-error.tsx`](src/app/global-error.tsx) catches root-layout React errors. [`next.config.js`](next.config.js) is wrapped with `withSentryConfig` (browser events tunnel through `/monitoring`). DSN is a hardcoded fallback (`CONSOLE_SENTRY_DSN`, project id `4511738391494736`; ingest-only identifier, not a secret) so every pod reports without env plumbing; `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` (via the `console-env` ConfigMap) override.
 - **Hardened on purpose — do not re-enable when adding signals**: no `enableLogs`, no `includeLocalVariables`, replay masking pinned (`maskAllText`/`maskAllInputs`/`blockAllMedia`, `networkDetailAllowUrls: []`). The console holds lab secrets (objectstore/S3 keys, camera-sim SSH PEM, Firestore SA key) in server locals, logs cluster command lines, and renders credentials as text (Grafana password, Secrets page).
-- **Source maps + releases**: uploaded **inside the image's `next build`** — [`Dockerfile`](Dockerfile) takes `SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_RELEASE` build args + `SENTRY_AUTH_TOKEN` as a BuildKit secret. Both build drivers ([`scripts/build-console-image.sh`](scripts/build-console-image.sh) laptop-sideload — the path that reaches Pyramid — and [`.github/workflows/build-console.yml`](.github/workflows/build-console.yml) CI GHCR) pull `isv-labs-sentry-build-env` from Secret Manager, fail-soft. `SENTRY_PROJECT` is fixed to `scality-vss-console-ui` (the shared secret's value is the deployer's).
+- **Source maps + releases**: uploaded **inside the image's `next build`** — [`Dockerfile`](Dockerfile) takes `SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_RELEASE` build args + `SENTRY_AUTH_TOKEN` as a BuildKit secret. Both build drivers (`isv-labs:scripts/build-console-image.sh` laptop-sideload — the path that reaches Pyramid — and [`.github/workflows/build-console.yml`](.github/workflows/build-console.yml) CI GHCR) pull `isv-labs-sentry-build-env` from Secret Manager, fail-soft. `SENTRY_PROJECT` is fixed to `scality-vss-console-ui` (the shared secret's value is the deployer's).
 - **Verify**: `GET /api/sentry-verify` throws deliberately — `kubectl -n console exec deploy/console -- curl -s http://localhost:8800/api/sentry-verify`, then check the issue shows frames at `src/app/api/sentry-verify/route.ts`.
 
 ## Architecture sheets (ISV-ARCH-05, ISV-ARCH-06)

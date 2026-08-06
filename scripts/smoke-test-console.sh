@@ -22,7 +22,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONSOLE_DIR="$REPO_ROOT/k8s/console"
+CONSOLE_DIR="$REPO_ROOT/k8s"
 CONTEXT="orbstack"
 NS="console"
 

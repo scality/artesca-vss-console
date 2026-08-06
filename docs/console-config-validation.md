@@ -2,7 +2,8 @@
 
 Post-deploy checklist for validating the VSS Demo Console with Firestore-backed
 runtime config, prompt-sets, and the VLM `Recreate` strategy fix.
-Assumes `scripts/deploy-console.sh` has completed.
+Assumes `isv-labs:scripts/deploy-console.sh` has completed. The deploy and
+validate scripts live in isv-labs, which owns the lab instance they act on.
 
 ---
 
@@ -69,11 +70,11 @@ If `gcloud` auth is stale, the script exits with an explicit error.
 > do not.
 
 ```bash
-# 1a. Build image laptop-side, scp to node, apply k8s/console manifests
-scripts/deploy-console.sh --instance <instance-name>
+# 1a. Build or pull the image, sideload to the node, apply the k8s/ manifests
+isv-labs:scripts/deploy-console.sh --instance <instance-name>
 
 # 1b. Apply k8s/reconcile-agent manifests (reuses the image built above)
-scripts/reconcile-agent-deploy.sh --instance <instance-name>
+isv-labs:scripts/reconcile-agent-deploy.sh --instance <instance-name>
 ```
 
 Verify both pods are Ready:
@@ -244,7 +245,7 @@ kubectl -n pyramid-ingress get cm scenarios -o yaml | grep -A5 'scenarios.yaml'
 For a quick pod-Ready + HTTP health gate (does not cover Firestore or convergence):
 
 ```bash
-scripts/validate-console.sh
+isv-labs:scripts/validate-console.sh --instance <instance-name>
 # Checks: deployment console readyReplicas≥1, pvc console-data Bound,
 #         serviceaccount console-sa, GET /api/health/self → {"status":"ok"}
 ```

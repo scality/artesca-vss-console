@@ -3,7 +3,7 @@
 # MetalK8s ships no default StorageClass and all built-in ones use
 # kubernetes.io/no-provisioner (static binding). Mirror the rtvi/vst
 # pattern: a per-workload SC + PV bound to a known host directory. Host
-# path is created by scripts/deploy-console.sh via salt-call before apply.
+# path is created by isv-labs' scripts/deploy-console.sh via salt-call before apply.
 # PV survives stop/start but not a full teardown + relaunch.
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -28,7 +28,7 @@ spec:
   local:
     path: /srv/scality/console-data
   # nodeAffinity is substituted to the live node hostname by
-  # scripts/deploy-console.sh (same trick as rtvi's 19-storage.yaml).
+  # isv-labs' scripts/deploy-console.sh (same trick as rtvi's 19-storage.yaml).
   nodeAffinity:
     required:
       nodeSelectorTerms:

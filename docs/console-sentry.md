@@ -35,11 +35,11 @@ The console holds lab secrets (objectstore/S3 keys, the camera-sim SSH PEM, the 
 
 ## Source maps + releases (image builds)
 
-Unlike the deployer (built directly on the VM), the console ships as a Docker image, so source-map upload runs **inside the image's `next build`**. The [`console/Dockerfile`](../console/Dockerfile) builder stage takes `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_RELEASE` as build args and `SENTRY_AUTH_TOKEN` as a BuildKit secret (`--mount=type=secret,id=sentry_auth_token` — never baked into a layer); `withSentryConfig` uploads the artifact bundle when the token is present.
+Unlike the deployer (built directly on the VM), the console ships as a Docker image, so source-map upload runs **inside the image's `next build`**. The [`Dockerfile`](../Dockerfile) builder stage takes `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_RELEASE` as build args and `SENTRY_AUTH_TOKEN` as a BuildKit secret (`--mount=type=secret,id=sentry_auth_token` — never baked into a layer); `withSentryConfig` uploads the artifact bundle when the token is present.
 
 Two build drivers feed those in, both fail-soft (missing secret → build proceeds, upload skipped):
 
-1. **Laptop sideload** ([`scripts/build-console-image.sh`](../scripts/build-console-image.sh)) — the path that reaches the **Pyramid bare-metal** node (it runs a locally-built `console.local:<hash>` image, not GHCR). Pulls `isv-labs-sentry-build-env` from Secret Manager, sets `SENTRY_RELEASE` to the image tag hash, passes `--build-arg` + `--secret` to `docker buildx build`.
+1. **Laptop sideload** (`isv-labs:scripts/build-console-image.sh`) — the path that reaches the **Pyramid bare-metal** node (it runs a locally-built `console.local:<hash>` image, not GHCR). Pulls `isv-labs-sentry-build-env` from Secret Manager, sets `SENTRY_RELEASE` to the image tag hash, passes `--build-arg` + `--secret` to `docker buildx build`. Only reachable in `CONSOLE_SOURCE_MODE=source`, i.e. with a checkout of this repository beside isv-labs; in `pull` mode the node runs the CI image below.
 2. **CI GHCR build** ([`.github/workflows/build-console.yml`](../.github/workflows/build-console.yml)) — authenticates to GCP via WIF (fail-soft), fetches the same secret, and passes `build-args` + `secrets` to `docker/build-push-action`. `SENTRY_RELEASE` = the pushed short SHA (matches the image tag).
 
 `SENTRY_PROJECT` is hardcoded to `scality-vss-console-ui` in both drivers (the shared secret's `SENTRY_PROJECT=isv-deployer` is the deployer's); only the org + auth token are reused.
@@ -50,8 +50,8 @@ Pyramid runs a sideloaded image with no Sentry env today. To turn it on:
 
 ```bash
 # 1. Rebuild + sideload the console image (source maps upload if the secret is present)
-scripts/build-console-image.sh
-scripts/deploy-console.sh          # applies manifests + rolls the pod
+#    Both live in isv-labs; deploy-console.sh calls the builder itself.
+isv-labs:scripts/deploy-console.sh --instance pyramid-showroom
 
 # 2. (optional) point at a specific DSN without a rebuild — DSN is not a secret
 kubectl -n console patch cm console-env --type merge \

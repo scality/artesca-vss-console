@@ -9,7 +9,7 @@ test plan.
 ## Context
 
 The isv-labs repo just switched its **K8s default deploy path** from
-hand-authored manifests under `k8s/nvidia-vss/{vst,rtvi,agent,alerts}/` to
+hand-authored manifests under `isv-labs:k8s/nvidia-vss/{vst,rtvi,agent,alerts}/` to
 the upstream NVIDIA VSS **Helm chart** (chart `26.04.2` on the `develop`
 branch, EA early June 2026 with COMPUTEX / GTC Taipei). The chart lives
 upstream at:
@@ -26,14 +26,13 @@ The new bootstrap is `scripts/stacks/nvidia-vss/bootstrap-helm-deploy.sh`,
 which runs `helm upgrade --install vss-<profile>` into namespace
 `vss-<profile>` (one of `vss-base`, `vss-alerts`, `vss-lvs`, `vss-search`).
 
-The old manifest tree moved under `k8s/nvidia-vss/_legacy/` and the four
-old bootstraps under `scripts/stacks/nvidia-vss/_legacy/`. They are kept
-only for historical reference — the active K8s path is Helm.
+The hand-authored manifest tree and the four bootstraps that went with it no
+longer exist in isv-labs. The active K8s path is Helm.
 
-**Your job**: migrate the in-cluster operator console (`console/`) to
+**Your job**: migrate the in-cluster operator console (this repository) to
 work against the new namespace + service-name layout. The console
 currently hardcodes the legacy layout in
-`console/src/lib/cluster-refs.ts` and several API routes.
+`src/lib/cluster-refs.ts` and several API routes.
 
 ## What changes upstream → ours
 
@@ -94,7 +93,7 @@ otherwise NodePort).
    ```
    Use `/tmp/vss-resources.txt` as ground truth for the service-name map.
 
-2. **Refactor `console/src/lib/cluster-refs.ts`** so it reads
+2. **Refactor `src/lib/cluster-refs.ts`** so it reads
    `process.env.VSS_NAMESPACE` (default `vss-base`) and templates every
    service URL through it. Today the file hardcodes `redis.vst`,
    `sensor-ms.vst`, `redpanda.rtvi`, `alert-worker.alerts`, etc. Switch
@@ -107,24 +106,24 @@ otherwise NodePort).
    Update every service-name to the upstream chart name (vss-vios-sensor,
    vss-rtvi-vlm, vss-agent, …) per the map above.
 
-3. **Update `console/src/app/api/topology/route.ts`** — the topology graph
+3. **Update `src/app/api/topology/route.ts`** — the topology graph
    has hardcoded `deploymentName` strings (rtvi-vlm, nim-cosmos-reason2,
    nvidia-vss-agent, …) that match the legacy layout. Re-author the
    nodes + edges against the rendered chart names. The file is the
    single biggest piece — expect to rewrite ~50 % of it.
 
-4. **Update `console/src/app/api/secrets/[key]/route.ts`** —
+4. **Update `src/app/api/secrets/[key]/route.ts`** —
    `objectstore-creds` still exists (we generate it at install time;
    bootstrap-helm-deploy.sh applies it) but lives in `vss-<profile>`
    not `vst`/`rtvi`/`agent`/`alerts` — every namespace fan-out goes
    away, replaced by a single namespace lookup.
 
-5. **Update `console/src/components/settings/RbacInspector.tsx`** — the
+5. **Update `src/components/settings/RbacInspector.tsx`** — the
    namespace list it inspects shrinks from 4 (vst/rtvi/agent/alerts) to
    1 (vss-<profile>) plus the side-cars (observability, pyramid-ingress,
    demo-data) that stay unchanged.
 
-6. **Update `console/src/lib/helpers/prompt-apply.ts` + `tuning/rtvi`
+6. **Update `src/lib/helpers/prompt-apply.ts` + `tuning/rtvi`
    route + `prompt` route** — these patch ConfigMaps and restart
    Deployments by name. Both name and namespace change. Today:
    ```
@@ -138,10 +137,10 @@ otherwise NodePort).
    ```
    Verify the rendered ConfigMap names against `/tmp/vss-resources.txt`.
 
-7. **Update `console/src/instrumentation.ts`** — the caption-bridge
+7. **Update `src/instrumentation.ts`** — the caption-bridge
    poller hits `rtvi-vlm`. Same rename as #6.
 
-8. **Update `console/src/app/chat/page.tsx`** and `/about/page.tsx` and
+8. **Update `src/app/chat/page.tsx`** and `/about/page.tsx` and
    `/prompt/page.tsx` and `/diagnostics/page.tsx` — UI strings reference
    the legacy names (`docker compose logs nvidia-vss-agent`,
    `rtvi-vlm liveness`, etc.). Rename to the chart's service names.
@@ -151,25 +150,25 @@ otherwise NodePort).
    pre-Helm instances (`vss-artesca-int-3` is the only one — useful
    while it's still alive). Default off.
 
-10. **Update `k8s/console/11-configmap-env.yaml`** — add `VSS_NAMESPACE`
+10. **Update `k8s/11-configmap-env.yaml`** — add `VSS_NAMESPACE`
     + every per-service URL override the chart needs. Document each
-    knob in `console/src/lib/cluster-refs.ts` next to its `process.env`
+    knob in `src/lib/cluster-refs.ts` next to its `process.env`
     read.
 
-11. **Update Console deploy-time config** — `scripts/deploy-console.sh`
+11. **Update Console deploy-time config** — `isv-labs:scripts/deploy-console.sh`
     ships the ConfigMap; make sure it picks up the helm chart's
     namespace. Probably needs to read `SCALITY_BP_PROFILE` from the
     instance's `.env.local` and set `VSS_NAMESPACE=vss-<profile>` in
     the rendered ConfigMap.
 
-12. **Tests** — `console/tests/unit/` — anywhere that hardcodes legacy
-    service names needs updating. Run `npm test` from `console/` to
+12. **Tests** — `tests/unit/` — anywhere that hardcodes legacy
+    service names needs updating. Run `npm test` from the repository root to
     catch them.
 
-13. **Type safety** — `npm run typecheck` from `console/`.
+13. **Type safety** — `npm run typecheck` from the repository root.
 
 14. **Smoke test** — ideally end-to-end against a fresh helm install,
-    but barring that: `npm run dev` from `console/`, set
+    but barring that: `npm run dev` from the repository root, set
     `VSS_NAMESPACE=vss-alerts` in `.env.local`, point a manual
     `kubectl port-forward` at the rendered services, exercise the
     Cameras / Prompt / Tuning / Diagnostics pages.
@@ -177,29 +176,29 @@ otherwise NodePort).
 ## Files to touch (audit pass — confirm exhaustively before editing)
 
 ```
-console/src/lib/cluster-refs.ts              # service URLs + namespace constants
-console/src/app/api/topology/route.ts        # deployment+ns hardcodes (biggest file)
-console/src/app/api/secrets/[key]/route.ts   # namespace fan-out → single ns
-console/src/app/api/prompt/route.ts          # ConfigMap + Deployment patch names
-console/src/app/api/tuning/rtvi/route.ts     # rtvi-vlm Deployment patch
-console/src/app/api/clips/[sensor]/[ts]/route.ts  # sensor-ms URL
-console/src/app/api/clips/preload/route.ts        # sensor-ms URL
-console/src/components/settings/RbacInspector.tsx # namespace list
-console/src/lib/helpers/prompt-apply.ts      # patch helpers
-console/src/instrumentation.ts               # caption-bridge service ref
-console/src/app/chat/page.tsx                # UI strings (nvidia-vss-agent, cosmos-reason)
-console/src/app/about/page.tsx               # service URL string
-console/src/app/prompt/page.tsx              # rtvi-vlm references
-console/src/app/diagnostics/page.tsx         # rtvi-vlm references
-console/tests/unit/*                         # any legacy service-name pins
-k8s/console/11-configmap-env.yaml            # VSS_NAMESPACE + per-service URL knobs
-scripts/deploy-console.sh                    # render the right namespace into the configmap
+src/lib/cluster-refs.ts              # service URLs + namespace constants
+src/app/api/topology/route.ts        # deployment+ns hardcodes (biggest file)
+src/app/api/secrets/[key]/route.ts   # namespace fan-out → single ns
+src/app/api/prompt/route.ts          # ConfigMap + Deployment patch names
+src/app/api/tuning/rtvi/route.ts     # rtvi-vlm Deployment patch
+src/app/api/clips/[sensor]/[ts]/route.ts  # sensor-ms URL
+src/app/api/clips/preload/route.ts        # sensor-ms URL
+src/components/settings/RbacInspector.tsx # namespace list
+src/lib/helpers/prompt-apply.ts      # patch helpers
+src/instrumentation.ts               # caption-bridge service ref
+src/app/chat/page.tsx                # UI strings (nvidia-vss-agent, cosmos-reason)
+src/app/about/page.tsx               # service URL string
+src/app/prompt/page.tsx              # rtvi-vlm references
+src/app/diagnostics/page.tsx         # rtvi-vlm references
+tests/unit/*                         # any legacy service-name pins
+k8s/11-configmap-env.yaml            # VSS_NAMESPACE + per-service URL knobs
+isv-labs:scripts/deploy-console.sh           # render the right namespace into the configmap
 ```
 
 Run this command from the repo root for a final stale-reference sweep:
 
 ```bash
-grep -rn "vst\.svc\|rtvi\.svc\|alerts\.svc\|nvidia-vss-single-gpu\|sensor-ms\b\|streamprocessing-ms\b\|nim-cosmos-reason\|nvidia-vss-agent\|alert-worker\b" console/ k8s/console/ scripts/deploy-console.sh
+grep -rn "vst\.svc\|rtvi\.svc\|alerts\.svc\|nvidia-vss-single-gpu\|sensor-ms\b\|streamprocessing-ms\b\|nim-cosmos-reason\|nvidia-vss-agent\|alert-worker\b" src/ k8s/ ../isv-labs/scripts/deploy-console.sh
 ```
 
 The output is your remaining migration backlog.
@@ -208,10 +207,10 @@ The output is your remaining migration backlog.
 
 - `cd console && npm run typecheck` clean.
 - `cd console && npm test` green.
-- `console/src/lib/cluster-refs.ts` reads `process.env.VSS_NAMESPACE` —
+- `src/lib/cluster-refs.ts` reads `process.env.VSS_NAMESPACE` —
   no `vst`/`rtvi`/`alerts` strings anywhere except behind the
   `CONSOLE_LEGACY_NAMESPACES` flag.
-- `scripts/deploy-console.sh` renders `VSS_NAMESPACE=vss-<profile>` into
+- `isv-labs:scripts/deploy-console.sh` renders `VSS_NAMESPACE=vss-<profile>` into
   the deployed ConfigMap based on the per-instance `SCALITY_BP_PROFILE`.
 - A manual `kubectl port-forward svc/console-ui 3000` against a real
   `helm install vss-alerts` cluster shows: cameras list, prompt editor,
@@ -232,7 +231,7 @@ helm upgrade --install "vss-${SCALITY_BP_PROFILE}" \
   -f /tmp/inline-values.yaml
 ```
 
-The post-install Job in `k8s/nvidia-vss-helm-overlay/` patches
+The post-install Job in `isv-labs:k8s/nvidia-vss-helm-overlay/` patches
 `vst_config.json` to set `enable_cloud_storage: true` + the
 `cloud_storage_*` fields (upstream only templates `cloud_storage_endpoint`).
 The console reads recordings from S3 via that — the patch must succeed
@@ -260,12 +259,12 @@ profiles, the same UI is wrong on three of them:
 | `search` | search UI prominent (TBD) | live cameras |
 
 Read `SCALITY_BP_PROFILE` from the deploy-time ConfigMap (already injected
-by `scripts/deploy-console.sh`). Gate top-nav entries + landing-page
+by `isv-labs:scripts/deploy-console.sh`). Gate top-nav entries + landing-page
 defaults accordingly. Specific changes:
 
-- `console/src/app/layout.tsx` — top-nav array becomes a function of profile.
-- `console/src/app/page.tsx` — landing page redirects to profile-appropriate default (chat for base, incidents for alerts, library for lvs, search for search).
-- `console/src/app/incidents/*` — render an "alerts profile required" empty state when `profile !== "alerts"`.
+- `src/app/layout.tsx` — top-nav array becomes a function of profile.
+- `src/app/page.tsx` — landing page redirects to profile-appropriate default (chat for base, incidents for alerts, library for lvs, search for search).
+- `src/app/incidents/*` — render an "alerts profile required" empty state when `profile !== "alerts"`.
 
 ## 2.2 NIM Operator CRDs in Diagnostics
 
@@ -287,18 +286,18 @@ NIM models
 Implementation: `kubectl get nimservice,nimcache -n vss-<profile> -o json`,
 parse `.status.state` and `.status.cacheSize` for NIMCache,
 `.status.availableReplicas` / `.status.conditions` for NIMService. Keys
-in `console/src/app/diagnostics/page.tsx` and a new
-`console/src/lib/helpers/nim-operator-status.ts`.
+in `src/app/diagnostics/page.tsx` and a new
+`src/lib/helpers/nim-operator-status.ts`.
 
 ## 2.3 post-install patch Job status surfacing
 
 The `vst-config-cloud-storage-patch` Job (in
-`k8s/nvidia-vss-helm-overlay/`) is the ONLY thing that flips
+`isv-labs:k8s/nvidia-vss-helm-overlay/`) is the ONLY thing that flips
 `enable_cloud_storage` to true and writes the access keys into
 `vst_config.json`. If it doesn't run, recordings silently stay local
 (operator sees pods running, no errors, but the S3 bucket stays empty).
 
-Add a first-class indicator on `console/src/app/diagnostics/page.tsx`:
+Add a first-class indicator on `src/app/diagnostics/page.tsx`:
 
 ```
 Cloud storage wiring
@@ -360,7 +359,7 @@ Pick the simpler path unless a real multi-release demand emerges.
 
 ## 2.7 Camera registration two-step against helm chart names
 
-`console/src/lib/helpers/vst.ts` does:
+`src/lib/helpers/vst.ts` does:
 
 ```
 vstAddSensor    → POST http://<host>:30888/vst/api/v1/sensor/add
@@ -379,12 +378,12 @@ does, the K8s path needs the same two-step flow the docker path runs.
 User-visible strings reference docker container names and legacy
 deployment names:
 
-- `console/src/app/chat/page.tsx`: `"docker compose logs nvidia-vss-agent"`
+- `src/app/chat/page.tsx`: `"docker compose logs nvidia-vss-agent"`
   → `"kubectl logs deploy/vss-agent -n vss-<profile>"` (or `docker compose
   logs vss-agent` on the docker path — Console should know its runtime).
-- `console/src/app/diagnostics/page.tsx`: "rtvi-vlm liveness" → keep,
+- `src/app/diagnostics/page.tsx`: "rtvi-vlm liveness" → keep,
   but verify the deployment name update.
-- `console/src/app/about/page.tsx`: hardcoded URLs in the service
+- `src/app/about/page.tsx`: hardcoded URLs in the service
   table. Read from `cluster-refs.ts` instead.
 
 Mostly cosmetic; bundle with #1.
