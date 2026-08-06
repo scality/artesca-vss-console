@@ -55,15 +55,18 @@ test.describe("prompt page — Phase 3 (read + editor)", () => {
   test("prompt page renders without crashing", async ({ page }) => {
     await stubPromptApis(page);
     await page.goto("/prompt");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("body")).not.toContainText("Application error");
   });
 
-  test("current prompt text is visible in editor area", async ({ page }) => {
+  // Blocked on ISVD-586: Monaco is loaded from cdn.jsdelivr.net at runtime, so
+  // this test depends on a public CDN inside a gating CI run, and
+  // locator("textarea") resolves to Monaco's hidden readonly ime-text-area,
+  // which fill() can never satisfy. Re-enable once Monaco is served from the
+  // image and the editor can be driven through its own input area.
+  test.fixme("current prompt text is visible in editor area", async ({ page }) => {
     await stubPromptApis(page);
     await page.goto("/prompt");
-    await page.waitForLoadState("networkidle");
 
     // The editor (Monaco or textarea) should contain the prompt text
     const promptText = "retail security VLM";
@@ -79,7 +82,6 @@ test.describe("prompt page — Phase 3 (read + editor)", () => {
   test("Save + Restart button is disabled when prompt is clean (no edits)", async ({ page }) => {
     await stubPromptApis(page);
     await page.goto("/prompt");
-    await page.waitForLoadState("networkidle");
 
     // The save button should be disabled when draft === server prompt (no changes)
     const saveBtn = page.locator("button", { hasText: /save\s*\+\s*restart/i });
@@ -92,7 +94,6 @@ test.describe("prompt page — Phase 3 (read + editor)", () => {
     // nimReady = false scenario (no previewModel in response)
     await stubPromptApis(page, { previewModel: undefined });
     await page.goto("/prompt");
-    await page.waitForLoadState("networkidle");
 
     const previewBtn = page.locator("button", { hasText: /preview/i });
     if (await previewBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
@@ -104,10 +105,14 @@ test.describe("prompt page — Phase 3 (read + editor)", () => {
 });
 
 test.describe("prompt page — Phase 4 (write path)", () => {
-  test("edit prompt → Save + Restart button becomes enabled", async ({ page }) => {
+  // Blocked on ISVD-586: Monaco is loaded from cdn.jsdelivr.net at runtime, so
+  // this test depends on a public CDN inside a gating CI run, and
+  // locator("textarea") resolves to Monaco's hidden readonly ime-text-area,
+  // which fill() can never satisfy. Re-enable once Monaco is served from the
+  // image and the editor can be driven through its own input area.
+  test.fixme("edit prompt → Save + Restart button becomes enabled", async ({ page }) => {
     await stubPromptApis(page);
     await page.goto("/prompt");
-    await page.waitForLoadState("networkidle");
 
     // Try to trigger a change in the editor (textarea fallback)
     const textarea = page.locator("textarea").first();
@@ -120,7 +125,12 @@ test.describe("prompt page — Phase 4 (write path)", () => {
     }
   });
 
-  test("save → PATCH called → confirm dialog with restart warning appears", async ({ page }) => {
+  // Blocked on ISVD-586: Monaco is loaded from cdn.jsdelivr.net at runtime, so
+  // this test depends on a public CDN inside a gating CI run, and
+  // locator("textarea") resolves to Monaco's hidden readonly ime-text-area,
+  // which fill() can never satisfy. Re-enable once Monaco is served from the
+  // image and the editor can be driven through its own input area.
+  test.fixme("save → PATCH called → confirm dialog with restart warning appears", async ({ page }) => {
     let patchCalled = false;
     await stubAuth(page);
     await page.route("/api/prompt", async (route) => {
@@ -143,7 +153,6 @@ test.describe("prompt page — Phase 4 (write path)", () => {
     });
 
     await page.goto("/prompt");
-    await page.waitForLoadState("networkidle");
 
     // Attempt edit via textarea (Monaco may not be interactive without the full build)
     const textarea = page.locator("textarea").first();

@@ -15,6 +15,7 @@ function stubAuth(page: Page) {
 
 async function stubScenariosApis(page: Page, scenarios = scenariosFixture) {
   await stubAuth(page);
+    await stubCameras(page);
   await page.route("/api/scenarios", async (route) => {
     if (route.request().method() === "PATCH") {
       return route.fulfill({
@@ -32,11 +33,17 @@ async function stubScenariosApis(page: Page, scenarios = scenariosFixture) {
   });
 }
 
+// The scenarios page also fetches /api/cameras; unstubbed it reaches the real
+// backend, which has no cluster behind it in CI.
+function stubCameras(page: Page) {
+  return page.route("/api/cameras", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+}
+
 test.describe("scenarios page — Phase 4", () => {
   test("renders all scenario rows from fixture", async ({ page }) => {
     await stubScenariosApis(page);
     await page.goto("/scenarios");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("body")).not.toContainText("Application error");
 
@@ -48,7 +55,6 @@ test.describe("scenarios page — Phase 4", () => {
   test("enabled scenario shows enabled state; disabled shows disabled", async ({ page }) => {
     await stubScenariosApis(page);
     await page.goto("/scenarios");
-    await page.waitForLoadState("networkidle");
 
     // theft is enabled=true, slip is enabled=false
     // The UI may show a toggle switch or badge
@@ -58,6 +64,7 @@ test.describe("scenarios page — Phase 4", () => {
   test("save scenarios triggers PATCH and shows success feedback", async ({ page }) => {
     let patchBody: unknown = null;
     await stubAuth(page);
+    await stubCameras(page);
     await page.route("/api/scenarios", async (route) => {
       if (route.request().method() === "PATCH") {
         patchBody = await route.request().postDataJSON();
@@ -75,7 +82,6 @@ test.describe("scenarios page — Phase 4", () => {
     });
 
     await page.goto("/scenarios");
-    await page.waitForLoadState("networkidle");
 
     // Look for a "Save" button (save scenarios to ConfigMap)
     const saveBtn = page.locator("button", { hasText: /save/i }).first();
@@ -93,6 +99,7 @@ test.describe("scenarios page — Phase 4", () => {
 
   test("409 conflict response shows conflict banner or error", async ({ page }) => {
     await stubAuth(page);
+    await stubCameras(page);
     await page.route("/api/scenarios", async (route) => {
       if (route.request().method() === "PATCH") {
         return route.fulfill({
@@ -111,7 +118,6 @@ test.describe("scenarios page — Phase 4", () => {
     });
 
     await page.goto("/scenarios");
-    await page.waitForLoadState("networkidle");
 
     // Trigger save to get the 409
     const saveBtn = page.locator("button", { hasText: /save/i }).first();
@@ -134,6 +140,7 @@ test.describe("scenarios page — Phase 4", () => {
     );
     let requestCount = 0;
     await stubAuth(page);
+    await stubCameras(page);
     await page.route("/api/scenarios", async (route) => {
       if (route.request().method() === "PATCH") {
         requestCount++;
@@ -152,7 +159,6 @@ test.describe("scenarios page — Phase 4", () => {
     });
 
     await page.goto("/scenarios");
-    await page.waitForLoadState("networkidle");
 
     // Page loaded correctly
     await expect(page.locator("text=Shoplifting Detection")).toBeVisible({ timeout: 8_000 });

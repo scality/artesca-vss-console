@@ -36,7 +36,6 @@ test.describe("cameras page — Phase 2 (read)", () => {
   test("table renders all camera rows from fixture", async ({ page }) => {
     await stubCamerasApis(page);
     await page.goto("/cameras");
-    await page.waitForLoadState("networkidle");
 
     // Fixture has checkout-1 and aisle-3
     await expect(page.locator("text=checkout-1")).toBeVisible({ timeout: 8_000 });
@@ -46,7 +45,6 @@ test.describe("cameras page — Phase 2 (read)", () => {
   test("feed sensor IDs appear in the table or expanded row", async ({ page }) => {
     await stubCamerasApis(page);
     await page.goto("/cameras");
-    await page.waitForLoadState("networkidle");
 
     // checkout-1 has sensorId checkout-1-a and checkout-1-b
     // Expand the row if expandable, or check inline
@@ -78,7 +76,6 @@ test.describe("cameras page — Phase 2 (read)", () => {
       })
     );
     await page.goto("/cameras");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("body")).not.toContainText("Application error");
     // Empty list — expect either a "no cameras" message or an empty table body
@@ -137,7 +134,6 @@ test.describe("cameras page — Phase 5 (add camera)", () => {
     });
 
     await page.goto("/cameras");
-    await page.waitForLoadState("networkidle");
 
     // Click "Add camera" button
     const addBtn = page.locator("button", { hasText: /add camera/i });
@@ -206,7 +202,6 @@ test.describe("cameras page — Phase 5 (add camera)", () => {
     });
 
     await page.goto("/cameras");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("text=checkout-1")).toBeVisible({ timeout: 8_000 });
   });

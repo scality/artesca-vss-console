@@ -29,7 +29,6 @@ test.describe("logs page — Phase 6", () => {
       })
     );
     await page.goto("/logs");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("body")).not.toContainText("Application error");
   });
@@ -44,7 +43,6 @@ test.describe("logs page — Phase 6", () => {
       })
     );
     await page.goto("/logs");
-    await page.waitForLoadState("networkidle");
 
     // PodPicker should render some form of pod/namespace selector
     const selectors = page.locator("select, [role='combobox'], [role='listbox']");
@@ -92,7 +90,6 @@ test.describe("logs page — Phase 6", () => {
     );
 
     await page.goto("/logs");
-    await page.waitForLoadState("networkidle");
 
     // The log stream area should exist (a scrollable box or pre element)
     const logArea = page.locator(
@@ -112,7 +109,6 @@ test.describe("logs page — Phase 6", () => {
       })
     );
     await page.goto("/logs");
-    await page.waitForLoadState("networkidle");
 
     // LogFilterBar should render pause/resume button
     const pauseBtn = page.locator("button", { hasText: /pause|resume/i });
@@ -129,12 +125,11 @@ test.describe("logs page — Phase 6", () => {
       })
     );
     await page.goto("/logs");
-    await page.waitForLoadState("networkidle");
 
-    // LogFilterBar has a regex/text filter input
-    const filterInput = page.locator(
-      'input[placeholder*="filter" i], input[placeholder*="regex" i], input[type="text"]'
-    ).first();
+    // Address the filter input by its accessible name. The previous selector
+    // guessed at the placeholder text ("filter"/"regex") and at type="text",
+    // and the real input matches none of them.
+    const filterInput = page.getByLabel("Filter (regex)");
     await expect(filterInput).toBeVisible({ timeout: 8_000 });
 
     // Type a regex pattern
@@ -153,7 +148,6 @@ test.describe("logs page — Phase 6", () => {
       })
     );
     await page.goto("/logs");
-    await page.waitForLoadState("networkidle");
 
     const downloadBtn = page.locator("button", { hasText: /download/i });
     await expect(downloadBtn.first()).toBeVisible({ timeout: 8_000 });
@@ -178,7 +172,6 @@ test.describe("logs page — Phase 6", () => {
     );
 
     await page.goto("/logs");
-    await page.waitForLoadState("networkidle");
 
     // Switch to camera-sim journal tab
     const camSimTab = page.locator('[role="tab"]', { hasText: /camera-sim|journal/i });

@@ -56,7 +56,6 @@ test.describe("diagnostics page — Phase 8", () => {
   test("diagnostics page renders without crashing", async ({ page }) => {
     await stubDiagnosticsApis(page);
     await page.goto("/diagnostics");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("body")).not.toContainText("Application error");
   });
@@ -64,7 +63,6 @@ test.describe("diagnostics page — Phase 8", () => {
   test("all 9 diagnostic cards are visible", async ({ page }) => {
     await stubDiagnosticsApis(page);
     await page.goto("/diagnostics");
-    await page.waitForLoadState("networkidle");
 
     // Each card should have a "Run now" button — count them
     const runBtns = page.locator("button", { hasText: /run now|run/i });
@@ -78,7 +76,6 @@ test.describe("diagnostics page — Phase 8", () => {
   }) => {
     await stubDiagnosticsApis(page);
     await page.goto("/diagnostics");
-    await page.waitForLoadState("networkidle");
 
     const firstRunBtn = page.locator("button", { hasText: /run now|run/i }).first();
     await expect(firstRunBtn).toBeVisible({ timeout: 8_000 });
@@ -94,7 +91,6 @@ test.describe("diagnostics page — Phase 8", () => {
   test("successful run shows pass result in the card", async ({ page }) => {
     await stubDiagnosticsApis(page);
     await page.goto("/diagnostics");
-    await page.waitForLoadState("networkidle");
 
     const firstRunBtn = page.locator("button", { hasText: /run now|run/i }).first();
     await firstRunBtn.click();
@@ -133,7 +129,6 @@ test.describe("diagnostics page — Phase 8", () => {
     });
 
     await page.goto("/diagnostics");
-    await page.waitForLoadState("networkidle");
 
     // Click "Validate manifests" specifically — first Run button maps to validate-manifests
     const runBtn = page.locator("button", { hasText: /run now|run/i }).first();
@@ -147,7 +142,6 @@ test.describe("diagnostics page — Phase 8", () => {
   test("diagnostics page title is visible", async ({ page }) => {
     await stubDiagnosticsApis(page);
     await page.goto("/diagnostics");
-    await page.waitForLoadState("networkidle");
 
     // h1 with "Diagnostics" per page.tsx
     const h1 = page.locator("h1");

@@ -24,6 +24,19 @@ segment0.ts
 #EXT-X-ENDLIST
 `;
 
+// The incidents page defaults to a 1 h time window (DEFAULT_FILTERS), so a
+// fixture with fixed timestamps drops out of view once it is an hour old and
+// the page legitimately renders no rows. Re-stamp each incident relative to now
+// — spaced a minute apart, newest first — so the fixture keeps testing the page
+// rather than the calendar.
+function recentIncidents(): unknown[] {
+  const now = Date.now();
+  return (incidentsFixture as Array<Record<string, unknown>>).map((incident, i) => ({
+    ...incident,
+    ts: new Date(now - (i + 1) * 60_000).toISOString(),
+  }));
+}
+
 async function stubIncidentsApis(page: Page) {
   await stubAuth(page);
 
@@ -52,7 +65,7 @@ async function stubIncidentsApis(page: Page) {
     return route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(incidentsFixture),
+      body: JSON.stringify(recentIncidents()),
     });
   });
 
@@ -79,7 +92,6 @@ test.describe("incidents + clip playback — Phase 6", () => {
   test("incidents page renders without crashing", async ({ page }) => {
     await stubIncidentsApis(page);
     await page.goto("/incidents");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("body")).not.toContainText("Application error");
   });
@@ -87,7 +99,6 @@ test.describe("incidents + clip playback — Phase 6", () => {
   test("incident rows from fixture are displayed", async ({ page }) => {
     await stubIncidentsApis(page);
     await page.goto("/incidents");
-    await page.waitForLoadState("networkidle");
 
     // Fixture has "Shoplifting Detection" and "Crowd Density Alert"
     await expect(page.locator("text=Shoplifting Detection")).toBeVisible({ timeout: 8_000 });
@@ -124,7 +135,6 @@ test.describe("incidents + clip playback — Phase 6", () => {
     );
 
     await page.goto("/incidents");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("body")).not.toContainText("Application error");
     // Empty-state message
@@ -135,7 +145,6 @@ test.describe("incidents + clip playback — Phase 6", () => {
   test("clicking incident row opens detail dialog with HLS clip area", async ({ page }) => {
     await stubIncidentsApis(page);
     await page.goto("/incidents");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("text=Shoplifting Detection")).toBeVisible({ timeout: 8_000 });
 
@@ -154,7 +163,6 @@ test.describe("incidents + clip playback — Phase 6", () => {
   test("incident detail dialog contains video element or HLS player area", async ({ page }) => {
     await stubIncidentsApis(page);
     await page.goto("/incidents");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("text=Shoplifting Detection")).toBeVisible({ timeout: 8_000 });
 

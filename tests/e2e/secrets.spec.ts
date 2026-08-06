@@ -51,7 +51,6 @@ test.describe("secrets page — Phase 9", () => {
   test("secrets page renders without crashing", async ({ page }) => {
     await stubSecretsApis(page);
     await page.goto("/secrets");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("body")).not.toContainText("Application error");
   });
@@ -59,7 +58,6 @@ test.describe("secrets page — Phase 9", () => {
   test("all secret rows are visible with rotate buttons", async ({ page }) => {
     await stubSecretsApis(page);
     await page.goto("/secrets");
-    await page.waitForLoadState("networkidle");
 
     // Each secret should have a rotate button
     const rotateBtns = page.locator("button", { hasText: /rotate/i });
@@ -74,7 +72,6 @@ test.describe("secrets page — Phase 9", () => {
     // Stub console-auth-password as stale
     await stubSecretsApis(page, "console-auth-password");
     await page.goto("/secrets");
-    await page.waitForLoadState("networkidle");
 
     // RotationNagBanner text: "Rotation overdue (>90 days)"
     const nagBanner = page.locator("text=Rotation overdue");
@@ -93,7 +90,6 @@ test.describe("secrets page — Phase 9", () => {
   test("clicking rotate opens dialog for NGC Key", async ({ page }) => {
     await stubSecretsApis(page);
     await page.goto("/secrets");
-    await page.waitForLoadState("networkidle");
 
     const rotateBtn = page.locator("button", { hasText: /rotate/i }).first();
     await expect(rotateBtn).toBeVisible({ timeout: 8_000 });
@@ -106,7 +102,6 @@ test.describe("secrets page — Phase 9", () => {
   test("rotate dialog has a value input and confirm button", async ({ page }) => {
     await stubSecretsApis(page);
     await page.goto("/secrets");
-    await page.waitForLoadState("networkidle");
 
     const rotateBtn = page.locator("button", { hasText: /rotate/i }).first();
     await rotateBtn.click();
@@ -124,7 +119,6 @@ test.describe("secrets page — Phase 9", () => {
   test("submitting rotation clears the dialog and shows success toast", async ({ page }) => {
     await stubSecretsApis(page);
     await page.goto("/secrets");
-    await page.waitForLoadState("networkidle");
 
     // Click first rotate button
     const rotateBtn = page.locator("button", { hasText: /rotate/i }).first();
@@ -180,7 +174,6 @@ test.describe("secrets page — Phase 9", () => {
     }
 
     await page.goto("/secrets");
-    await page.waitForLoadState("networkidle");
 
     // Just verify page is functional
     await expect(page.locator("body")).not.toContainText("Application error");

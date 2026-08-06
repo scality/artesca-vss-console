@@ -28,8 +28,9 @@ export function LogFilterBar({
   return (
     <div className="flex flex-wrap items-end gap-3">
       <div className="flex-1 min-w-48 space-y-1">
-        <Label>Filter (regex)</Label>
+        <Label htmlFor="log-filter">Filter (regex)</Label>
         <Input
+          id="log-filter"
           placeholder="e.g. ERROR|WARN"
           value={filter}
           onChange={(e) => onFilterChange(e.target.value)}

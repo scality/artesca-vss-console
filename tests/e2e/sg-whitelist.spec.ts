@@ -82,7 +82,6 @@ test.describe("settings — SG whitelist", () => {
   test("settings page renders without crashing", async ({ page }) => {
     await stubSettingsApis(page);
     await page.goto("/settings");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("body")).not.toContainText("Application error");
   });
@@ -90,7 +89,6 @@ test.describe("settings — SG whitelist", () => {
   test("existing CIDR entries from fixture are visible", async ({ page }) => {
     await stubSettingsApis(page);
     await page.goto("/settings");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("text=203.0.113.0/29")).toBeVisible({ timeout: 8_000 });
     await expect(page.locator("text=Head office")).toBeVisible({ timeout: 8_000 });
@@ -99,7 +97,6 @@ test.describe("settings — SG whitelist", () => {
   test("Add CIDR button opens the add-CIDR dialog", async ({ page }) => {
     await stubSettingsApis(page);
     await page.goto("/settings");
-    await page.waitForLoadState("networkidle");
 
     const addBtn = page.locator("button", { hasText: /add cidr/i });
     await expect(addBtn).toBeVisible({ timeout: 8_000 });
@@ -112,7 +109,6 @@ test.describe("settings — SG whitelist", () => {
   test("add-CIDR dialog has CIDR and label inputs", async ({ page }) => {
     await stubSettingsApis(page);
     await page.goto("/settings");
-    await page.waitForLoadState("networkidle");
 
     const addBtn = page.locator("button", { hasText: /add cidr/i });
     await expect(addBtn).toBeVisible({ timeout: 8_000 });
@@ -129,7 +125,6 @@ test.describe("settings — SG whitelist", () => {
   test("submitting a new CIDR adds it to the table", async ({ page }) => {
     await stubSettingsApis(page);
     await page.goto("/settings");
-    await page.waitForLoadState("networkidle");
 
     const addBtn = page.locator("button", { hasText: /add cidr/i });
     await addBtn.click();
@@ -150,7 +145,6 @@ test.describe("settings — SG whitelist", () => {
     const addConfirmBtn = dialog.locator("button", { hasText: /add|save|confirm/i });
     if (await addConfirmBtn.isEnabled({ timeout: 2_000 }).catch(() => false)) {
       await addConfirmBtn.click();
-      await page.waitForLoadState("networkidle");
     }
 
     await expect(page.locator("body")).not.toContainText("Application error");
@@ -162,7 +156,6 @@ test.describe("settings — SG whitelist", () => {
     await page.on("dialog", (dialog) => dialog.accept());
 
     await page.goto("/settings");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("text=203.0.113.0/29")).toBeVisible({ timeout: 8_000 });
 
@@ -183,7 +176,6 @@ test.describe("settings — SG whitelist", () => {
   test("My IP button stubs ipify.org and populates CIDR field", async ({ page }) => {
     await stubSettingsApis(page);
     await page.goto("/settings");
-    await page.waitForLoadState("networkidle");
 
     const addBtn = page.locator("button", { hasText: /add cidr/i });
     await addBtn.click();

@@ -76,7 +76,6 @@ test.describe("profiles page — Phase 9", () => {
   test("renders profile table with stubbed data", async ({ page }) => {
     await stubProfilesApis(page);
     await page.goto("/profiles");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("text=pyramid-jun-8")).toBeVisible({ timeout: 10_000 });
   });
@@ -84,7 +83,6 @@ test.describe("profiles page — Phase 9", () => {
   test("save current config button opens dialog", async ({ page }) => {
     await stubProfilesApis(page);
     await page.goto("/profiles");
-    await page.waitForLoadState("networkidle");
 
     const saveBtn = page.locator("button", { hasText: /save current config/i });
     await expect(saveBtn).toBeVisible({ timeout: 5_000 });
@@ -104,7 +102,6 @@ test.describe("profiles page — Phase 9", () => {
   test("load profile button opens load confirmation dialog", async ({ page }) => {
     await stubProfilesApis(page);
     await page.goto("/profiles");
-    await page.waitForLoadState("networkidle");
 
     const loadBtn = page.locator("button", { hasText: /^load$/i }).first();
     if (await loadBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
@@ -167,7 +164,6 @@ test.describe("profiles page — Phase 9", () => {
     });
 
     await page.goto("/profiles");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("text=pyramid-jun-8")).toBeVisible({ timeout: 8_000 });
     await expect(page.locator("body")).not.toContainText("Application error");
@@ -210,7 +206,6 @@ test.describe("profiles page — Phase 9", () => {
     });
 
     await page.goto("/profiles");
-    await page.waitForLoadState("networkidle");
 
     const deleteBtn = page.locator("button", { hasText: /delete/i }).first();
     if (await deleteBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
@@ -232,7 +227,6 @@ test.describe("profiles page — Phase 9", () => {
   test("Import JSON with invalid payload shows validation error toast", async ({ page }) => {
     await stubProfilesApis(page);
     await page.goto("/profiles");
-    await page.waitForLoadState("networkidle");
 
     // Look for an "Import" button
     const importBtn = page.locator("button", { hasText: /import/i });

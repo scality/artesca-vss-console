@@ -37,6 +37,7 @@ async function stubVstApis(
   overrides: Partial<typeof vstTuningBase> = {}
 ) {
   await stubAuth(page);
+    await stubTuningSiblings(page);
 
   await page.route("/api/tuning/vst", async (route) => {
     if (route.request().method() === "PATCH") {
@@ -65,14 +66,31 @@ async function stubVstApis(
 
 // ─── Test suite ───────────────────────────────────────────────────────────────
 
+// The tuning page also fetches /api/status/overview, /api/stream-density,
+// /api/prompt and the alerts/rtvi/sampling tuning endpoints. Left unstubbed they
+// reach the real backend, which has no cluster behind it in CI, and the page
+// waits on them. Answer them all with something harmless.
+async function stubTuningSiblings(page: Page) {
+  await page.route("/api/status/overview", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+  await page.route("/api/stream-density", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+  await page.route("/api/prompt", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+  for (const path of ["alerts", "rtvi", "sampling"]) {
+    await page.route(`/api/tuning/${path}`, (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+  }
+}
+
 test.describe("tuning page — VST recording (phase 11)", () => {
   // ── 1. Loads form with current values from API ──────────────────────────────
   test("loads VST tuning form with current values from API", async ({
     page,
   }) => {
     await stubVstApis(page);
+    await stubTuningSiblings(page);
     await page.goto("/tuning");
-    await page.waitForLoadState("networkidle");
 
     // Section heading rendered by VstRecordingForm
     await expect(
@@ -112,6 +130,7 @@ test.describe("tuning page — VST recording (phase 11)", () => {
     let patchBody: Record<string, unknown> | null = null;
 
     await stubAuth(page);
+    await stubTuningSiblings(page);
     await page.route("/api/tuning/vst", async (route) => {
       if (route.request().method() === "PATCH") {
         patchBody = (await route.request().postDataJSON()) as Record<
@@ -139,7 +158,6 @@ test.describe("tuning page — VST recording (phase 11)", () => {
     );
 
     await page.goto("/tuning");
-    await page.waitForLoadState("networkidle");
 
     // Wait for the form to mount (GoP input visible)
     const gopInput = page.locator('input[type="number"]').first();
@@ -193,6 +211,7 @@ test.describe("tuning page — VST recording (phase 11)", () => {
     let patchCalled = false;
 
     await stubAuth(page);
+    await stubTuningSiblings(page);
     await page.route("/api/tuning/vst", async (route) => {
       if (route.request().method() === "PATCH") {
         patchCalled = true;
@@ -217,7 +236,6 @@ test.describe("tuning page — VST recording (phase 11)", () => {
     );
 
     await page.goto("/tuning");
-    await page.waitForLoadState("networkidle");
 
     // Wait for form
     const h264Checkbox = page.locator('input[type="checkbox"]').nth(0);
@@ -257,8 +275,8 @@ test.describe("tuning page — VST recording (phase 11)", () => {
     page,
   }) => {
     await stubVstApis(page);
+    await stubTuningSiblings(page);
     await page.goto("/tuning");
-    await page.waitForLoadState("networkidle");
 
     // Wait for section heading
     const sectionVisible = await page
@@ -277,8 +295,8 @@ test.describe("tuning page — VST recording (phase 11)", () => {
   // ── 5. Page renders without crash ─────────────────────────────────────────
   test("tuning page renders VST section without crashing", async ({ page }) => {
     await stubVstApis(page);
+    await stubTuningSiblings(page);
     await page.goto("/tuning");
-    await page.waitForLoadState("networkidle");
 
     await expect(page.locator("body")).not.toContainText("Application error");
     await expect(page.locator("text=VST Recording Tuning")).toBeVisible({
