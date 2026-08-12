@@ -61,7 +61,7 @@ npm run test:e2e  # playwright
 ## K8s deploy
 
 Manifests live in `k8s/` (owned by a parallel agent). The console Deployment mounts:
-- `console-auth` Secret → `CONSOLE_PASSWORD`
+- `console-auth` Secret → `CONSOLE_PASSWORD` + `AUTH_SECRET` (Auth.js reads `AUTH_SECRET`; a Secret carrying only the `NEXTAUTH_`-prefixed spelling leaves the pod refusing every request)
 - `console-aws` Secret → AWS credentials
 - `console-data` PVC at `/data` → SQLite (`console-data.db`)
 - camera-sim SSH key Secret → `CAMERA_SIM_SSH_KEY_PATH`
@@ -69,3 +69,9 @@ Manifests live in `k8s/` (owned by a parallel agent). The console Deployment mou
 ## Env vars
 
 See `.env.example` for the full list with descriptions.
+
+## Licence
+
+Apache License 2.0 — see [LICENSE](LICENSE). Copyright Scality.
+
+`private: true` stays in `package.json`: the deliverable is a container image, not an npm package, and the flag is what stops an accidental publish. It does not restrict the licence grant.
