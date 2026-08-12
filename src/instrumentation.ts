@@ -13,7 +13,7 @@
  * Only active in the Node.js runtime (not edge).
  */
 
-import * as Sentry from "@sentry/nextjs";
+import * as Sentry from "@/lib/telemetry";
 
 import { createLogger } from "@/lib/logger";
 

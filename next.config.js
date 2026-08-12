@@ -1,6 +1,13 @@
 /** @type {import('next').NextConfig} */
 
-const { withSentryConfig } = require("@sentry/nextjs");
+const { PACKAGE, NOOP_MODULE, telemetryInstalled } = require("./telemetry-optional.cjs");
+
+// Telemetry is an optional install (see telemetry-optional.cjs). Installed, the
+// build wraps with withSentryConfig and every import gets the real SDK. Absent,
+// the specifier is aliased to a no-op module so the build still resolves and the
+// app runs with telemetry compiled out.
+const TELEMETRY = telemetryInstalled();
+const { withSentryConfig } = TELEMETRY ? require(PACKAGE) : { withSentryConfig: (c) => c };
 
 const SAFE_DEFAULT = "http://metropolis-nvidia-vss-ui:3000";
 
@@ -82,6 +89,18 @@ module.exports = {
     return [{ source: "/capabilities", destination: "/agent", permanent: true }];
   },
 };
+
+if (!TELEMETRY) {
+  // Turbopack resolves the specifier to the stub. Only the build reads this —
+  // vitest has its own alias, from the same presence check.
+  module.exports.turbopack = {
+    ...(module.exports.turbopack || {}),
+    resolveAlias: {
+      ...((module.exports.turbopack || {}).resolveAlias || {}),
+      [PACKAGE]: NOOP_MODULE,
+    },
+  };
+}
 
 module.exports = withSentryConfig(module.exports, {
   // Source-map upload only runs when SENTRY_AUTH_TOKEN is set (build-time

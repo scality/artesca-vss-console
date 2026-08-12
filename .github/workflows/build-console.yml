@@ -232,10 +232,21 @@ jobs:
             ghcr.io/scality/artesca-vss-console:sha-${{ steps.sha.outputs.short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # WITH_TELEMETRY=1 installs the optional Sentry SDK inside the image.
+          # It is in no dependency field, so the Dockerfile's `npm ci` does not
+          # bring it (telemetry-optional.cjs explains why). This published image is
+          # what the labs run, so it opts in; a third-party build of the same
+          # Dockerfile leaves the arg unset and gets no source-available dependency.
+          #
+          # A side effect worth keeping: the two jobs now cover both paths at no
+          # extra cost. `ci` installs with npm ci and no arg, so it proves the app
+          # type-checks, tests, builds and E2Es with the SDK absent; this job proves
+          # the withSentryConfig path still works.
           build-args: |
             SENTRY_ORG=${{ steps.sentry.outputs.org }}
             SENTRY_PROJECT=scality-vss-console-ui
             SENTRY_RELEASE=sha-${{ steps.sha.outputs.short }}
+            WITH_TELEMETRY=1
           secrets: |
             sentry_auth_token=${{ steps.sentry.outputs.token }}
 

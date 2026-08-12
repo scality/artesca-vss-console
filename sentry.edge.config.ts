@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/nextjs";
+import * as Sentry from "@/lib/telemetry";
 import { serverTelemetryDsn, tracesSampleRate } from "@/lib/telemetry-config";
 
 // The DSN was inlined here rather than imported from sentry.server.config,

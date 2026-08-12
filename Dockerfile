@@ -56,6 +56,22 @@ ENV SENTRY_ORG=${SENTRY_ORG} \
     SENTRY_PROJECT=${SENTRY_PROJECT} \
     SENTRY_RELEASE=${SENTRY_RELEASE}
 
+# The SDK is an optional install and `npm ci` above does not bring it, because it
+# is in no dependency field — it pulls @sentry/cli under FSL-1.1-MIT, which is
+# source-available rather than open source, and this repository is public
+# (telemetry-optional.cjs). An image built without this arg has telemetry
+# compiled out: next.config.js aliases the specifier to a no-op and the app runs
+# with no reporting whatever SENTRY_DSN says.
+#
+# Scality lab images set WITH_TELEMETRY=1. A third-party build leaves it unset
+# and gets an image with no source-available dependency in it.
+ARG WITH_TELEMETRY=
+RUN if [ -n "$WITH_TELEMETRY" ]; then \
+      npm run enable-telemetry && node -e "require.resolve('@sentry/nextjs')"; \
+    else \
+      echo "telemetry: not installed (WITH_TELEMETRY unset) — building with reporting compiled out"; \
+    fi
+
 # next build emits .next/standalone — a self-contained Node server tree that
 # includes node_modules entries for serverExternalPackages (ssh2, better-sqlite3,
 # cpu-features) resolved at build time for the current arch.

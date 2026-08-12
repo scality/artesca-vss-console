@@ -12,6 +12,12 @@ The in-cluster console reports errors, traces, and masked session replays to Sen
 | Release | image tag hash (laptop sideload) / `sha-<short>` (CI GHCR build) |
 | Build secret | GCP Secret Manager `isv-labs-sentry-build-env` (project `isv-alliances`) — shared with the deployer; org + token reused, project overridden to `scality-vss-console-ui` |
 
+**The SDK itself is an optional install.** `@sentry/nextjs` is in no dependency field of `package.json`: it pulls `@sentry/cli` under FSL-1.1-MIT, source-available rather than open source, and this repository is public. A default clone installs zero FSL packages (measured: 2 with it declared, 0 without).
+
+Opt in locally with `npm run enable-telemetry`, and in an image with `--build-arg WITH_TELEMETRY=1` — which CI and `isv-labs:scripts/build-console-image.sh` both pass, so every lab image reports. Without it the specifier is aliased to a no-op module and the app runs with reporting compiled out, whatever `SENTRY_DSN` says. Package absence and DSN absence are separate states, and `/about` shows the second one.
+
+`telemetry-optional.cjs` holds the presence check that `next.config.js` and `vitest.config.ts` both read; `src/lib/telemetry.ts` is the only module that names the package.
+
 **There is no DSN in the source tree, and telemetry does nothing without one.** [`src/lib/telemetry-config.ts`](../src/lib/telemetry-config.ts) is the single reader for all three runtimes, and each `Sentry.init` is guarded on a configured value — an undefined `dsn` would install the SDK's handlers and then drop every event, which is indistinguishable from working telemetry in a log.
 
 Supply it from the deployment: `SENTRY_DSN` for server and edge, via the `console-env` ConfigMap; `NEXT_PUBLIC_SENTRY_DSN` for the browser, which Next inlines at build time and a ConfigMap therefore cannot reach. `isv-labs:scripts/deploy-console.sh` fills the first for the Scality labs, so a lab pod reports as soon as it is redeployed. A DSN is an ingest-only identifier rather than a credential — the reason it is not in the tree is that a compiled-in default sends someone else's build into our project (ISVD-607).
@@ -23,7 +29,7 @@ Supply it from the deployment: `SENTRY_DSN` for server and edge, via the `consol
 - **Session replay**: 10% of sessions, 100% of error sessions — fully masked (see below).
 - **Tunnel**: browser events proxy through the app at `/monitoring` (`tunnelRoute` in [`console/next.config.js`](../console/next.config.js)) so ad-blockers don't drop them.
 
-Init files: [`console/src/instrumentation-client.ts`](../console/src/instrumentation-client.ts) (browser), [`console/sentry.server.config.ts`](../console/sentry.server.config.ts) (Node), [`console/sentry.edge.config.ts`](../console/sentry.edge.config.ts) (edge), loaded from [`console/src/instrumentation.ts`](../console/src/instrumentation.ts) ahead of the background watchers/reconcile loop. The DSN is a hardcoded fallback (an ingest-only identifier, ships in the client bundle by design) so the pod reports without env plumbing; `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` (settable in the `console-env` ConfigMap) override it.
+Init files: [`console/src/instrumentation-client.ts`](../console/src/instrumentation-client.ts) (browser), [`console/sentry.server.config.ts`](../console/sentry.server.config.ts) (Node), [`console/sentry.edge.config.ts`](../console/sentry.edge.config.ts) (edge), loaded from [`console/src/instrumentation.ts`](../console/src/instrumentation.ts) ahead of the background watchers/reconcile loop. Each one imports the SDK through `src/lib/telemetry.ts` and guards its `init` on a configured DSN, so a build with no SDK and a deploy with no DSN both end up silent rather than half-initialised.
 
 ## Secret-leak hardening — the constraints that must hold
 

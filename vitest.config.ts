@@ -1,5 +1,19 @@
 import { defineConfig } from "vitest/config";
 import path from "path";
+import { createRequire } from "module";
+
+// Telemetry is an optional install (see telemetry-optional.cjs). vitest resolves
+// modules itself and does NOT honour next.config.js's turbopack.resolveAlias, so
+// without this the whole suite fails to import src/lib/telemetry.ts on a clone
+// that has no SDK — measured: 3 files, 5 tests. Both configs read the same
+// presence check so they cannot disagree about it.
+const { PACKAGE, NOOP_MODULE, telemetryInstalled } = createRequire(
+  import.meta.url,
+)("./telemetry-optional.cjs");
+
+const telemetryAlias: Record<string, string> = telemetryInstalled()
+  ? {}
+  : { [PACKAGE as string]: path.resolve(__dirname, NOOP_MODULE as string) };
 
 export default defineConfig({
   test: {
@@ -28,6 +42,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      ...telemetryAlias,
     },
   },
 });

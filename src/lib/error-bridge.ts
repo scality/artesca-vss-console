@@ -25,7 +25,7 @@ import "server-only";
  * this must never crash the server process or block startup.
  */
 
-import * as Sentry from "@sentry/nextjs";
+import * as Sentry from "@/lib/telemetry";
 import type { EachMessagePayload } from "kafkajs";
 import { createLogger } from "@/lib/logger";
 import { consumeTopic } from "@/lib/kafka";
