@@ -1,0 +1,90 @@
+{
+  "console": {
+    "pageCount": 22,
+    "navGroups": 4,
+    "navEntries": 22,
+    "navLabels": [
+      "Live",
+      "AI & Storage",
+      "Configure",
+      "System"
+    ],
+    "kioskHidden": [
+      "/about",
+      "/agent",
+      "/cameras",
+      "/diagnostics",
+      "/logs",
+      "/profiles",
+      "/prompt",
+      "/scenarios",
+      "/secrets",
+      "/settings",
+      "/sizing-studio",
+      "/test-footage",
+      "/tuning"
+    ],
+    "kioskAllowed": [
+      "/",
+      "/chat",
+      "/incidents",
+      "/kvcache",
+      "/topology"
+    ],
+    "apiRoutes": 67,
+    "mutatingCount": 33,
+    "guardedCount": 17,
+    "backendCounts": {
+      "k8s": 29,
+      "ssh": 2,
+      "s3": 17,
+      "kafka": 6,
+      "redis": 1,
+      "aws": 7,
+      "config-store/firestore": 8,
+      "helpers/gcs-config": 14
+    },
+    "configStoreKeys": [
+      "methods",
+      "paths",
+      "reads",
+      "writes"
+    ],
+    "guardExempt": [
+      "/api/settings/kiosk"
+    ],
+    "orphaned": [
+      "/analytics",
+      "/evidence",
+      "/search",
+      "/storage"
+    ]
+  },
+  "flow": {
+    "namespace": "vss-base",
+    "stages": 8,
+    "controls": 4,
+    "reads": 6,
+    "restartable": [
+      "nim-preview",
+      "nvidia-nemotron-nano-9b-v2",
+      "vss-agent",
+      "vss-rtvi-vlm",
+      "vss-video-analytics-api",
+      "vss-vios-sensor",
+      "vss-vios-streamprocessing"
+    ],
+    "topics": [
+      "embedErrors",
+      "embedMessages",
+      "incidents",
+      "visionLlm",
+      "visionLlmErrors"
+    ],
+    "buckets": [
+      "agentCorpus",
+      "alertClips",
+      "recordings"
+    ]
+  }
+}

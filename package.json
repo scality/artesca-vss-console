@@ -15,7 +15,8 @@
     "pretest:e2e": "node scripts/copy-monaco.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "prepare": "husky"
+    "prepare": "husky",
+    "diagrams:pin": "node scripts/diagrams/pin-model.mjs"
   },
   "lint-staged": {
     "src/**/*.{ts,tsx}": [
