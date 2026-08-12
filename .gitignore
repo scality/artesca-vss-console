@@ -1,7 +1,21 @@
 node_modules
 .next
 coverage
+
+# Credential files. Only the *.example templates are committed — those carry
+# placeholders a deploy script refuses to accept (`<change-me>`, `<AKIA...>`).
+# Verified against the full history 2026-08-07: no real credential file has ever
+# been committed, and every AKIA / PRIVATE KEY string in it is a placeholder, a
+# test fixture, or the redaction regex in src/lib/error-bridge.ts. These rules
+# are what keeps that true in a public repository, where a single `git add k8s/`
+# would be irreversible — a pushed secret stays in forks and caches after any
+# history rewrite, so it has to be rotated, not deleted.
+.env
 .env.local
+.env.production
+.env.*.local
+k8s/console/*-secrets.yaml
+**/console-secrets.yaml
 tsconfig.tsbuildinfo
 *.tsbuildinfo
 next-env.d.ts

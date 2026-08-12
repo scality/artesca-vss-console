@@ -25,7 +25,8 @@ kustomization.yaml      apply order + CI image-override block
 
 ## Secrets
 
-Three secrets are required (all gitignored, never committed):
+Three secrets are required. None has ever been committed — verified against the
+full history — and `.gitignore` now carries the rules that keep it that way:
 
 ```bash
 cp k8s/console/10-secrets.yaml.example k8s/console/10-secrets.yaml
