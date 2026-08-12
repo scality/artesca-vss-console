@@ -26,6 +26,7 @@ import "server-only";
  */
 
 import * as Sentry from "@/lib/telemetry";
+import { serverTelemetryDsn } from "@/lib/telemetry-config";
 import type { EachMessagePayload } from "kafkajs";
 import { createLogger } from "@/lib/logger";
 import { consumeTopic } from "@/lib/kafka";
@@ -371,10 +372,15 @@ async function startPodCrashWatch(): Promise<() => void> {
 const globalForErrorBridge = globalThis as unknown as { __errorBridgeStarted?: boolean };
 
 function hasSentryDsn(): boolean {
-  // Mirrors sentry.server.config.ts: SENTRY_DSN falls back to a hardcoded
-  // ingest-only DSN, so in practice this is "always configured" — but guard
-  // anyway in case a future config explicitly clears it (empty string opt-out).
-  return process.env.SENTRY_DSN !== "";
+  // Delegated rather than read from the environment here: this is the fourth
+  // place that would otherwise answer "is telemetry configured", and the three
+  // Sentry.init calls already guard on the same function.
+  //
+  // `process.env.SENTRY_DSN !== ""` was the previous test, and it is true when
+  // the variable is UNSET — so an unconfigured console started the Kafka
+  // consumers and the pod-poll loop and pushed captures into an SDK that was
+  // never initialised. It read as correct only while a DSN was compiled in.
+  return serverTelemetryDsn() !== undefined;
 }
 
 /**

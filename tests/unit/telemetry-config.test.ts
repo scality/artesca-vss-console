@@ -20,8 +20,17 @@ const SOURCES = [
   "sentry.edge.config.ts",
   "src/instrumentation-client.ts",
   "src/lib/telemetry-config.ts",
+  "src/lib/telemetry.ts",
   "src/lib/config-store/firestore.ts",
   "src/app/about/page.tsx",
+  // These four were missing, and each is a place a DSN or a project id could
+  // plausibly be reintroduced: the build config, the instrumentation dispatcher,
+  // the root error boundary, and the error bridge — which reads the DSN to decide
+  // whether to start its Kafka consumers at all.
+  "next.config.js",
+  "src/instrumentation.ts",
+  "src/app/global-error.tsx",
+  "src/lib/error-bridge.ts",
 ];
 
 describe("no vendor endpoint is compiled in", () => {

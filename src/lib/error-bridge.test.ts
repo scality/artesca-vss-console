@@ -189,3 +189,45 @@ describe("DedupeWindow", () => {
     expect(w.size()).toBe(1);
   });
 });
+
+// ─── The entry-point gate ───────────────────────────────────────────────────
+//
+// Only the pure helpers above were covered, which is how the DSN test stayed
+// wrong: `process.env.SENTRY_DSN !== ""` is TRUE when the variable is unset, so
+// an unconfigured console started the Kafka consumers and the pod-poll loop and
+// pushed captures into an SDK that was never initialised. It read as correct
+// only while a DSN was compiled into the image.
+describe("startErrorBridge — the telemetry gate", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    delete process.env.SENTRY_DSN;
+    delete process.env.VSS_ERROR_BRIDGE;
+    (globalThis as Record<string, unknown>).__errorBridgeStarted = false;
+  });
+
+  it("starts no Kafka consumer when no DSN is configured", async () => {
+    const consumeTopic = vi.fn();
+    vi.doMock("@/lib/kafka", () => ({ consumeTopic }));
+    vi.doMock("@/lib/k8s", () => ({ coreV1: () => ({}), watchedNamespaces: () => [] }));
+
+    const { startErrorBridge } = await import("./error-bridge");
+    await startErrorBridge();
+
+    // The bridge exists to forward failures into Sentry. With nowhere to forward
+    // them, consuming the topics is pure cost — and the captures it would make
+    // go nowhere while looking, in a log, exactly like working telemetry.
+    expect(consumeTopic).not.toHaveBeenCalled();
+  });
+
+  it("starts the consumers once a DSN is configured", async () => {
+    process.env.SENTRY_DSN = "https://k@o1.ingest.de.sentry.io/9";
+    const consumeTopic = vi.fn().mockResolvedValue(undefined);
+    vi.doMock("@/lib/kafka", () => ({ consumeTopic }));
+    vi.doMock("@/lib/k8s", () => ({ coreV1: () => ({}), watchedNamespaces: () => [] }));
+
+    const { startErrorBridge } = await import("./error-bridge");
+    await startErrorBridge();
+
+    expect(consumeTopic).toHaveBeenCalled();
+  });
+});

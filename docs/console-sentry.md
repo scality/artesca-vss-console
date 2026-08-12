@@ -78,11 +78,23 @@ Step 2 is required, not optional: the image carries no DSN, so a pod with no
 
 `GET /api/sentry-verify` ([`console/src/app/api/sentry-verify/route.ts`](../console/src/app/api/sentry-verify/route.ts)) throws a deliberate unhandled error. The console pod is reachable only over the SG-restricted `:8800` hostPort.
 
+⚠ **An unauthenticated curl does not reach it.** `/api/sentry-verify` is not in
+`PUBLIC_PATHS` in [`src/proxy.ts`](../src/proxy.ts), so a bare in-pod request is
+redirected to `/sign-in` with a `307` and the route never throws — no event is
+produced. Read as either "it works" or "it is broken", both wrong. The request
+has to carry a session, or the pod has to be running with
+`CONSOLE_DISABLE_AUTH=true`:
+
 ```bash
-# trigger from inside the console pod
+# the status code tells you which path you got: 500 = the route threw (an event
+# was sent), 307 = the proxy bounced you and nothing happened.
 kubectl -n console exec deploy/console -- curl -s -o /dev/null -w "%{http_code}\n" \
   http://localhost:8800/api/sentry-verify
 ```
+
+An image built without `WITH_TELEMETRY` has no SDK, so the route still throws a
+`500` and still sends nothing. Check `/about` first — it reports whether a DSN is
+configured — and remember the two states are independent.
 
 Then open the newest `sentry-verify: deliberate test error` issue and check the top in-app frame reads `src/app/api/sentry-verify/route.ts` with the original TypeScript source (minified `chunks/*.js` paths mean the source-map upload failed — check the secret and the build log for the `Sentry source-map upload enabled` line), and that `release` matches the deployed image tag.
 

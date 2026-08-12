@@ -140,9 +140,14 @@ not to Vercel).
 
 ### Intentionally NOT included
 
-- **Clerk / Supabase / Resend / Stripe / Sentry / OpenTelemetry / Langfuse** —
+- **Clerk / Supabase / Resend / Stripe / OpenTelemetry / Langfuse** —
   no SaaS surface area; an internal console on a closed network doesn't
   need any of these.
+- **Sentry** is the exception, and it is an **optional install**: absent from
+  every dependency field, opted into with `npm run enable-telemetry` or
+  `--build-arg WITH_TELEMETRY=1`, and inert without a `SENTRY_DSN`. Lab images
+  opt in; a third-party build gets neither the SDK nor its FSL-1.1-MIT
+  transitive. See [console-sentry.md](console-sentry.md).
 - **Vercel deploy** — hosted inside the ARTESCA cluster so it has native
   access to all the in-cluster services without public exposure of Kafka /
   Redis / kubeconfig.
