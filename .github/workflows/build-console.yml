@@ -42,6 +42,11 @@ on:
       - "src/**"
       - "tests/**"
       - "scripts/copy-monaco.mjs"
+      # The optional-telemetry presence check and its installer: a VERSION bump
+      # or a change to either decides whether the SDK is in the image at all,
+      # and neither would otherwise trigger a run.
+      - "telemetry-optional.cjs"
+      - "scripts/enable-telemetry.mjs"
       - "playwright.config.ts"
       - "vitest.config.ts"
       - "tsconfig.json"
@@ -56,6 +61,11 @@ on:
       - "src/**"
       - "tests/**"
       - "scripts/copy-monaco.mjs"
+      # The optional-telemetry presence check and its installer: a VERSION bump
+      # or a change to either decides whether the SDK is in the image at all,
+      # and neither would otherwise trigger a run.
+      - "telemetry-optional.cjs"
+      - "scripts/enable-telemetry.mjs"
       - "playwright.config.ts"
       - "vitest.config.ts"
       - "tsconfig.json"

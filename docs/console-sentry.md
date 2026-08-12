@@ -78,12 +78,14 @@ Step 2 is required, not optional: the image carries no DSN, so a pod with no
 
 `GET /api/sentry-verify` ([`console/src/app/api/sentry-verify/route.ts`](../console/src/app/api/sentry-verify/route.ts)) throws a deliberate unhandled error. The console pod is reachable only over the SG-restricted `:8800` hostPort.
 
-⚠ **An unauthenticated curl does not reach it.** `/api/sentry-verify` is not in
-`PUBLIC_PATHS` in [`src/proxy.ts`](../src/proxy.ts), so a bare in-pod request is
-redirected to `/sign-in` with a `307` and the route never throws — no event is
-produced. Read as either "it works" or "it is broken", both wrong. The request
-has to carry a session, or the pod has to be running with
-`CONSOLE_DISABLE_AUTH=true`:
+This works in the deployed pod for one reason worth knowing: `/api/sentry-verify`
+is **not** in `PUBLIC_PATHS` in [`src/proxy.ts`](../src/proxy.ts), so it is only
+reachable unauthenticated because `k8s/11-configmap-env.yaml` sets
+`CONSOLE_DISABLE_AUTH: "true"` and the bypass in
+[`src/lib/auth.ts`](../src/lib/auth.ts) waves the proxy through. On a pod with the
+sign-in gate **on**, the same curl is redirected to `/sign-in` with a `307`, the
+route never throws, and no event is produced — a result that reads as either
+success or failure and is neither. Check the status code:
 
 ```bash
 # the status code tells you which path you got: 500 = the route threw (an event
