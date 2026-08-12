@@ -178,23 +178,57 @@ export class FirestoreConfigStore implements ConfigStore {
 }
 
 /**
+ * The GCP project holding the config store, or undefined when nobody has said.
+ *
+ * There is deliberately no default. One was hardcoded in three places, naming a
+ * single organisation's project, so an outside build with no configuration went
+ * looking for its cameras, prompt and scenarios in an account it has no access
+ * to, and failed with a permission error rather than with "unconfigured". The
+ * two are opposite problems and only one of them is the reader's to fix.
+ *
+ * The Scality labs supply it from the deployment, in
+ * `isv-labs:scripts/deploy-console.sh`, alongside the Sentry DSN.
+ */
+export function firestoreProjectId(): string | undefined {
+  const id = (process.env.FIRESTORE_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT)?.trim();
+  return id ? id : undefined;
+}
+
+export function firestoreDatabaseId(): string {
+  return process.env.FIRESTORE_DATABASE_ID ?? "(default)";
+}
+
+/**
  * Production factory. Lazy-imports the SDK (keeps it out of the unit tests and
- * client bundle). Reads project from FIRESTORE_PROJECT_ID / GOOGLE_CLOUD_PROJECT
- * (default isv-alliances) and database from FIRESTORE_DATABASE_ID (default
- * "(default)"). Credentials come from GOOGLE_APPLICATION_CREDENTIALS / ADC.
+ * client bundle). Credentials come from GOOGLE_APPLICATION_CREDENTIALS / ADC.
+ *
+ * Throws when no project is configured, rather than letting the SDK resolve one
+ * from ambient credentials: on a developer laptop that silently reaches whatever
+ * project `gcloud` last logged into, which is how a write lands somewhere nobody
+ * chose. The message names the variable to set.
  */
 export async function makeFirestoreConfigStore(): Promise<FirestoreConfigStore> {
+  const projectId = firestoreProjectId();
+  if (!projectId) {
+    throw new Error(
+      "config store is unconfigured: set FIRESTORE_PROJECT_ID (or GOOGLE_CLOUD_PROJECT) " +
+        "to the GCP project holding it",
+    );
+  }
   const { Firestore } = await import("@google-cloud/firestore");
   const db: Firestore = new Firestore({
-    projectId:
-      process.env.FIRESTORE_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "isv-alliances",
-    databaseId: process.env.FIRESTORE_DATABASE_ID ?? "(default)",
+    projectId,
+    databaseId: firestoreDatabaseId(),
   });
   return new FirestoreConfigStore(db as unknown as FirestoreLike);
 }
 
 export interface FirestoreHealthResult {
-  status: "ok" | "no-credentials" | "error";
+  // `unconfigured` is its own state on purpose: nobody has named a project, which
+  // is a setting to supply rather than a fault to debug. Reporting it as `error`
+  // sent the reader looking for a broken store, and reporting it as
+  // `no-credentials` named the wrong variable.
+  status: "ok" | "unconfigured" | "no-credentials" | "error";
   detail?: string;
   project: string;
   database: string;
@@ -211,9 +245,16 @@ export async function firestoreHealthCheck(
     Pick<ConfigStore, "readPromptSets" | "readCameras" | "readScenarios">
   > = makeFirestoreConfigStore,
 ): Promise<FirestoreHealthResult> {
-  const project =
-    process.env.FIRESTORE_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "isv-alliances";
-  const database = process.env.FIRESTORE_DATABASE_ID ?? "(default)";
+  const project = firestoreProjectId() ?? "";
+  const database = firestoreDatabaseId();
+  if (!project) {
+    return {
+      status: "unconfigured",
+      detail: "FIRESTORE_PROJECT_ID (or GOOGLE_CLOUD_PROJECT) not set",
+      project,
+      database,
+    };
+  }
   if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
     return { status: "no-credentials", detail: "GOOGLE_APPLICATION_CREDENTIALS not set", project, database };
   }

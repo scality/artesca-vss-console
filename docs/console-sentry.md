@@ -12,7 +12,9 @@ The in-cluster console reports errors, traces, and masked session replays to Sen
 | Release | image tag hash (laptop sideload) / `sha-<short>` (CI GHCR build) |
 | Build secret | GCP Secret Manager `isv-labs-sentry-build-env` (project `isv-alliances`) — shared with the deployer; org + token reused, project overridden to `scality-vss-console-ui` |
 
-The DSN is inlined as the `CONSOLE_SENTRY_DSN` fallback in [`console/sentry.server.config.ts`](../console/sentry.server.config.ts) (and the matching literals in the edge / client configs), so every pod reports without env plumbing. It is an ingest-only identifier, not a secret. `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` (via the `console-env` ConfigMap) override it.
+**There is no DSN in the source tree, and telemetry does nothing without one.** [`src/lib/telemetry-config.ts`](../src/lib/telemetry-config.ts) is the single reader for all three runtimes, and each `Sentry.init` is guarded on a configured value — an undefined `dsn` would install the SDK's handlers and then drop every event, which is indistinguishable from working telemetry in a log.
+
+Supply it from the deployment: `SENTRY_DSN` for server and edge, via the `console-env` ConfigMap; `NEXT_PUBLIC_SENTRY_DSN` for the browser, which Next inlines at build time and a ConfigMap therefore cannot reach. `isv-labs:scripts/deploy-console.sh` fills the first for the Scality labs, so a lab pod reports as soon as it is redeployed. A DSN is an ingest-only identifier rather than a credential — the reason it is not in the tree is that a compiled-in default sends someone else's build into our project (ISVD-607).
 
 ## What's instrumented
 
@@ -53,13 +55,18 @@ Pyramid runs a sideloaded image with no Sentry env today. To turn it on:
 #    Both live in isv-labs; deploy-console.sh calls the builder itself.
 isv-labs:scripts/deploy-console.sh --instance pyramid-showroom
 
-# 2. (optional) point at a specific DSN without a rebuild — DSN is not a secret
+# 2. point the pod at a DSN. deploy-console.sh already does this for the labs;
+#    do it by hand after a `kubectl set image`, which does not touch the ConfigMap.
+#    NEXT_PUBLIC_SENTRY_DSN is inlined at build time — setting it here does
+#    nothing for the browser bundle, only a rebuild can.
 kubectl -n console patch cm console-env --type merge \
-  -p '{"data":{"SENTRY_DSN":"<dsn>","NEXT_PUBLIC_SENTRY_DSN":"<dsn>"}}'
+  -p '{"data":{"SENTRY_DSN":"<dsn>"}}'
 kubectl -n console rollout restart deploy/console
 ```
 
-Once the DSN fallback is inlined in the config files, step 2 is unnecessary — the pod reports as soon as the new image runs.
+Step 2 is required, not optional: the image carries no DSN, so a pod with no
+`SENTRY_DSN` in its ConfigMap reports nothing at all. `/about` is where to check
+— it names the Sentry state alongside the config store's.
 
 ## Verifying the pipeline end to end
 

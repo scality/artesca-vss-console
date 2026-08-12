@@ -1,7 +1,12 @@
 import { Shell } from "@/components/Shell";
 import { ExternalLink } from "lucide-react";
 import { gcsHealthCheck, gcsCamerasGet, gcsPromptGet, gcsScenariosGet } from "@/lib/helpers/gcs-config";
-import { firestoreHealthCheck } from "@/lib/config-store/firestore";
+import {
+  firestoreHealthCheck,
+  firestoreProjectId,
+  firestoreDatabaseId,
+} from "@/lib/config-store/firestore";
+import { serverTelemetryDsn, clientTelemetryDsn } from "@/lib/telemetry-config";
 
 interface ServiceUrlRow {
   label: string;
@@ -157,8 +162,8 @@ export default async function AboutPage() {
   const firestoreHealth = await firestoreHealthCheck(instance).catch(() => ({
     status: "error" as const,
     detail: "health check threw unexpectedly",
-    project: process.env.FIRESTORE_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "isv-alliances",
-    database: process.env.FIRESTORE_DATABASE_ID ?? "(default)",
+    project: firestoreProjectId() ?? "",
+    database: firestoreDatabaseId(),
   }));
 
   return (
@@ -356,16 +361,19 @@ export default async function AboutPage() {
               className={
                 firestoreHealth.status === "ok"
                   ? "text-emerald-700 font-semibold text-sm"
-                  : firestoreHealth.status === "no-credentials"
+                  : firestoreHealth.status === "no-credentials" ||
+                      firestoreHealth.status === "unconfigured"
                     ? "text-amber-700 font-semibold text-sm"
                     : "text-muted-foreground font-semibold text-sm"
               }
             >
               {firestoreHealth.status === "ok"
                 ? "available"
-                : firestoreHealth.status === "no-credentials"
-                  ? "no credentials"
-                  : "error"}
+                : firestoreHealth.status === "unconfigured"
+                  ? "not configured"
+                  : firestoreHealth.status === "no-credentials"
+                    ? "no credentials"
+                    : "error"}
             </span>
             {firestoreHealth.detail && (
               <span className="text-xs text-muted-foreground">{firestoreHealth.detail}</span>
@@ -406,6 +414,40 @@ export default async function AboutPage() {
             <code className="font-mono">GOOGLE_APPLICATION_CREDENTIALS</code> (secret{" "}
             <code className="font-mono">config-store-rw</code>); set{" "}
             <code className="font-mono">VSS_INSTANCE_NAME</code> to select the instance.
+          </p>
+        </section>
+
+        {/* Telemetry. Reported because it is off unless configured (ISVD-607) and
+            there is otherwise no way to tell short of causing an error: the SDK
+            is silent either way, and a pod that reports nothing looks exactly
+            like a pod with nothing to report. */}
+        <section className="rounded-lg border border-border bg-card p-5 space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Telemetry
+          </h2>
+
+          <div className="flex items-center gap-3">
+            <span
+              className={
+                serverTelemetryDsn()
+                  ? "text-emerald-700 font-semibold text-sm"
+                  : "text-muted-foreground font-semibold text-sm"
+              }
+            >
+              {serverTelemetryDsn() ? "reporting" : "off"}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              server + edge {serverTelemetryDsn() ? "— SENTRY_DSN set" : "— no SENTRY_DSN"}
+              {" · "}browser {clientTelemetryDsn() ? "reporting" : "off"}
+            </span>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            The image carries no DSN. Set <code className="font-mono">SENTRY_DSN</code> in the{" "}
+            <code className="font-mono">console-env</code> ConfigMap for server and edge
+            reporting. The browser bundle reads{" "}
+            <code className="font-mono">NEXT_PUBLIC_SENTRY_DSN</code>, which is inlined at build
+            time — a ConfigMap value cannot reach it, so enabling it needs a rebuild.
           </p>
         </section>
 

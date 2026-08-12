@@ -1,13 +1,15 @@
 import * as Sentry from "@sentry/nextjs";
+import { serverTelemetryDsn, tracesSampleRate } from "@/lib/telemetry-config";
 
-// DSN inlined (not imported from sentry.server.config, whose import would run
-// that module's Sentry.init in the edge runtime). Keep in sync with the
-// CONSOLE_SENTRY_DSN fallback there.
-const CONSOLE_SENTRY_DSN =
-  "https://507501f6802911f191fb369c30d22471@o4511336023326720.ingest.de.sentry.io/4511738391494736";
+// The DSN was inlined here rather than imported from sentry.server.config,
+// because importing that module would run its Sentry.init in the edge runtime.
+// src/lib/telemetry-config.ts has no side effects, so it is safe to share.
+const dsn = serverTelemetryDsn();
 
-Sentry.init({
-  dsn: process.env.SENTRY_DSN ?? CONSOLE_SENTRY_DSN,
+if (dsn) {
+  Sentry.init({
+    dsn,
 
-  tracesSampleRate: process.env.NODE_ENV === "development" ? 1.0 : 0.1,
-});
+    tracesSampleRate: tracesSampleRate(),
+  });
+}

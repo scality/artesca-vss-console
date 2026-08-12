@@ -1,18 +1,20 @@
 import * as Sentry from "@sentry/nextjs";
+import { serverTelemetryDsn, tracesSampleRate } from "@/lib/telemetry-config";
 
-// Fallback DSN for project `scality-vss-console-ui` (org scality-3i, de region).
-// A DSN is an ingest-only identifier, not a secret — hardcoding it lets every
-// in-cluster pod report without env plumbing. SENTRY_DSN overrides it.
-export const CONSOLE_SENTRY_DSN =
-  "https://507501f6802911f191fb369c30d22471@o4511336023326720.ingest.de.sentry.io/4511738391494736";
+const dsn = serverTelemetryDsn();
 
-Sentry.init({
-  dsn: process.env.SENTRY_DSN ?? CONSOLE_SENTRY_DSN,
+// No DSN, no init. Calling Sentry.init with an undefined dsn installs the SDK's
+// global handlers and then drops every event, which reads in a log as working
+// telemetry. Skipping the call entirely is what makes "off" observable.
+if (dsn) {
+  Sentry.init({
+    dsn,
 
-  tracesSampleRate: process.env.NODE_ENV === "development" ? 1.0 : 0.1,
+    tracesSampleRate: tracesSampleRate(),
 
-  // Deliberately NO includeLocalVariables and NO enableLogs: server code holds
-  // lab secrets (S3/objectstore keys, the camera-sim SSH PEM, Firestore SA key,
-  // ARTESCA Grafana/Keycloak passwords) in locals and logs cluster command
-  // lines — neither may reach the observability sink.
-});
+    // Deliberately NO includeLocalVariables and NO enableLogs: server code holds
+    // lab secrets (S3/objectstore keys, the camera-sim SSH PEM, Firestore SA key,
+    // ARTESCA Grafana/Keycloak passwords) in locals and logs cluster command
+    // lines — neither may reach the observability sink.
+  });
+}

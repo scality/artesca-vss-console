@@ -89,6 +89,15 @@ data:
   #   substituted with the real instance name by deploy-console.sh (same
   #   mechanism as CAMERA_SIM_HOST).
   VSS_INSTANCE_NAME: "<vss-instance-name>"
+  # FIRESTORE_PROJECT_ID: the GCP project holding the config store. REQUIRED —
+  #   there is no default in the image. A hardcoded one named a single
+  #   organisation's project, so any other build went looking for its cameras,
+  #   prompt and scenarios in an account it cannot read and failed with a
+  #   permission error instead of "unconfigured" (ISVD-607). Left empty here
+  #   because this repository is public; deploy-console.sh fills it, the same
+  #   mechanism as CAMERA_SIM_HOST. Unset, /about reports "not configured" and
+  #   the reconcile loop raises naming this variable.
+  FIRESTORE_PROJECT_ID: ""
   # Firestore credentials — mounted from the config-store-rw secret (see
   # 20-console.yaml). Fixed path, same as the reconcile-agent.
   GOOGLE_APPLICATION_CREDENTIALS: "/etc/config-store/key.json"
@@ -115,14 +124,16 @@ data:
   NIM_PREVIEW_MODEL: "nvila-lite-2b"
 
   # ── Sentry observability (optional) ──────────────────────────────────────────
-  # DSN is an ingest-only identifier, not a secret. A build-time fallback is
-  # hardcoded in the image (sentry.server.config.ts / instrumentation-client.ts),
-  # so the pod reports without any env here. Set these only to point a given
-  # deploy at a different project/DSN without rebuilding.
+  # Telemetry is OFF unless a DSN is supplied here. The image carries none: the
+  # same DSN was compiled into all three runtimes, so any other build reported
+  # its errors into one organisation's Sentry project (ISVD-607). A DSN is an
+  # ingest-only identifier rather than a credential, so this is not about
+  # secrecy — a default destination someone inherits by accident is simply not
+  # a default. deploy-console.sh fills these for the Scality labs.
   #   SENTRY_DSN            — server + edge runtime ingest.
   #   NEXT_PUBLIC_SENTRY_DSN — browser ingest (baked at build; override needs rebuild).
-  # SENTRY_DSN: "https://<key>@o4511336023326720.ingest.de.sentry.io/<projectId>"
-  # NEXT_PUBLIC_SENTRY_DSN: "https://<key>@o4511336023326720.ingest.de.sentry.io/<projectId>"
+  # SENTRY_DSN: "https://<key>@<org>.ingest.<region>.sentry.io/<projectId>"
+  # NEXT_PUBLIC_SENTRY_DSN: "https://<key>@<org>.ingest.<region>.sentry.io/<projectId>"
 
   # ── Auth.js ───────────────────────────────────────────────────────────────────
   # Must be reachable from inside the pod for callbacks. The cookie-signing

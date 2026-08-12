@@ -6,10 +6,14 @@ import { firestoreHealthCheck } from "@/lib/config-store/firestore";
 const ORIG = { ...process.env };
 beforeEach(() => {
   process.env = { ...ORIG };
-  delete process.env.FIRESTORE_PROJECT_ID;
   delete process.env.GOOGLE_CLOUD_PROJECT;
   delete process.env.FIRESTORE_DATABASE_ID;
   delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  // A project has to be named for any other state to be reachable: there is no
+  // default in the code (ISVD-607), and `unconfigured` is checked first because
+  // with no project there is nothing to authenticate to. The unset case is its
+  // own test below.
+  process.env.FIRESTORE_PROJECT_ID = "test-project";
 });
 afterEach(() => {
   process.env = { ...ORIG };
@@ -23,10 +27,30 @@ const okStore = () =>
   } as never);
 
 describe("firestoreHealthCheck", () => {
+  it("reports unconfigured when no project is named, naming the variable", async () => {
+    delete process.env.FIRESTORE_PROJECT_ID;
+    const r = await firestoreHealthCheck("i1", okStore);
+    // Its own status, not `error` and not `no-credentials`: nobody has supplied
+    // a setting, which is neither a fault to debug nor the wrong credential.
+    expect(r.status).toBe("unconfigured");
+    expect(r.detail).toContain("FIRESTORE_PROJECT_ID");
+    expect(r.project).toBe("");
+    expect(r.counts).toBeUndefined();
+  });
+
+  it("accepts GOOGLE_CLOUD_PROJECT as the project source", async () => {
+    delete process.env.FIRESTORE_PROJECT_ID;
+    process.env.GOOGLE_CLOUD_PROJECT = "from-gcloud-env";
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = "/etc/config-store/key.json";
+    const r = await firestoreHealthCheck("i1", okStore);
+    expect(r.status).toBe("ok");
+    expect(r.project).toBe("from-gcloud-env");
+  });
+
   it("reports no-credentials when GOOGLE_APPLICATION_CREDENTIALS is unset", async () => {
     const r = await firestoreHealthCheck("i1", okStore);
     expect(r.status).toBe("no-credentials");
-    expect(r.project).toBe("isv-alliances");
+    expect(r.project).toBe("test-project");
     expect(r.database).toBe("(default)");
     expect(r.counts).toBeUndefined();
   });
