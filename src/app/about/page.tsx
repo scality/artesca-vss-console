@@ -1,11 +1,7 @@
 import { Shell } from "@/components/Shell";
 import { ExternalLink } from "lucide-react";
 import { gcsHealthCheck, gcsCamerasGet, gcsPromptGet, gcsScenariosGet } from "@/lib/helpers/gcs-config";
-import {
-  firestoreHealthCheck,
-  firestoreProjectId,
-  firestoreDatabaseId,
-} from "@/lib/config-store/firestore";
+import { configStoreHealthCheck } from "@/lib/config-store";
 import { serverTelemetryDsn, clientTelemetryDsn } from "@/lib/telemetry-config";
 
 interface ServiceUrlRow {
@@ -158,12 +154,17 @@ export default async function AboutPage() {
         ])
       : [null, null, null];
 
-  // Firestore health (the k8s-path runtime-config canonical) — run at render time.
-  const firestoreHealth = await firestoreHealthCheck(instance).catch(() => ({
+  // Config-store health (the k8s-path runtime-config canonical) — run at render
+  // time. Reports whichever backend this pod actually selected, which is the
+  // thing worth showing: the selection can be inferred rather than set, and a
+  // pod reading an empty YAML file looks exactly like a fresh instance.
+  const storeHealth = await configStoreHealthCheck(instance).catch(() => ({
+    kind: "file" as const,
+    inferred: false,
     status: "error" as const,
     detail: "health check threw unexpectedly",
-    project: firestoreProjectId() ?? "",
-    database: firestoreDatabaseId(),
+    location: "",
+    counts: undefined,
   }));
 
   return (
@@ -350,43 +351,67 @@ export default async function AboutPage() {
           </p>
         </section>
 
-        {/* Firestore config store health (k8s-path runtime-config canonical) */}
+        {/* Config store health (k8s-path runtime-config canonical) */}
         <section className="rounded-lg border border-border bg-card p-5 space-y-4">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Firestore Config Store
+            Config Store — {storeHealth.kind === "file" ? "YAML file" : "Firestore"}
           </h2>
 
           <div className="flex items-center gap-3">
             <span
               className={
-                firestoreHealth.status === "ok"
+                storeHealth.status === "ok"
                   ? "text-emerald-700 font-semibold text-sm"
-                  : firestoreHealth.status === "no-credentials" ||
-                      firestoreHealth.status === "unconfigured"
+                  : storeHealth.status === "no-credentials" ||
+                      storeHealth.status === "unconfigured"
                     ? "text-amber-700 font-semibold text-sm"
                     : "text-muted-foreground font-semibold text-sm"
               }
             >
-              {firestoreHealth.status === "ok"
+              {storeHealth.status === "ok"
                 ? "available"
-                : firestoreHealth.status === "unconfigured"
+                : storeHealth.status === "unconfigured"
                   ? "not configured"
-                  : firestoreHealth.status === "no-credentials"
+                  : storeHealth.status === "no-credentials"
                     ? "no credentials"
                     : "error"}
             </span>
-            {firestoreHealth.detail && (
-              <span className="text-xs text-muted-foreground">{firestoreHealth.detail}</span>
+            {storeHealth.detail && (
+              <span className="text-xs text-muted-foreground">{storeHealth.detail}</span>
             )}
           </div>
 
-          {firestoreHealth.status === "ok" && firestoreHealth.counts && (
+          {/* An inferred selection is called out, because nobody chose it. It
+              happens when FIRESTORE_PROJECT_ID is set and CONSOLE_CONFIG_STORE is
+              not — the shape an instance is left in by `kubectl set image`. */}
+          {storeHealth.inferred && (
+            <p className="text-xs text-amber-700">
+              Backend inferred from <code className="font-mono">FIRESTORE_PROJECT_ID</code>, not
+              selected. Set <code className="font-mono">CONSOLE_CONFIG_STORE</code> to{" "}
+              <code className="font-mono">file</code> or{" "}
+              <code className="font-mono">firestore</code> to make it explicit.
+            </p>
+          )}
+
+          {storeHealth.status === "ok" && storeHealth.counts && (
             <table className="w-full text-sm">
               <tbody className="divide-y divide-border">
                 {[
-                  { surface: "Prompt sets", path: `instances/${instance}/prompts`, n: firestoreHealth.counts.promptSets },
-                  { surface: "Cameras", path: `instances/${instance}/cameras`, n: firestoreHealth.counts.cameras },
-                  { surface: "Scenarios", path: `instances/${instance}/scenarios`, n: firestoreHealth.counts.scenarios },
+                  {
+                    surface: "Prompt sets",
+                    path: storeHealth.kind === "file" ? "promptSets[]" : `instances/${instance}/prompts`,
+                    n: storeHealth.counts.promptSets,
+                  },
+                  {
+                    surface: "Cameras",
+                    path: storeHealth.kind === "file" ? "cameras[]" : `instances/${instance}/cameras`,
+                    n: storeHealth.counts.cameras,
+                  },
+                  {
+                    surface: "Scenarios",
+                    path: storeHealth.kind === "file" ? "scenarios[]" : `instances/${instance}/scenarios`,
+                    n: storeHealth.counts.scenarios,
+                  },
                 ].map(({ surface, path, n }) => (
                   <tr key={surface} className="hover:bg-muted/20 transition-colors">
                     <td className="py-2 pr-4">
@@ -395,7 +420,8 @@ export default async function AboutPage() {
                     </td>
                     <td className="py-2">
                       <span className="text-emerald-700 text-xs font-semibold">
-                        {n} doc{n === 1 ? "" : "s"}
+                        {n} {storeHealth.kind === "file" ? "entr" : "doc"}
+                        {storeHealth.kind === "file" ? (n === 1 ? "y" : "ies") : n === 1 ? "" : "s"}
                       </span>
                     </td>
                   </tr>
@@ -405,15 +431,25 @@ export default async function AboutPage() {
           )}
 
           <p className="text-xs text-muted-foreground">
-            Project{" "}
-            <code className="font-mono">{firestoreHealth.project}</code> · database{" "}
-            <code className="font-mono">{firestoreHealth.database}</code> · instance{" "}
+            {storeHealth.kind === "file" ? "File" : "Project/database"}{" "}
+            <code className="font-mono">{storeHealth.location || "(none)"}</code> · instance{" "}
             <code className="font-mono">{instance || "(not configured)"}</code>. The k8s-path
             runtime config (cameras / prompt-sets / scenarios) the console + reconcile-agent
-            read and write. Credentials from{" "}
-            <code className="font-mono">GOOGLE_APPLICATION_CREDENTIALS</code> (secret{" "}
-            <code className="font-mono">config-store-rw</code>); set{" "}
-            <code className="font-mono">VSS_INSTANCE_NAME</code> to select the instance.
+            read and write; set <code className="font-mono">VSS_INSTANCE_NAME</code> to select
+            the instance.{" "}
+            {storeHealth.kind === "file" ? (
+              <>
+                One YAML file per instance under{" "}
+                <code className="font-mono">CONSOLE_DATA_DIR</code>, which must be a volume both
+                pods mount — a store on a container filesystem is a store each pod has its own
+                private copy of.
+              </>
+            ) : (
+              <>
+                Credentials from <code className="font-mono">GOOGLE_APPLICATION_CREDENTIALS</code>{" "}
+                (secret <code className="font-mono">config-store-rw</code>).
+              </>
+            )}
           </p>
         </section>
 

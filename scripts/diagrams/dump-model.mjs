@@ -53,14 +53,31 @@ function parseConfigStore() {
   const types = read('src/lib/config-store/types.ts');
   const iface = types.slice(types.indexOf('export interface ConfigStore'));
   const methods = [...iface.matchAll(/^\s{2}(\w+)\(/gm)].map((m) => m[1]);
-  const store = read('src/lib/config-store/firestore.ts');
-  const paths = [...store.matchAll(/=>\s*`(instances\/\$\{instance\}[^`]*)`/g)]
+
+  // Two backends implement the contract. Read the list and the default from the
+  // factory rather than writing them here, so the sheet cannot claim a backend
+  // that was removed or miss one that was added.
+  const index = read('src/lib/config-store/index.ts');
+  const kindDecl = index.match(/^export type StoreKind = (.+);$/m);
+  const kinds = kindDecl ? [...kindDecl[1].matchAll(/"(\w+)"/g)].map((k) => k[1]) : [];
+  const defaultKind = /\?\s*"firestore"\s*:\s*"file"/.test(index) ? 'file' : 'unknown';
+
+  // Where each backend puts an instance's data. The file layout is one document,
+  // so its "paths" are the keys inside it; Firestore's are document paths.
+  const fs = read('src/lib/config-store/firestore.ts');
+  const firestorePaths = [...fs.matchAll(/=>\s*`(instances\/\$\{instance\}[^`]*)`/g)]
     .map((m) => m[1].replace('${instance}', '<instance>'));
+  const file = read('src/lib/config-store/file.ts');
+  const fileEntities = [...file.matchAll(/^\s{2}(cameras|scenarios|promptSets): Record/gm)].map((m) => m[1]);
+
   return {
     methods,
     reads: methods.filter((m) => m.startsWith('read')).length,
     writes: methods.length - methods.filter((m) => m.startsWith('read')).length,
-    paths: [...new Set(paths)],
+    kinds,
+    defaultKind,
+    paths: [...new Set(firestorePaths)],
+    fileEntities,
   };
 }
 
@@ -68,7 +85,7 @@ function parseConfigStore() {
 const BACKENDS = {
   k8s: 'Kubernetes', ssh: 'SSH to nodes', s3: 'S3 / ARTESCA',
   kafka: 'Kafka', redis: 'Redis', aws: 'AWS API',
-  'config-store/firestore': 'Firestore', 'helpers/gcs-config': 'GCS config',
+  'config-store': 'Config store', 'helpers/gcs-config': 'GCS config',
 };
 
 /**
@@ -76,7 +93,7 @@ const BACKENDS = {
  *
  * ⚠ The dynamic form is not an edge case here: the reconcile context is reached
  * through `await import("@/lib/reconcile/context")` in all 16 of its call sites,
- * so a static-only walk reports that no route touches Firestore at all.
+ * so a static-only walk reports that no route touches the config store at all.
  */
 function libImports(file) {
   const src = readFileSync(file, 'utf8');
@@ -102,6 +119,7 @@ function libReach(mod, seen = new Set()) {
   seen.add(mod);
   const out = new Set();
   if (BACKENDS[mod]) out.add(mod);
+  else if (mod.startsWith('config-store/')) out.add('config-store');
   const file = resolveLib(mod);
   if (file) for (const next of libImports(file)) for (const b of libReach(next, seen)) out.add(b);
   if (seen.size === 1) reachCache.set(mod, out);

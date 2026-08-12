@@ -1,7 +1,7 @@
 // console/src/lib/reconcile-agent.ts
 import "server-only";
 
-import { makeFirestoreConfigStore } from "@/lib/config-store/firestore";
+import { makeConfigStore, configStoreKind, storeKindWasInferred } from "@/lib/config-store";
 import { VstClusterAdapter, type ClusterAdapter } from "@/lib/reconcile/cluster-adapter";
 import { reconcileInstanceCameras } from "@/lib/reconcile/run";
 import type { ReconcileRunOptions } from "@/lib/reconcile/run";
@@ -104,9 +104,24 @@ export async function startReconcileLoop(opts?: { intervalMs?: number; instance?
   const adapter = new VstClusterAdapter();
   let store: ConfigStore;
   try {
-    store = await makeFirestoreConfigStore();
+    store = await makeConfigStore();
+    log.info(
+      `config store: ${configStoreKind()}` +
+        (storeKindWasInferred() ? " (inferred from FIRESTORE_PROJECT_ID; set CONSOLE_CONFIG_STORE)" : ""),
+    );
   } catch (err) {
-    log.warn("could not init Firestore store — agent idle", { err });
+    // `log.warn` + `return` was wrong here, and quietly so: the agent went idle
+    // and the only trace was one warn line among a booting Next server's output,
+    // while `kubectl get pods` showed Running. An agent that cannot reach its
+    // store converges nothing, so a lab looked configured and was not.
+    //
+    // In the dedicated agent pod, converging IS the process's only job — rethrow,
+    // and let the CrashLoopBackOff be the signal. In the console pod the same
+    // failure must not take the web UI down, because the UI is where an operator
+    // reads what went wrong (`/about` names the store and its status).
+    log.error("config store init failed", { err });
+    if (process.env.RECONCILE_AGENT === "1") throw err;
+    log.error("reconcile loop not started — the console will serve, but nothing converges");
     return;
   }
 

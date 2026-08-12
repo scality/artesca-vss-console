@@ -84,7 +84,8 @@ legend.forEach(([bg, stroke, label], i) => {
 S.rect('z_state', 40, 456, 900, 300, { bg: P.zone.purple, stroke: P.purple, sw: 1, op: 28 });
 S.text('t_state', 60, 466, 'State shared with the deployer', 18, P.ink.purple);
 S.text('t_statec', 60, 490,
-  'the deployer provisions the cluster, then both write the same Firestore documents', 14, P.muted);
+  `the deployer provisions the cluster, then both write the same store (${m.configStore.kinds.join(' | ')}; default ${m.configStore.defaultKind})`,
+  14, P.muted);
 
 S.rect('st_dep', 62, 522, 250, 60, {
   bg: P.fill.amber, stroke: P.amber, fs: 14, label: 'deployer :5002\nlaptop-side, pre-install',
@@ -94,10 +95,10 @@ S.rect('st_con', 668, 522, 250, 60, {
 });
 S.rect('st_fs', 344, 514, 292, 76, {
   bg: P.fill.purple, stroke: P.purple, fs: 14,
-  label: `Firestore\n${m.configStore.methods.length} methods — ${m.configStore.reads} read, ${m.configStore.writes} write`,
+  label: `ConfigStore\n${m.configStore.methods.length} methods — ${m.configStore.reads} read, ${m.configStore.writes} write`,
 });
 S.arrow('a_dep', 316, 552, [[0, 0], [24, 0]], { stroke: P.amber });
-S.arrow('a_con', 640, 552, [[24, 0], [0, 0]], { stroke: P.blue });
+S.arrow('a_con', 664, 552, [[0, 0], [-24, 0]], { stroke: P.blue });
 
 m.configStore.paths.forEach((p, i) => {
   S.rect(`fs_${i}`, 62 + (i % 2) * 428, 610 + Math.floor(i / 2) * 38, 418, 32, {

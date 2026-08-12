@@ -15,6 +15,20 @@ const telemetryAlias: Record<string, string> = telemetryInstalled()
   ? {}
   : { [PACKAGE as string]: path.resolve(__dirname, NOOP_MODULE as string) };
 
+// Same for the optional Firestore SDK. No test resolves it today — the store is
+// exercised through its FirestoreLike port with an in-memory fake — but one that
+// reached the real factory would otherwise fail with a module-resolution error
+// instead of the stub's refusal, which is the behaviour under test.
+const {
+  PACKAGE: FIRESTORE_PACKAGE,
+  NOOP_MODULE: FIRESTORE_STUB,
+  firestoreInstalled,
+} = createRequire(import.meta.url)("./firestore-optional.cjs");
+
+const firestoreAlias: Record<string, string> = firestoreInstalled()
+  ? {}
+  : { [FIRESTORE_PACKAGE as string]: path.resolve(__dirname, FIRESTORE_STUB as string) };
+
 export default defineConfig({
   test: {
     globals: true,
@@ -43,6 +57,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       ...telemetryAlias,
+      ...firestoreAlias,
     },
   },
 });

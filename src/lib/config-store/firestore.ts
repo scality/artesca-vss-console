@@ -1,6 +1,5 @@
 import "server-only";
 
-import type { Firestore } from "@google-cloud/firestore";
 import type {
   ConfigStore,
   CameraEntry,
@@ -215,8 +214,24 @@ export async function makeFirestoreConfigStore(): Promise<FirestoreConfigStore> 
         "to the GCP project holding it",
     );
   }
-  const { Firestore } = await import("@google-cloud/firestore");
-  const db: Firestore = new Firestore({
+  // The SDK is an optional install (see firestore-optional.cjs), so this import
+  // may not resolve. The bare MODULE_NOT_FOUND it throws names a package but not
+  // what to do about it, and "cannot find module @google-cloud/firestore" reads
+  // like a broken build rather than a backend nobody installed.
+  //
+  // @ts-ignore -- optional dependency; absent from a default install by design
+  const mod = await import("@google-cloud/firestore").catch((err: unknown) => {
+    if ((err as NodeJS.ErrnoException)?.code === "MODULE_NOT_FOUND") {
+      throw new Error(
+        "CONSOLE_CONFIG_STORE=firestore, but the @google-cloud/firestore SDK is not installed " +
+          "in this build. Either run `npm run enable-firestore` (or rebuild the image with " +
+          "--build-arg WITH_FIRESTORE=1), or leave CONSOLE_CONFIG_STORE unset to use the " +
+          "default YAML file store.",
+      );
+    }
+    throw err;
+  });
+  const db = new mod.Firestore({
     projectId,
     databaseId: firestoreDatabaseId(),
   });

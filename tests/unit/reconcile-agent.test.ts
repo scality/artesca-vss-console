@@ -1,7 +1,7 @@
 // console/tests/unit/reconcile-agent.test.ts
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { runReconcileAgentOnce, startReconcileLoop } from "@/lib/reconcile-agent";
-import { makeFirestoreConfigStore } from "@/lib/config-store/firestore";
+import { makeConfigStore } from "@/lib/config-store";
 import type { ConfigStore, ReconcileStatus, CameraEntry } from "@/lib/config-store/types";
 import type { ClusterAdapter } from "@/lib/reconcile/cluster-adapter";
 
@@ -31,8 +31,12 @@ function fakeStore(cameras: CameraEntry[]): { store: ConfigStore; written: Recon
   };
 }
 
-vi.mock("@/lib/config-store/firestore", () => ({
-  makeFirestoreConfigStore: vi.fn(async () => ({
+// The agent asks the factory for whichever backend is configured, not for
+// Firestore by name — so the mock is the factory.
+vi.mock("@/lib/config-store", () => ({
+  configStoreKind: () => "file",
+  storeKindWasInferred: () => false,
+  makeConfigStore: vi.fn(async () => ({
     readCameras: async () => [], writeCameras: async () => {}, upsertCamera: async () => {},
     deleteCamera: async () => {}, readStatus: async () => null, writeStatus: async () => {},
     readPrompt: async () => null, writePrompt: async () => {}, readScenarios: async () => [],
@@ -50,7 +54,7 @@ vi.mock("@/lib/reconcile/prompt-seed", () => ({ seedDefaultPromptSet: async () =
 
 describe("startReconcileLoop periodic gating", () => {
   beforeEach(() => {
-    // clearAllMocks resets call counts on vi.fn() mocks (e.g. makeFirestoreConfigStore)
+    // clearAllMocks resets call counts on vi.fn() mocks (e.g. makeConfigStore)
     // and clears spy call history — both are needed for count isolation across tests.
     vi.clearAllMocks();
     process.env.VSS_INSTANCE_NAME = "inst-1";
@@ -60,9 +64,9 @@ describe("startReconcileLoop periodic gating", () => {
     const spy = vi.spyOn(global, "setInterval");
     await startReconcileLoop({ periodic: false });
     expect(spy).not.toHaveBeenCalled();
-    // Verify the startup convergence pass fired: makeFirestoreConfigStore is called
+    // Verify the startup convergence pass fired: makeConfigStore is called
     // exactly once per startReconcileLoop invocation (before tick() is enqueued).
-    expect(vi.mocked(makeFirestoreConfigStore)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(makeConfigStore)).toHaveBeenCalledTimes(1);
   });
 
   it("periodic:true (default) schedules the interval", async () => {

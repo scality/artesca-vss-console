@@ -47,6 +47,10 @@ on:
       # and neither would otherwise trigger a run.
       - "telemetry-optional.cjs"
       - "scripts/enable-telemetry.mjs"
+      # Same for the optional Firestore SDK — the config-store backend the image
+      # can serve is decided at build time by whether it is installed.
+      - "firestore-optional.cjs"
+      - "scripts/enable-firestore.mjs"
       - "playwright.config.ts"
       - "vitest.config.ts"
       - "tsconfig.json"
@@ -66,6 +70,10 @@ on:
       # and neither would otherwise trigger a run.
       - "telemetry-optional.cjs"
       - "scripts/enable-telemetry.mjs"
+      # Same for the optional Firestore SDK — the config-store backend the image
+      # can serve is decided at build time by whether it is installed.
+      - "firestore-optional.cjs"
+      - "scripts/enable-firestore.mjs"
       - "playwright.config.ts"
       - "vitest.config.ts"
       - "tsconfig.json"
@@ -252,11 +260,18 @@ jobs:
           # extra cost. `ci` installs with npm ci and no arg, so it proves the app
           # type-checks, tests, builds and E2Es with the SDK absent; this job proves
           # the withSentryConfig path still works.
+          #
+          # WITH_FIRESTORE=1 is the same arrangement for the config store. The
+          # default backend is a YAML file, so the SDK is in no dependency field
+          # either — but every lab already deployed has its cameras, prompt-sets
+          # and scenarios in Firestore, so the published image has to be able to
+          # read them. `ci` covers the absent path, this job the present one.
           build-args: |
             SENTRY_ORG=${{ steps.sentry.outputs.org }}
             SENTRY_PROJECT=scality-vss-console-ui
             SENTRY_RELEASE=sha-${{ steps.sha.outputs.short }}
             WITH_TELEMETRY=1
+            WITH_FIRESTORE=1
           secrets: |
             sentry_auth_token=${{ steps.sentry.outputs.token }}
 

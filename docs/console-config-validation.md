@@ -1,15 +1,22 @@
 # Console Config Validation Runbook
 
-Post-deploy checklist for validating the VSS Demo Console with Firestore-backed
+Post-deploy checklist for validating the VSS Demo Console with store-backed
 runtime config, prompt-sets, and the VLM `Recreate` strategy fix.
 Assumes `isv-labs:scripts/deploy-console.sh` has completed. The deploy and
 validate scripts live in isv-labs, which owns the lab instance they act on.
+
+> **Which config-store backend is this instance on?** `/about` names it. The default
+> is the YAML file store, which needs no GCP project, no service-account key and no
+> `datastore.user` grant — so **step 1 below applies only to an instance on the
+> Firestore backend**, and everything after it is backend-agnostic. See
+> [`console-config-store.md`](console-config-store.md) for the selection rule (unset
+> is not the same as `file`) and the migration procedure.
 
 ---
 
 ## Prerequisites
 
-### 1. Firestore database + SA role
+### 1. Firestore database + SA role — *Firestore backend only*
 
 The console and reconcile-agent read/write Firestore in GCP project `isv-alliances`
 (`(default)` database). Verify before deploying:
@@ -134,8 +141,8 @@ gcloud firestore documents get \
 ```
 
 If the page is blank (no prompt-sets), the agent either did not run (Step 1
-skipped), `VSS_INSTANCE_NAME` was missing (agent idle), or Firestore access
-failed (SA role missing — check agent logs for `could not init Firestore store`).
+skipped), `VSS_INSTANCE_NAME` was missing (agent idle), or the config store
+could not be reached (check agent logs for `config store init failed`).
 
 ---
 
@@ -231,7 +238,7 @@ kubectl -n pyramid-ingress get cm scenarios -o yaml | grep -A5 'scenarios.yaml'
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| `/prompt` page blank — no prompt-set cards | Reconcile-agent not deployed, or agent idle (`VSS_INSTANCE_NAME` missing), or Firestore read failed | Check agent logs: `kubectl -n console logs deploy/reconcile-agent --tail=50`. Look for `agent idle` or `could not init Firestore store`. Re-run `scripts/reconcile-agent-deploy.sh`. |
+| `/prompt` page blank — no prompt-set cards | Reconcile-agent not deployed, or agent idle (`VSS_INSTANCE_NAME` missing), or Firestore read failed | Check agent logs: `kubectl -n console logs deploy/reconcile-agent --tail=50`. Look for `agent idle` or `config store init failed`. Re-run `scripts/reconcile-agent-deploy.sh`. |
 | Console loads but cameras / scenarios always show empty after edits | SA missing `roles/datastore.user` on GCP project `isv-alliances` | Console writes fail-soft and return `warnings[]`. Grant the SA role, re-check agent logs for `config-store` errors. |
 | VLM stuck rolling — pods pending, `kubectl describe` shows `Insufficient nvidia.com/gpu` | `strategy.type=RollingUpdate` — old pod holds the GPU, new pod cannot schedule | Check: `kubectl -n <vss-ns> get deploy vss-rtvi-vlm -o jsonpath='{.spec.strategy.type}'`. Patch to `Recreate` (see Step 3c). |
 | VLM crashloop — `Failed to load VLM on GPU 0` | `runtimeClassName` not set — GPU driver not injected (MetalK8s/runc path) | Verify `bootstrap-helm-deploy.sh` Job `gpu-runtimeclass-patch` completed: `kubectl -n <vss-ns> logs job/gpu-runtimeclass-patch` |

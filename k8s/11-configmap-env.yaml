@@ -83,32 +83,49 @@ data:
   # ARTESCA --base-domain (substituted by deploy-console.sh, same as S3_ENDPOINT).
   GRAFANA_URL: "https://<base-domain>:8443/"
 
-  # ── Firestore config store (k8s path) ────────────────────────────────────────
-  # VSS_INSTANCE_NAME: which instance's Firestore config docs the console reads/
-  #   writes (instances/<name>/{prompt,cameras,scenarios}). Placeholder is
-  #   substituted with the real instance name by deploy-console.sh (same
-  #   mechanism as CAMERA_SIM_HOST).
+  # ── Config store (k8s path) ──────────────────────────────────────────────────
+  # VSS_INSTANCE_NAME: which instance's config the console reads/writes. Names the
+  #   YAML file ($CONSOLE_DATA_DIR/config-store/<name>.yaml) on the file backend,
+  #   and the document path (instances/<name>/{prompt,cameras,scenarios}) on
+  #   Firestore. Placeholder is substituted with the real instance name by
+  #   deploy-console.sh (same mechanism as CAMERA_SIM_HOST).
   VSS_INSTANCE_NAME: "<vss-instance-name>"
-  # FIRESTORE_PROJECT_ID: the GCP project holding the config store. REQUIRED —
-  #   there is no default in the image. A hardcoded one named a single
+  # CONSOLE_CONFIG_STORE: which backend — "file" (default) or "firestore".
+  #
+  #   ⚠ Unset is NOT the same as "file". With FIRESTORE_PROJECT_ID set and this
+  #   unset, the console infers "firestore", deliberately: every instance
+  #   deployed before ISVD-606 has its cameras, prompt-sets and scenarios in
+  #   Firestore, and the ordinary way to ship a new build to one of those is
+  #   `kubectl set image`, which does not touch this ConfigMap. A flat default
+  #   would bring that pod up on an empty YAML file with no error at all.
+  #   /about says when the backend was inferred rather than chosen.
+  #
+  #   The file backend needs CONSOLE_DATA_DIR to be a volume EVERY writer mounts
+  #   — the console pod and the reconcile-agent pod both write. A store on a
+  #   container filesystem is one private copy per pod, which fails silently.
+  CONSOLE_CONFIG_STORE: "file"
+  # FIRESTORE_PROJECT_ID: the GCP project holding the store, for the firestore
+  #   backend only. No default in the image: a hardcoded one named a single
   #   organisation's project, so any other build went looking for its cameras,
   #   prompt and scenarios in an account it cannot read and failed with a
   #   permission error instead of "unconfigured" (ISVD-607). Left empty here
   #   because this repository is public; deploy-console.sh fills it, the same
-  #   mechanism as CAMERA_SIM_HOST. Unset, /about reports "not configured" and
-  #   the reconcile loop raises naming this variable.
+  #   mechanism as CAMERA_SIM_HOST.
   FIRESTORE_PROJECT_ID: ""
   # Firestore credentials — mounted from the config-store-rw secret (see
-  # 20-console.yaml). Fixed path, same as the reconcile-agent.
+  # 20-console.yaml). Fixed path, same as the reconcile-agent. Unused by the
+  # file backend.
   GOOGLE_APPLICATION_CREDENTIALS: "/etc/config-store/key.json"
   # Set to "1" ONLY when a dedicated reconcile-agent (RECONCILE_AGENT=1) is
-  # deployed to own Firestore→cluster convergence. Unset/"0" = the console runs
+  # deployed to own store→cluster convergence. Unset/"0" = the console runs
   # the periodic convergence loop itself (correct for single-pod deploys). The
-  # one-shot startup convergence runs regardless of this flag.
+  # one-shot startup convergence runs regardless of this flag — so the console is
+  # a config-store writer either way, which is why the file backend locks.
   CONSOLE_DISABLE_RECONCILE_LOOP: "0"
 
-  # ── SQLite database ───────────────────────────────────────────────────────────
-  # Backed by PVC console-data (5 Gi, ReadWriteOnce).
+  # ── Local state directory ─────────────────────────────────────────────────────
+  # Backed by PVC console-data (5 Gi, ReadWriteOnce). Holds the SQLite database
+  # and, on the file backend, config-store/<instance>.yaml.
   CONSOLE_DATA_DIR: "/data"
 
   # ── NIM preview endpoint ──────────────────────────────────────────────────────

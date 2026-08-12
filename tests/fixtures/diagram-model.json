@@ -31,9 +31,9 @@
       "/kvcache",
       "/topology"
     ],
-    "apiRoutes": 67,
-    "mutatingCount": 33,
-    "guardedCount": 17,
+    "apiRoutes": 68,
+    "mutatingCount": 34,
+    "guardedCount": 18,
     "backendCounts": {
       "k8s": 29,
       "ssh": 2,
@@ -41,10 +41,13 @@
       "kafka": 6,
       "redis": 1,
       "aws": 7,
-      "config-store/firestore": 8,
-      "helpers/gcs-config": 14
+      "config-store": 11,
+      "helpers/gcs-config": 15
     },
     "configStoreKeys": [
+      "defaultKind",
+      "fileEntities",
+      "kinds",
       "methods",
       "paths",
       "reads",

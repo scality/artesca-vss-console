@@ -72,6 +72,27 @@ RUN if [ -n "$WITH_TELEMETRY" ]; then \
       echo "telemetry: not installed (WITH_TELEMETRY unset) — building with reporting compiled out"; \
     fi
 
+# The Firestore SDK is optional for a different reason: it is Apache-2.0, but the
+# config store defaults to a YAML file under CONSOLE_DATA_DIR, so a default clone
+# would pull a GCP client library, gRPC and protobufjs (208 packages) for code
+# paths it never reaches (firestore-optional.cjs).
+#
+# It must be installed BEFORE `npm run build`: next.config.js decides at build
+# time whether to alias the specifier to a refusing stub or to treat it as a
+# server external and trace it into .next/standalone. An image built without this
+# arg cannot serve CONSOLE_CONFIG_STORE=firestore at all — it refuses at startup
+# with a message naming this flag.
+#
+# Scality lab images set WITH_FIRESTORE=1, because every existing lab's cameras,
+# prompt-sets and scenarios still live in Firestore and this is the rollback path
+# while they are migrated.
+ARG WITH_FIRESTORE=
+RUN if [ -n "$WITH_FIRESTORE" ]; then \
+      npm run enable-firestore && node -e "require.resolve('@google-cloud/firestore')"; \
+    else \
+      echo "firestore: not installed (WITH_FIRESTORE unset) — the YAML file store is the only backend"; \
+    fi
+
 # next build emits .next/standalone — a self-contained Node server tree that
 # includes node_modules entries for serverExternalPackages (ssh2, better-sqlite3,
 # cpu-features) resolved at build time for the current arch.

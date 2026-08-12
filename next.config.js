@@ -9,6 +9,22 @@ const { PACKAGE, NOOP_MODULE, telemetryInstalled } = require("./telemetry-option
 const TELEMETRY = telemetryInstalled();
 const { withSentryConfig } = TELEMETRY ? require(PACKAGE) : { withSentryConfig: (c) => c };
 
+// The Firestore SDK is an optional install too (see firestore-optional.cjs) — the
+// config store defaults to a YAML file and only the Scality labs point it at a GCP
+// project. Same alias mechanism, for a reason worth recording: being in
+// serverExternalPackages is NOT enough on its own. Measured — with the package
+// absent, `next build` still fails to resolve the `await import()` in
+// config-store/firestore.ts and reports it against four entrypoints, so the
+// specifier has to resolve to something. When absent it resolves to a stub whose
+// constructor refuses, and it is dropped from serverExternalPackages: telling Node
+// to resolve it at runtime is the opposite of aliasing it away.
+const {
+  PACKAGE: FIRESTORE_PACKAGE,
+  NOOP_MODULE: FIRESTORE_STUB,
+  firestoreInstalled,
+} = require("./firestore-optional.cjs");
+const FIRESTORE = firestoreInstalled();
+
 const SAFE_DEFAULT = "http://metropolis-nvidia-vss-ui:3000";
 
 // Blocked host patterns: link-local, loopback, metadata service, RFC1918 literals.
@@ -63,14 +79,21 @@ module.exports = {
       "dev",
   },
   // ssh2 and better-sqlite3 ship native bindings that Turbopack cannot bundle.
-  // @google-cloud/firestore is a gRPC/protobuf package whose dynamic requires
-  // and .proto assets do not survive bundling — left bundled, the standalone
-  // output omits it and the runtime `await import("@google-cloud/firestore")`
-  // in lib/config-store/firestore.ts throws MODULE_NOT_FOUND, breaking the k8s
-  // Firestore config-store (cameras / scenarios / prompt read+write).
+  // The Firestore SDK is a gRPC/protobuf package whose dynamic requires and
+  // .proto assets do not survive bundling either — left bundled, the standalone
+  // output omits it and the runtime import in lib/config-store/firestore.ts
+  // throws MODULE_NOT_FOUND, breaking the Firestore config-store backend
+  // (cameras / scenarios / prompt read+write).
   // Mark them all as server-side externals so Node resolves them at runtime and
   // `output: standalone` traces them into .next/standalone/node_modules.
-  serverExternalPackages: ["ssh2", "better-sqlite3", "cpu-features", "sshcrypto", "@google-cloud/firestore"],
+  // Firestore is listed only when it is installed — see FIRESTORE above.
+  serverExternalPackages: [
+    "ssh2",
+    "better-sqlite3",
+    "cpu-features",
+    "sshcrypto",
+    ...(FIRESTORE ? [FIRESTORE_PACKAGE] : []),
+  ],
   // Reverse-proxy the upstream NVIDIA VSS chat UI (metropolis-nvidia-vss-ui) behind
   // /chat/__upstream so it shares the console origin (no CORS, no second
   // SSH tunnel, and the iframe can post messages to the parent).
@@ -90,14 +113,18 @@ module.exports = {
   },
 };
 
-if (!TELEMETRY) {
-  // Turbopack resolves the specifier to the stub. Only the build reads this —
-  // vitest has its own alias, from the same presence check.
+// Turbopack resolves an absent optional package's specifier to its stub. Only the
+// build reads this — vitest has its own alias, from the same presence checks.
+const absentAliases = {
+  ...(TELEMETRY ? {} : { [PACKAGE]: NOOP_MODULE }),
+  ...(FIRESTORE ? {} : { [FIRESTORE_PACKAGE]: FIRESTORE_STUB }),
+};
+if (Object.keys(absentAliases).length) {
   module.exports.turbopack = {
     ...(module.exports.turbopack || {}),
     resolveAlias: {
       ...((module.exports.turbopack || {}).resolveAlias || {}),
-      [PACKAGE]: NOOP_MODULE,
+      ...absentAliases,
     },
   };
 }
