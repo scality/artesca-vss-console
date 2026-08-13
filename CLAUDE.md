@@ -2,7 +2,9 @@
 
 The **console** is the in-cluster post-install operator UI for the ARTESCA+ VSS stack. Next.js 16, port **:8800**, runs as a K8s pod in namespace `console` (manifests at [`k8s/`](k8s/)). Distinct from [`isv-labs:deployer/`](isv-labs:deployer/) on :5002, which is laptop-side pre-install provisioning — the console assumes the cluster is up and running.
 
-> **`isv-labs:` paths** point into the sibling repository [`scality/isv-labs`](https://github.com/scality/isv-labs), which holds the deployer, the VSS workload manifests and the lab tooling. The console was extracted from it and is deployed onto the stack it provisions.
+> **`isv-labs:` paths** point into Scality's internal lab repository, which holds the deployer, the VSS workload manifests and the lab tooling. The console was extracted from it and is deployed onto the stack it provisions.
+>
+> ⚠ **This file is public and that repository is not going to be.** So a path written that way is not a link and never will be — it is a note about where a Scality-internal piece lives, kept only where it explains why code here is shaped the way it is. Two rules follow: **do not add new ones**, and when a fact a reader needs happens to live over there, **write the fact down here** instead of pointing at it. Everything needed to build, run, deploy and validate the console is in this repository. (Separately, `isv-labs.cameras.v2` and friends are frozen config-schema identifiers, not paths — see [CONTRIBUTING.md](CONTRIBUTING.md#the-isv-labs-schema-strings).)
 
 For the platform substrate, see the top-level [`CLAUDE.md`](isv-labs:CLAUDE.md). Design rationale + page spec (the operator-facing intent of each page): [`docs/console-design.md`](docs/console-design.md).
 

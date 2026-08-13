@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
+  "description": "Operator console for NVIDIA VSS on Scality ARTESCA — in-cluster Next.js UI for cameras, scenarios, VLM prompt, incidents and storage.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/scality/artesca-vss-console.git"
+  },
+  "bugs": {
+    "url": "https://github.com/scality/artesca-vss-console/issues"
+  },
+  "homepage": "https://github.com/scality/artesca-vss-console#readme",
   "scripts": {
     "predev": "node scripts/copy-monaco.mjs",
     "dev": "next dev --port 5003",

@@ -6,20 +6,20 @@ self-contained enough to be handed directly to an agent.
 
 **Prerequisite reading for every agent**
 
-- [console/src/lib/helpers/docker-sock.ts](../console/src/lib/helpers/docker-sock.ts)
+- [console/src/lib/helpers/docker-sock.ts](../src/lib/helpers/docker-sock.ts)
   — the canonical docker-socket helper; `inspectContainer`, `execInContainer`,
   `dockerSock`, `listComposeContainers`, `dockerRecreateWithEnv` (defined inline
   in prompt/route.ts, should be extracted — see §1).
-- [console/src/app/api/restart/[component]/route.ts](../console/src/app/api/restart/%5Bcomponent%5D/route.ts)
+- [console/src/app/api/restart/[component]/route.ts](../src/app/api/restart/%5Bcomponent%5D/route.ts)
   — reference for the `DOCKER_SERVICE_NAMES` mapping and the docker-socket
   container-restart pattern.
-- [console/src/app/api/prompt/route.ts](../console/src/app/api/prompt/route.ts)
+- [console/src/app/api/prompt/route.ts](../src/app/api/prompt/route.ts)
   — reference for the `dockerInspectEnv` + `dockerRecreateWithEnv` pattern;
   the most complete example of a dual-runtime route today.
-- [console/src/app/api/secrets/[key]/route.ts](../console/src/app/api/secrets/%5Bkey%5D/route.ts)
+- [console/src/app/api/secrets/[key]/route.ts](../src/app/api/secrets/%5Bkey%5D/route.ts)
   — reference for the `DOCKER_MODE` branch style and file-based secret
   persistence pattern.
-- [console/src/lib/cluster-refs.ts](../console/src/lib/cluster-refs.ts)
+- [console/src/lib/cluster-refs.ts](../src/lib/cluster-refs.ts)
   — all service / ConfigMap / namespace constants; add docker equivalents here
   rather than scattering them in route files.
 

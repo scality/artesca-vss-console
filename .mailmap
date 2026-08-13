@@ -1,0 +1,11 @@
+# Canonical author identities.
+#
+# `git shortlog`, `git log --use-mailmap` and GitHub's contributor list read this
+# file. It maps the addresses that appear in commits onto one identity per person
+# without rewriting history — which for a public repository is the point: a
+# rewrite changes every SHA, and the SHAs are cited in issues, in image tags
+# (`:sha-<short>`), and in this repository's own commit footers.
+#
+# Format: Canonical Name <canonical@email> <address-as-committed>
+Stéphane Richard <stephane.richard@scality.com> <stef.richard@gmail.com>
+Stéphane Richard <stephane.richard@scality.com> <stephane.richard@scality.com>

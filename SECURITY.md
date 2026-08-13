@@ -20,6 +20,11 @@ window; if the finding affects a deployment that is live, say so in the report.
 backports — images are published per commit as
 `ghcr.io/scality/artesca-vss-console:sha-<short-sha>`, alongside `:latest`.
 
+That package is currently private, so **name a commit rather than an image tag** in
+a report, and build from source with the [`Dockerfile`](Dockerfile) in this
+repository — the one CI uses. A finding pinned only to a tag that the reader
+cannot fetch cannot be reproduced.
+
 ## Known limitations of a default deployment
 
 These are properties of the code as published, not vulnerabilities to report. Each

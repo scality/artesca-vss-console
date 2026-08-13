@@ -1,6 +1,6 @@
 # Console observability — Sentry runbook
 
-The in-cluster console reports errors, traces, and masked session replays to Sentry. Mirrors the [deployer setup](deployer-sentry.md); the differences (in-cluster pod, image-build source-map upload) are called out below.
+The in-cluster console reports errors, traces, and masked session replays to Sentry. Mirrors the `deployer setup`; the differences (in-cluster pod, image-build source-map upload) are called out below.
 
 | Fact | Value |
 | ---- | ----- |
@@ -14,22 +14,22 @@ The in-cluster console reports errors, traces, and masked session replays to Sen
 
 **The SDK itself is an optional install.** `@sentry/nextjs` is in no dependency field of `package.json`: it pulls `@sentry/cli` under FSL-1.1-MIT, source-available rather than open source, and this repository is public. A default clone installs zero FSL packages (measured: 2 with it declared, 0 without).
 
-Opt in locally with `npm run enable-telemetry`, and in an image with `--build-arg WITH_TELEMETRY=1` — which CI and `isv-labs:scripts/build-console-image.sh` both pass, so every lab image reports. Without it the specifier is aliased to a no-op module and the app runs with reporting compiled out, whatever `SENTRY_DSN` says. Package absence and DSN absence are separate states, and `/about` shows the second one.
+Opt in locally with `npm run enable-telemetry`, and in an image with `--build-arg WITH_TELEMETRY=1` — which CI and Scality's lab image builder both pass, so every lab image reports. Without it the specifier is aliased to a no-op module and the app runs with reporting compiled out, whatever `SENTRY_DSN` says. Package absence and DSN absence are separate states, and `/about` shows the second one.
 
 `telemetry-optional.cjs` holds the presence check that `next.config.js` and `vitest.config.ts` both read; `src/lib/telemetry.ts` is the only module that names the package.
 
 **There is no DSN in the source tree, and telemetry does nothing without one.** [`src/lib/telemetry-config.ts`](../src/lib/telemetry-config.ts) is the single reader for all three runtimes, and each `Sentry.init` is guarded on a configured value — an undefined `dsn` would install the SDK's handlers and then drop every event, which is indistinguishable from working telemetry in a log.
 
-Supply it from the deployment: `SENTRY_DSN` for server and edge, via the `console-env` ConfigMap; `NEXT_PUBLIC_SENTRY_DSN` for the browser, which Next inlines at build time and a ConfigMap therefore cannot reach. `isv-labs:scripts/deploy-console.sh` fills the first for the Scality labs, so a lab pod reports as soon as it is redeployed. A DSN is an ingest-only identifier rather than a credential — the reason it is not in the tree is that a compiled-in default sends someone else's build into our project (ISVD-607).
+Supply it from the deployment: `SENTRY_DSN` for server and edge, via the `console-env` ConfigMap; `NEXT_PUBLIC_SENTRY_DSN` for the browser, which Next inlines at build time and a ConfigMap therefore cannot reach. Scality's lab deploy fills the first, so a lab pod reports as soon as it is redeployed. A DSN is an ingest-only identifier rather than a credential — the reason it is not in the tree is that a compiled-in default sends someone else's build into our project (ISVD-607).
 
 ## What's instrumented
 
-- **Errors**: unhandled server route errors (`onRequestError` in [`console/src/instrumentation.ts`](../console/src/instrumentation.ts)), root-layout React errors ([`console/src/app/global-error.tsx`](../console/src/app/global-error.tsx)), browser errors.
+- **Errors**: unhandled server route errors (`onRequestError` in [`console/src/instrumentation.ts`](../src/instrumentation.ts)), root-layout React errors ([`console/src/app/global-error.tsx`](../src/app/global-error.tsx)), browser errors.
 - **Tracing**: 100% sampled in dev, 10% in production, on every runtime.
 - **Session replay**: 10% of sessions, 100% of error sessions — fully masked (see below).
-- **Tunnel**: browser events proxy through the app at `/monitoring` (`tunnelRoute` in [`console/next.config.js`](../console/next.config.js)) so ad-blockers don't drop them.
+- **Tunnel**: browser events proxy through the app at `/monitoring` (`tunnelRoute` in [`console/next.config.js`](../next.config.js)) so ad-blockers don't drop them.
 
-Init files: [`console/src/instrumentation-client.ts`](../console/src/instrumentation-client.ts) (browser), [`console/sentry.server.config.ts`](../console/sentry.server.config.ts) (Node), [`console/sentry.edge.config.ts`](../console/sentry.edge.config.ts) (edge), loaded from [`console/src/instrumentation.ts`](../console/src/instrumentation.ts) ahead of the background watchers/reconcile loop. Each one imports the SDK through `src/lib/telemetry.ts` and guards its `init` on a configured DSN, so a build with no SDK and a deploy with no DSN both end up silent rather than half-initialised.
+Init files: [`console/src/instrumentation-client.ts`](../src/instrumentation-client.ts) (browser), [`console/sentry.server.config.ts`](../sentry.server.config.ts) (Node), [`console/sentry.edge.config.ts`](../sentry.edge.config.ts) (edge), loaded from [`console/src/instrumentation.ts`](../src/instrumentation.ts) ahead of the background watchers/reconcile loop. Each one imports the SDK through `src/lib/telemetry.ts` and guards its `init` on a configured DSN, so a build with no SDK and a deploy with no DSN both end up silent rather than half-initialised.
 
 ## Secret-leak hardening — the constraints that must hold
 
@@ -47,7 +47,7 @@ Unlike the deployer (built directly on the VM), the console ships as a Docker im
 
 Two build drivers feed those in, both fail-soft (missing secret → build proceeds, upload skipped):
 
-1. **Laptop sideload** (`isv-labs:scripts/build-console-image.sh`) — the path that reaches the **Pyramid bare-metal** node (it runs a locally-built `console.local:<hash>` image, not GHCR). Pulls `isv-labs-sentry-build-env` from Secret Manager, sets `SENTRY_RELEASE` to the image tag hash, passes `--build-arg` + `--secret` to `docker buildx build`. Only reachable in `CONSOLE_SOURCE_MODE=source`, i.e. with a checkout of this repository beside isv-labs; in `pull` mode the node runs the CI image below.
+1. **Local sideload** — a locally-built `console.local:<hash>` image rather than GHCR, which is how the **Pyramid bare-metal** node is reached. Sets `SENTRY_RELEASE` to the image tag hash and passes `--build-arg` + `--secret` to `docker buildx build`. Scality's lab tooling drives this and pulls the build env from Secret Manager; by hand it is `docker buildx build --build-arg WITH_TELEMETRY=1 --build-arg SENTRY_ORG=… --build-arg SENTRY_PROJECT=… --secret id=sentry_auth_token,env=SENTRY_AUTH_TOKEN .`
 2. **CI GHCR build** ([`.github/workflows/build-console.yml`](../.github/workflows/build-console.yml)) — authenticates to GCP via WIF (fail-soft), fetches the same secret, and passes `build-args` + `secrets` to `docker/build-push-action`. `SENTRY_RELEASE` = the pushed short SHA (matches the image tag).
 
 `SENTRY_PROJECT` is hardcoded to `scality-vss-console-ui` in both drivers (the shared secret's `SENTRY_PROJECT=isv-deployer` is the deployer's); only the org + auth token are reused.
@@ -57,12 +57,12 @@ Two build drivers feed those in, both fail-soft (missing secret → build procee
 Pyramid runs a sideloaded image with no Sentry env today. To turn it on:
 
 ```bash
-# 1. Rebuild + sideload the console image (source maps upload if the secret is present)
-#    Both live in isv-labs; deploy-console.sh calls the builder itself.
-isv-labs:scripts/deploy-console.sh --instance pyramid-showroom
+# 1. Rebuild + sideload the console image (source maps upload if the secret is
+#    present). Scality's lab tooling builds and sideloads in one step; by hand,
+#    `docker buildx build` then import the tarball onto the node.
 
-# 2. point the pod at a DSN. deploy-console.sh already does this for the labs;
-#    do it by hand after a `kubectl set image`, which does not touch the ConfigMap.
+# 2. point the pod at a DSN. Lab deploys do this automatically; do it by hand
+#    after a `kubectl set image`, which does not touch the ConfigMap.
 #    NEXT_PUBLIC_SENTRY_DSN is inlined at build time — setting it here does
 #    nothing for the browser bundle, only a rebuild can.
 kubectl -n console patch cm console-env --type merge \
@@ -76,7 +76,7 @@ Step 2 is required, not optional: the image carries no DSN, so a pod with no
 
 ## Verifying the pipeline end to end
 
-`GET /api/sentry-verify` ([`console/src/app/api/sentry-verify/route.ts`](../console/src/app/api/sentry-verify/route.ts)) throws a deliberate unhandled error. The console pod is reachable only over the SG-restricted `:8800` hostPort.
+`GET /api/sentry-verify` ([`console/src/app/api/sentry-verify/route.ts`](../src/app/api/sentry-verify/route.ts)) throws a deliberate unhandled error. The console pod is reachable only over the SG-restricted `:8800` hostPort.
 
 This works in the deployed pod for one reason worth knowing: `/api/sentry-verify`
 is **not** in `PUBLIC_PATHS` in [`src/proxy.ts`](../src/proxy.ts), so it is only

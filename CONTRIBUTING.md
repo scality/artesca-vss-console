@@ -24,6 +24,18 @@ repository's issues do not describe. Read them as historical markers.
 New work is referenced the ordinary way: `Issue: #<number>` in the commit footer,
 pointing at an issue on this repository.
 
+### The `isv-labs.*` schema strings
+
+Config objects the console reads and writes carry a `schema` field like
+`isv-labs.cameras.v2`, `isv-labs.prompt.v1` or `isv-labs.console-config.v1`. That
+is a **frozen wire-format identifier**, not a path or a repository reference — it
+names the shape of a stored object, the validators in
+[`src/lib/helpers/gcs-config.ts`](src/lib/helpers/gcs-config.ts) reject anything
+carrying a different one, and every object already in a config store spells it
+this way. It is an awkward name inherited from where the console was first built.
+Renaming it would orphan stored config, so it stays; treat it as an opaque
+constant and bump the version suffix if the shape changes.
+
 ## Scope
 
 The console is an operator UI for one stack: NVIDIA VSS running on Kubernetes

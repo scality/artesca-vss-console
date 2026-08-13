@@ -2,8 +2,12 @@
 
 Post-deploy checklist for validating the VSS Demo Console with store-backed
 runtime config, prompt-sets, and the VLM `Recreate` strategy fix.
-Assumes `isv-labs:scripts/deploy-console.sh` has completed. The deploy and
-validate scripts live in isv-labs, which owns the lab instance they act on.
+> **This is a Scality-lab runbook.** The `deploy-console.sh` /
+> `reconcile-agent-deploy.sh` / `validate-console.sh` commands below are
+> Scality-internal tooling acting on a named lab instance, and are not part of
+> this repository. The *checks* they bracket are generic — read them as "what to
+> verify after a deploy", and substitute your own deploy step. For a
+> from-scratch deploy see the README's "Deploying to a cluster".
 
 > **Which config-store backend is this instance on?** `/about` names it. The default
 > is the YAML file store, which needs no GCP project, no service-account key and no
@@ -98,7 +102,7 @@ Verify the reconcile-agent started and completed the one-shot seed:
 kubectl -n console logs deploy/reconcile-agent --tail=80
 ```
 
-Look for these two lines (from [`console/src/lib/reconcile-agent.ts`](../console/src/lib/reconcile-agent.ts)):
+Look for these two lines (from [`console/src/lib/reconcile-agent.ts`](../src/lib/reconcile-agent.ts)):
 
 ```
 reconcile agent started — instance=<name> interval=60s
@@ -114,14 +118,14 @@ RECONCILE_AGENT set but VSS_INSTANCE_NAME missing — agent idle
 
 Fix: re-run `scripts/reconcile-agent-deploy.sh --instance <name>`. The deploy
 script substitutes the `<vss-instance-name>` placeholder in
-[`k8s/reconcile-agent/20-deployment.yaml`](../k8s/reconcile-agent/20-deployment.yaml).
+``k8s/reconcile-agent/20-deployment.yaml``.
 
 ---
 
 ## Step 2 — Verify the default prompt-set was seeded
 
 The reconcile-agent runs a one-shot idempotent seed on startup
-([`console/src/lib/reconcile/prompt-seed.ts`](../console/src/lib/reconcile/prompt-seed.ts)):
+([`console/src/lib/reconcile/prompt-seed.ts`](../src/lib/reconcile/prompt-seed.ts)):
 if the instance has no prompt-sets, it creates a set `{ id: "default", name: "Default (Retail LP)" }`
 and marks it active in Firestore under `instances/<instance>/prompts` +
 `activePromptId`.
@@ -178,7 +182,7 @@ kubectl -n "$VSS_NS" get deploy vss-rtvi-vlm \
 1. `scripts/stacks/nvidia-vss/bootstrap-helm-deploy.sh` patches the Deployment
    immediately after the Helm install (line 313–315).
 2. The reconcile-agent asserts it on every tick via
-   [`console/src/lib/reconcile/vlm-strategy.ts`](../console/src/lib/reconcile/vlm-strategy.ts) →
+   [`console/src/lib/reconcile/vlm-strategy.ts`](../src/lib/reconcile/vlm-strategy.ts) →
    `reconcileVlmStrategy()`.
 
 If `strategy.type` is `RollingUpdate`, the Helm post-install patch did not run

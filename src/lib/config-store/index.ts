@@ -28,7 +28,7 @@ export type StoreEnv = Record<string, string | undefined>;
  * With it unset the answer is `file` — **except** when `FIRESTORE_PROJECT_ID` is
  * set, which is inferred as `firestore`. That exception is not a convenience; it
  * is what stops this change losing a live lab's configuration. Every existing
- * instance was deployed by `isv-labs:scripts/deploy-console.sh`, which writes
+ * instance was deployed by tooling that writes
  * `FIRESTORE_PROJECT_ID` into `console-env`, and the ordinary way to ship a new
  * console build to one of those is `kubectl set image` — which does not touch the
  * ConfigMap. Defaulting flatly to `file` would have that pod come up reading an

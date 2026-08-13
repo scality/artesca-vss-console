@@ -31,8 +31,9 @@ name: build-console
 # `github.event_name == 'push'`, so no image is published and `:latest` does not
 # move — deliberately, since a tag that shifts without a commit behind it is
 # hard to reason about later. Dispatch answers "does this pass", not "give me an
-# image"; for an image, push, or build it laptop-side with
-# isv-labs:scripts/build-console-image.sh.
+# image"; for an image, push to main, or build it locally with
+# `docker build -t artesca-vss-console:local .` (the same Dockerfile this job
+# uses). Scality's labs build and sideload it from their own tooling.
 on:
   workflow_dispatch:
   push:

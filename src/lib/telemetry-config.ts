@@ -14,9 +14,10 @@
  * organisation's account is not a default, it is a destination someone else
  * inherits by accident.
  *
- * Supply it from the deployment (`SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`). For
- * the Scality labs that happens in `isv-labs:scripts/deploy-console.sh`, which
- * already rewrites the `console-env` ConfigMap at deploy time.
+ * Supply it from the deployment: `SENTRY_DSN` for server and edge via the
+ * `console-env` ConfigMap, and `NEXT_PUBLIC_SENTRY_DSN` for the browser — which
+ * Next inlines at build time, so a ConfigMap value cannot reach it and browser
+ * reporting needs a build arg. Scality's lab tooling writes the first at deploy.
  *
  * Pure by design — no `@sentry/nextjs` import. All three runtimes import this,
  * and the edge runtime cannot import `sentry.server.config.ts` because doing so

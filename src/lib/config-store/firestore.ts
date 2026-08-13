@@ -185,8 +185,8 @@ export class FirestoreConfigStore implements ConfigStore {
  * to, and failed with a permission error rather than with "unconfigured". The
  * two are opposite problems and only one of them is the reader's to fix.
  *
- * The Scality labs supply it from the deployment, in
- * `isv-labs:scripts/deploy-console.sh`, alongside the Sentry DSN.
+ * Supply it from the deployment, in the `console-env` ConfigMap alongside the
+ * Sentry DSN; Scality's lab tooling writes both at deploy time.
  */
 export function firestoreProjectId(): string | undefined {
   const id = (process.env.FIRESTORE_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT)?.trim();

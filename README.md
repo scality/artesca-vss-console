@@ -1,74 +1,130 @@
-# Demo Console — `:8800` (local dev `:5003`)
+# ARTESCA VSS Console
 
-Operator console for the ARTESCA × Pyramid × NVIDIA VSS stack. Single-pane-of-glass for service status, live metrics, camera management, scenario editing, VLM prompt tuning, and incident playback.
+Operator console for [NVIDIA VSS](https://build.nvidia.com/nvidia/video-search-and-summarization) running on Kubernetes with [Scality ARTESCA](https://www.scality.com/artesca/) as the object store. One pane for service health, camera registration, alert scenarios, VLM prompt and inference tuning, incident playback, and what the stack has written to S3.
 
-Deploys as a K8s `Deployment` in namespace `console` on the ARTESCA MetalK8s node — not to Vercel. See `docs/console-design.md` for the full design rationale.
+It runs **inside** the cluster as a `Deployment` in namespace `console`, serving `:8800`. It assumes VSS is already deployed and reachable — **it does not install or provision anything**, and it is not a VSS component: it is a separate UI that reads and patches a running stack.
+
+Design rationale and the operator-facing intent of each page: [`docs/console-design.md`](docs/console-design.md).
+
+> **Do not expose this to an untrusted network.** Authentication is a single shared password, the Kubernetes RBAC it requests is broad, and some pages render credentials. Those are properties of the code as published, not oversights — [SECURITY.md](SECURITY.md) lists them in full and is worth reading before you copy this into a cluster.
+
+## What it expects
+
+| | |
+| --- | --- |
+| Kubernetes | A cluster with VSS deployed. Namespace layout `vss-<profile>` (Helm) or the pre-Helm per-component layout via `CONSOLE_LEGACY_NAMESPACES=1`. |
+| Object store | ARTESCA (or any S3-compatible endpoint) for recordings, evidence and KV-cache offload. |
+| Node | 24 — what the image and CI both build with (`node:24.18.0-alpine`). |
+
+Parts of the tree still assume the Scality lab: namespaces and service names are resolved in [`src/lib/cluster-refs.ts`](src/lib/cluster-refs.ts), and some code paths exist to drive an EC2 lab instance. A report that the console does not come up against a differently-named deployment is useful, not a duplicate of something obvious.
 
 ## Local dev
 
+The app starts with nothing configured — missing `KAFKA_BROKERS`, `REDIS_URL` or `CAMERA_SIM_HOST` render as degraded or disconnected rather than crashing, so most of it can be worked on without a cluster.
+
 ```bash
-cd console
-cp .env.example .env.local   # fill in values
+cp .env.example .env.local   # every variable is documented in that file
 npm install
 npm run dev                  # http://localhost:5003
 ```
 
-The app starts without external services configured. Missing `KAFKA_BROKERS`, `REDIS_URL`, or `CAMERA_SIM_HOST` return degraded/disconnected states — no crash.
-
-## Build
-
 ```bash
-npm run build   # next build --standalone
-npm start       # serves :8800 from .next/standalone (prod / in-cluster pod)
+npm run lint                 # eslint src
+npm test                     # vitest
+npm run test:e2e             # playwright
+npm run build                # next build — next.config.js sets output: "standalone"
+npm start                    # serves :8800 from the standalone build
 ```
 
-## Docker
+`npm run test:e2e` needs a built Monaco under `public/monaco/vs`; the `pretest:e2e` hook copies it. `postinstall` deliberately does not, because the Dockerfile installs with `--ignore-scripts`.
+
+## Container
+
+Build it yourself — this is the supported path for anyone outside Scality:
 
 ```bash
-docker build -t console:local .
+docker build -t artesca-vss-console:local .
 docker run -p 8800:8800 \
   -e CONSOLE_PASSWORD=changeme \
-  -e AUTH_SECRET=devsecret \
+  -e AUTH_SECRET="$(openssl rand -base64 32)" \
   -e AUTH_URL=http://localhost:8800 \
-  console:local
+  artesca-vss-console:local
 ```
+
+CI also publishes `ghcr.io/scality/artesca-vss-console:latest` and `:sha-<short-sha>` on every push to `main`. That package is currently private, so building from source is the path that works for everyone.
+
+## Deploying to a cluster
+
+Manifests are in [`k8s/`](k8s/) as a kustomization: namespace, RBAC, env ConfigMap, the console `Deployment`, and two PVCs.
+
+```bash
+cp k8s/10-secrets.yaml.example k8s/console-secrets.yaml   # gitignored; fill it in
+kubectl apply -f k8s/console-secrets.yaml
+kubectl apply -k k8s/
+```
+
+Three things that kustomization will not do for you, and each stops the pod:
+
+- **`images.newTag` points at the private GHCR package.** Override it with the image you built (`kustomize edit set image`, or a patch).
+- **The Secrets must exist first.** `console-auth` carries `CONSOLE_PASSWORD` + `AUTH_SECRET` — Auth.js reads `AUTH_SECRET`, and a Secret carrying only the `NEXTAUTH_`-prefixed spelling leaves the pod refusing every request while `src/instrumentation.ts` logs `missing env vars: AUTH_SECRET`. `console-aws` carries the S3 credentials.
+- **`30-test-footage.yaml` is not optional**, despite being a feature: `20-console.yaml` mounts the PVC it declares, and Kubernetes has no optional PVC volume, so the pod does not schedule without it.
+
+The console also needs a `console-writer` Role and RoleBinding in each namespace it patches, since it reads pods and patches ConfigMaps outside its own namespace. `01-rbac.yaml` covers namespace `console`; grant the equivalent in each `vss-<profile>` namespace you point it at.
 
 ## Pages
 
+23 pages — 22 in the nav, grouped as the sidebar groups them, plus `/cameras/bindings`.
+
+### Live
+
 | Route | Purpose |
 | ----- | ------- |
-| `/` | Overview — cluster health, pod summary, active incidents |
-| `/topology` | Service graph — namespace, pod, and dependency map |
-| `/incidents` | Incident list + detail; kiosk-mode (`?mode=kiosk`) hides nav |
-| `/cameras` | Camera registry, feed status, add-camera stepper |
-| `/scenarios` | Scenario keyword editor, threshold tuning |
-| `/prompt` | VLM prompt editor (Monaco), model selector, live preview |
-| `/tuning` | Three tuning cards: **RTVI** (NeMo inference params), **Alerts** (Kafka thresholds), and **VST Recording** (recording mode, GoP / `default_gov_length`, H264/H265 codec selection, storage threshold, file retention). Changes to the VST card patch `vst-config` ConfigMap and trigger a rollout-restart of `sensor-ms` + `streamprocessing-ms` with a ~10 s recording gap. |
-| `/diagnostics` | Cluster diagnostics. Leads with a **VST Storage** panel: S3 PUT rate with 5-min sparkline, object count, local `vst-video` cache fill percentage, segment histogram, and frame-drop rate. Below: pod logs, GPU utilisation, Kafka consumer lag. |
-| `/demo-data` | Synthetic VLM event generator (exercises alerts without GPU) |
-| `/profiles` | Load/save named config profiles (snapshot + restore tuning state) |
-| `/secrets` | S3 credentials and cloud-storage fields — the fields excluded from `/tuning` |
-| `/logs` | Structured log viewer with namespace + pod filter |
-| `/settings` | Console settings (auth, AUTH_URL, theme) |
+| `/` | Overview — two views (operator and presenter), cluster health, pod summary, active incidents |
+| `/topology` | Single-frame path diagram (camera-sim → VST → RTVI VLM → Agent → S3) with per-component health from `/api/pods` |
+| `/incidents` | Incident timeline, live over SSE; detail with clip playback. Kiosk mode (`?mode=kiosk`) hides the nav |
+| `/cameras` | Camera registration — writes the `cameras` ConfigMap and the canonical copy in the config store |
+| `/cameras/bindings` | Which scenarios each camera is bound to (not in the nav; reached from `/cameras`) |
 
-## Tests
+### AI & Storage
 
-```bash
-npm test        # vitest (unit)
-npm run test:e2e  # playwright
-```
+| Route | Purpose |
+| ----- | ------- |
+| `/search` | Semantic search over the VLM caption archive; results are clip-thumbnail cards with playback |
+| `/analytics` | "Ask the store" — plain-English questions over the incident archive |
+| `/chat` | Conversational chat with the vss-agent |
+| `/evidence` | Immutable evidence via ARTESCA S3 Object Lock (WORM) |
+| `/storage` | Per-bucket object counts, bytes, 24 h written, and a stream of objects as they land |
+| `/kvcache` | KV-cache offload telemetry — model, endpoint, bucket objects and bytes, warnings, live cost timings |
 
-## K8s deploy
+### Configure
 
-Manifests live in `k8s/` (owned by a parallel agent). The console Deployment mounts:
-- `console-auth` Secret → `CONSOLE_PASSWORD` + `AUTH_SECRET` (Auth.js reads `AUTH_SECRET`; a Secret carrying only the `NEXTAUTH_`-prefixed spelling leaves the pod refusing every request)
-- `console-aws` Secret → AWS credentials
-- `console-data` PVC at `/data` → SQLite (`console-data.db`)
-- camera-sim SSH key Secret → `CAMERA_SIM_SSH_KEY_PATH`
+| Route | Purpose |
+| ----- | ------- |
+| `/scenarios` | Alert-keyword scenarios and per-scenario cooldown |
+| `/prompt` | VLM system prompt (Monaco) and model deployment-name swap |
+| `/tuning` | VST recording, alerting and VLM inference knobs, split across ConfigMap and Deployment env; Save + Restart patches both and rolls the workloads |
+| `/agent` | Agent configuration (system prompt, model preset incl. provider) and its tool catalog |
+| `/test-footage` | Replay a local video file through the real pipeline to test the prompt and scenarios on actual frames |
+| `/profiles` | Operator-defined scenes — saved prompt + scenario + tuning bundles |
+
+### System
+
+| Route | Purpose |
+| ----- | ------- |
+| `/secrets` | Cluster secret status and rotation |
+| `/logs` | Pod log tail across namespaces |
+| `/diagnostics` | Cluster health probes, GPU utilisation, Kafka consumer lag, VST storage panel |
+| `/sizing-studio` | Embedded sizing studio |
+| `/settings` | Auth, secret rotation, app version |
+| `/about` | Build info, the resolved service-endpoint table, and whether telemetry is compiled in and configured |
 
 ## Env vars
 
-See `.env.example` for the full list with descriptions.
+[`.env.example`](.env.example) is the full list, each with what it does and what breaks without it.
+
+## Telemetry
+
+Off by default and in two independent ways: the Sentry SDK is not installed unless you opt in (`npm run enable-telemetry`, or `--build-arg WITH_TELEMETRY=1`), and no DSN ships in this tree. A build made from this repository reports nowhere. See [`docs/console-sentry.md`](docs/console-sentry.md).
 
 ## Issues and contributing
 

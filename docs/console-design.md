@@ -26,7 +26,7 @@ able to run the demo from one browser tab, not four tabs plus a terminal.
 
 ## Non-goals
 
-- **Pre-install / AWS provisioning flow** — handled by [`web/`](../deployer/)
+- **Pre-install / AWS provisioning flow** — handled by ``web/``
   (port `:5002`), a separate minimal Next.js dashboard that owns the
   pre-flight → EC2 → cloud-init probe → ARTESCA install → GPU Operator
   → VSS phase-ready pod counts view. The Demo Console is strictly
@@ -155,7 +155,7 @@ not to Vercel).
   persists its own operator-facing state in a local SQLite DB on a PVC
   (`k8s/console/12-pvc.yaml` → `/data/console-data.db`): VLM-prompt profiles,
   audit log, SG-whitelist entries, and secret-rotation timestamps (schema in
-  [`console/src/lib/db.ts`](../console/src/lib/db.ts)). Pipeline state —
+  [`console/src/lib/db.ts`](../src/lib/db.ts)). Pipeline state —
   pod/GPU/NIM/Kafka health, prompt + scenario config — still reads live
   from K8s ConfigMaps, Secrets, Pods, and Redis on each request; the SQLite
   DB only holds data the console itself owns.
@@ -191,7 +191,7 @@ others are hidden in kiosk mode.
 | `/diagnostics` | — | On-demand runs of `scripts/validate-manifests.sh`, smoke tests per phase, `kubectl get events -A`, `nvidia-smi`, `kubectl top`. **VST Storage panel**: live S3 PUT rate + bytes/sec to `nvidia-vss-video`, local `vst-video` emptyDir fill % against its 500 GiB limit, segment size distribution (last 200 objects), recorder frame-drop counter, last 20 objects in the bucket with sensor_id / timestamp / size. Results rendered inline. |
 | `/sizing-studio` | — | Embeds the standalone `sizing-studio.html` static tool (served from `public/`) in an iframe — sizes cameras, light-rails, AKHET® servers, GPUs/AI systems, and ARTESCA storage for a store by surface area and use case. "Open full screen" opens the same page directly, outside the iframe. |
 | `/settings` | — | Console-level config: **Network access** sub-panel — CIDR allow-list for `:8800` with add/remove (writes to the EC2 SG via `console-aws` creds + audit log). Kiosk-mode toggle persistence, feature flags, SSH key rotation for camera-sim, inspect current ServiceAccount permissions. |
-| `/about` | — | Build info (git SHA, Next.js / Node versions), links to all docs, list of underlying service URLs, cross-link to the pre-install [`web/`](../deployer/) dashboard at `:5002`. |
+| `/about` | — | Build info (git SHA, Next.js / Node versions), links to all docs, list of underlying service URLs, cross-link to the pre-install ``web/`` dashboard at `:5002`. |
 
 ## API surface
 
@@ -557,7 +557,7 @@ without another instance-type change.
 
 ## Implementation decisions (round 4 — VST ingest exposure)
 
-Gap surfaced during live-flow review: the full VST recording/segmentation/storage config surface in [`k8s/nvidia-vss/vst/11-configmap-vst-config.yaml`](../k8s/nvidia-vss/vst/11-configmap-vst-config.yaml) is not editable anywhere in the UI today. Only `/cameras` (CRUD + observed bitrate display) and read-only pod status + `kubectl logs` cover VST. Operators currently have to edit YAML and rollout-restart by hand to change recording mode, GoP, local cache thresholds, or the cloud storage target.
+Gap surfaced during live-flow review: the full VST recording/segmentation/storage config surface in ``k8s/nvidia-vss/vst/11-configmap-vst-config.yaml`` is not editable anywhere in the UI today. Only `/cameras` (CRUD + observed bitrate display) and read-only pod status + `kubectl logs` cover VST. Operators currently have to edit YAML and rollout-restart by hand to change recording mode, GoP, local cache thresholds, or the cloud storage target.
 
 | # | Decision | Impact |
 | --- | --- | --- |
@@ -642,9 +642,9 @@ alongside primary Cosmos 2 8B on GPU 0 without contention.
 
 ## Cross-refs
 
-- [`docs/architecture.md`](architecture.md) — stack-level architecture the console surfaces
-- [`docs/demo-runbook.md`](demo-runbook.md) — operator procedures the console replaces
-- [`docs/troubleshooting.md`](troubleshooting.md) — failure modes the console should surface
-- [`docs/camera-sim-setup.md`](camera-sim-setup.md) — the camera-sim side the console writes to
-- [`k8s/nvidia-vss/alerts/13-configmap-worker-code.yaml`](../k8s/nvidia-vss/alerts/13-configmap-worker-code.yaml) — alert worker the console proxies
+- ``docs/architecture.md`` — stack-level architecture the console surfaces
+- ``docs/demo-runbook.md`` — operator procedures the console replaces
+- ``docs/troubleshooting.md`` — failure modes the console should surface
+- ``docs/camera-sim-setup.md`` — the camera-sim side the console writes to
+- ``k8s/nvidia-vss/alerts/13-configmap-worker-code.yaml`` — alert worker the console proxies
 - [`CLAUDE.md`](../CLAUDE.md) — overall project rules

@@ -1,11 +1,16 @@
-# Apply with isv-labs' scripts/deploy-console.sh, not kubectl apply -k directly:
-# the script creates the workload namespaces, generates the per-namespace
-# console-writer Role + RoleBinding, and substitutes the image and the node,
-# camera-sim and S3 placeholders before calling kustomize.
-# Prerequisites:
-#   - the console Secrets present in the cluster (deploy-console.sh generates
-#     them into the lab instance's own directory on first deploy)
-#   - AWS credentials + EC2 SG ID available for console-aws Secret
+# `kubectl apply -k k8s/` is the deploy path. It does NOT do four things that the
+# pod needs, each of which stops it from starting — see the README's "Deploying to
+# a cluster" section:
+#   - the console Secrets must already exist (copy 10-secrets.yaml.example to
+#     k8s/console-secrets.yaml, which is gitignored, fill it in, apply it first)
+#   - AWS/S3 credentials + EC2 SG ID for the console-aws Secret
+#   - a console-writer Role + RoleBinding in each vss-<profile> namespace the
+#     console patches; 01-rbac.yaml only covers namespace console
+#   - the image below has to be overridden with the one you built, and the node,
+#     camera-sim and S3 placeholders substituted
+#
+# Scality's labs automate all of that from their own tooling, which is why this
+# file historically assumed it.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

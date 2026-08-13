@@ -14,6 +14,14 @@ import type {
   ScenarioEntry,
 } from "@/lib/config-store/types";
 
+/**
+ * Frozen wire-format identifier stamped on every stored config document — not a
+ * path, and not a reference to another repository. Readers reject a document
+ * carrying a different value, and every document already in a config store
+ * spells it this way, so renaming it orphans live configuration. The name is
+ * inherited from where the console was first built; bump the version suffix if
+ * the document shape changes.
+ */
 export const CONFIG_SCHEMA = "isv-labs.console-config.v1";
 
 /**

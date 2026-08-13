@@ -15,7 +15,7 @@ Nothing calls a backend directly. `makeConfigStore()` in [`src/lib/config-store/
 
 With `CONSOLE_CONFIG_STORE` unset **and `FIRESTORE_PROJECT_ID` set**, the console selects Firestore and says so on `/about`.
 
-That inference is the one thing standing between this change and a lost lab. Every instance deployed before this existed has its cameras, prompt-sets and scenarios in Firestore, `isv-labs:scripts/deploy-console.sh` writes `FIRESTORE_PROJECT_ID` into `console-env`, and the ordinary way to ship a new console build to a running lab is:
+That inference is the one thing standing between this change and a lost lab. Every instance deployed before this existed has its cameras, prompt-sets and scenarios in Firestore, the lab deploy writes `FIRESTORE_PROJECT_ID` into `console-env`, and the ordinary way to ship a new console build to a running lab is:
 
 ```bash
 kubectl set image deployment/console console=ghcr.io/scality/artesca-vss-console:sha-<x> -n console
@@ -64,7 +64,7 @@ An operator reads, diffs, copies or hands over an instance's whole configuration
 This is the fact that shapes the implementation, and it is easy to get wrong by looking only at `k8s/`:
 
 - The **console** pod serves the UI: camera upserts, prompt-set edits, scenario writes. It also fires one startup convergence pass on every boot, which writes a `reconcileStatus` — `CONSOLE_DISABLE_RECONCILE_LOOP=1` suppresses only the *periodic* loop.
-- The **reconcile-agent** pod ([`isv-labs:k8s/reconcile-agent/`](../../isv-labs/k8s/reconcile-agent/)) runs the same image with `RECONCILE_AGENT=1`, and writes a `reconcileStatus` on every tick plus a one-shot prompt-set seed at boot.
+- The **reconcile-agent** pod (manifests are Scality-lab-internal) runs the same image with `RECONCILE_AGENT=1`, and writes a `reconcileStatus` on every tick plus a one-shot prompt-set seed at boot.
 
 So there are always two writers, never one. `FileConfigStore` serialises them with a lock file (`O_CREAT|O_EXCL` beside the data, reclaimed by age after 30 s) and replaces the document with an atomic temp-and-rename, so a reader sees the old file or the new one and never a half-written mapping. An in-process mutex would not reach across pods.
 
