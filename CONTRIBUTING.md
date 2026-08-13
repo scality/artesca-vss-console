@@ -113,6 +113,12 @@ read and triaged on a best-effort basis — there is no support commitment, and 
 issue staying open is not a decision against it. If something is urgent for a
 deployment you run, say so in the issue.
 
+## Code of conduct
+
+Participation is governed by the [Contributor Covenant](CODE_OF_CONDUCT.md) 2.1.
+It names a real address to report to, which is the half of that document that
+matters.
+
 ## Licence
 
 Contributions are accepted under the [Apache License 2.0](LICENSE), the licence
