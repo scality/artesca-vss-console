@@ -1,0 +1,66 @@
+# console-writer — the per-namespace write grant, one copy per workload namespace.
+#
+# WITHOUT THIS THE CONSOLE READS CORRECTLY AND FAILS ON EVERY WRITE, at runtime
+# rather than at deploy. `01-rbac.yaml` grants cluster-wide *read* and the
+# console's own namespace for secrets; nothing in it lets the console patch a
+# workload. Save on /tuning, the model swap on /prompt, scenario edits and the
+# camera ConfigMap all call the Kubernetes API in a `vss-*` namespace, so each
+# returns 403 with a console that otherwise looks healthy.
+#
+# It is an example rather than part of `kustomization.yaml` because the
+# namespace is not knowable here: it is `vss-<profile>` under Helm, or the
+# per-component layout (`vst`, `rtvi`, `agent`, `alerts`, `demo-data`,
+# `pyramid-ingress`) when the console runs with CONSOLE_LEGACY_NAMESPACES=1.
+# A hardcoded name would fail to apply on every cluster that chose differently.
+#
+# Apply one copy per namespace the console is pointed at:
+#
+#   for ns in vss-alerts; do
+#     sed "s/<WORKLOAD_NAMESPACE>/$ns/g" k8s/02-workload-rbac.yaml.example \
+#       | kubectl apply -f -
+#   done
+#
+# Verify, rather than assuming the apply was enough — a RoleBinding in the wrong
+# namespace applies cleanly and grants nothing:
+#
+#   kubectl auth can-i patch configmaps \
+#     --as=system:serviceaccount:console:console-sa -n <WORKLOAD_NAMESPACE>
+#
+# Only the write verbs are here. Reads are already cluster-wide from
+# `console-reader`, and `pods/exec` is granted there too — this Role deliberately
+# does not repeat either, so there is one place to narrow when scoping the
+# console's permissions down (ISVD-549).
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: console-writer
+  namespace: <WORKLOAD_NAMESPACE>
+rules:
+# Camera registration, scenario edits and the VLM prompt are all ConfigMap
+# writes. `create` is required as well as `patch`: the console creates the
+# ConfigMap on first use when a fresh deployment has none.
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["create", "patch"]
+# /tuning writes VST and inference knobs that live in Deployment env, and rolls
+# the workload afterwards. Same for the one StatefulSet the tuning page touches.
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: console-writer-binding
+  namespace: <WORKLOAD_NAMESPACE>
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: console-writer
+subjects:
+- kind: ServiceAccount
+  name: console-sa
+  # The ServiceAccount stays in the console's own namespace; only the Role and
+  # its binding are per-workload-namespace.
+  namespace: console
