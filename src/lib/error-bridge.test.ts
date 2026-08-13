@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import {
-  redactAndCap,
   safeContextString,
   errorSignatureFromPayload,
   kafkaFingerprint,
   podFingerprint,
   podBaseName,
   DedupeWindow,
-  MAX_CONTEXT_STRING_LEN,
   MAX_CONTEXT_TOTAL_LEN,
 } from "./error-bridge";
+// The redaction itself lives in its own module, shared with the logger.
+import { redactAndCap, MAX_CONTEXT_STRING_LEN } from "./redact";
 
 describe("redactAndCap", () => {
   it("redacts values under key names that look like secrets", () => {

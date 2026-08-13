@@ -27,6 +27,7 @@ import "server-only";
 
 import * as Sentry from "@/lib/telemetry";
 import { serverTelemetryDsn } from "@/lib/telemetry-config";
+import { redactAndCap, truncate } from "@/lib/redact";
 import type { EachMessagePayload } from "kafkajs";
 import { createLogger } from "@/lib/logger";
 import { consumeTopic } from "@/lib/kafka";
@@ -38,68 +39,12 @@ const log = createLogger("error-bridge");
 // ─── Pure helpers (unit-tested) ────────────────────────────────────────────
 
 /** Cap applied to any single string value forwarded to Sentry context. */
-export const MAX_CONTEXT_STRING_LEN = 2000;
 
 /** Cap applied to the overall serialized context payload. */
 export const MAX_CONTEXT_TOTAL_LEN = 4000;
 
 /** Dedupe/rate-limit window, in ms — one capture per key per window. */
 export const DEDUPE_WINDOW_MS = 60_000;
-
-/**
- * Keys (or key fragments) that indicate a value likely holds a credential.
- * Matched case-insensitively against object keys during redaction.
- */
-const SECRET_KEY_PATTERN =
-  /(key|token|secret|password|passwd|pwd|authorization|auth[-_]?header|credential|private[-_]?key|pem|bearer)/i;
-
-/** Heuristic for a bare string that looks like a credential/token value. */
-const SECRET_VALUE_PATTERN =
-  /^(sk-|ghp_|glpat-|AKIA|Bearer\s|Basic\s|eyJ[a-zA-Z0-9_-]{10,})/;
-
-function truncate(s: string, max = MAX_CONTEXT_STRING_LEN): string {
-  if (s.length <= max) return s;
-  return `${s.slice(0, max)}…[truncated ${s.length - max} chars]`;
-}
-
-/**
- * Recursively redacts anything that looks like a secret from a JSON-ish
- * value, then caps string lengths. Returns a plain object/array/primitive
- * safe to attach as Sentry extra context. Depth-limited and size-limited so a
- * pathological payload can't blow up processing or the outbound event.
- */
-export function redactAndCap(value: unknown, depth = 0): unknown {
-  if (depth > 5) return "[max depth]";
-
-  if (value === null || value === undefined) return value;
-
-  if (typeof value === "string") {
-    if (SECRET_VALUE_PATTERN.test(value)) return "[redacted]";
-    return truncate(value);
-  }
-
-  if (typeof value === "number" || typeof value === "boolean") return value;
-
-  if (Array.isArray(value)) {
-    return value.slice(0, 50).map((v) => redactAndCap(v, depth + 1));
-  }
-
-  if (typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    let count = 0;
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (count >= 50) {
-        out["…"] = "[truncated: too many keys]";
-        break;
-      }
-      count++;
-      out[k] = SECRET_KEY_PATTERN.test(k) ? "[redacted]" : redactAndCap(v, depth + 1);
-    }
-    return out;
-  }
-
-  return String(value);
-}
 
 /**
  * Serializes a redacted context object to a string capped at

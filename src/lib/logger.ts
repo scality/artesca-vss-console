@@ -1,5 +1,10 @@
 import "server-only";
 import { getRequestId } from "./request-context";
+// SECRET_KEY_PATTERN is applied here as well as inside redactAndCap: that
+// helper tests key names it encounters *within* an object, so a top-level ctx
+// entry — `log.info("x", { password: "hunter2" })` — reaches it as a bare string
+// and only the value-shape check would see it.
+import { redactAndCap, SECRET_KEY_PATTERN } from "./redact";
 
 type Level = "trace" | "debug" | "info" | "warn" | "error";
 
@@ -45,11 +50,33 @@ function serializeError(err: unknown): Record<string, unknown> {
   return { value: String(err) };
 }
 
+/**
+ * Prepares a context object for emission: Errors become plain objects, then
+ * everything goes through the shared redaction in [`redact.ts`](./redact.ts).
+ *
+ * ⚠ **Redaction is a property of this function, not of the call sites.** Before
+ * it was here, whether a credential reached stdout depended on every author
+ * remembering — and `serializeError` makes that worse rather than better, since
+ * it expands an Error into message, stack and cause. Nothing was leaking when
+ * this was added (ISVD-550, all 90 call sites checked), which is the point: the
+ * next call site is now covered too.
+ *
+ * Two consequences of reusing the Sentry-side helper, both accepted:
+ * strings over `MAX_CONTEXT_STRING_LEN` are truncated — including `err.stack`,
+ * which keeps roughly the top 20 frames and bounds the log line — and objects
+ * are capped at 50 keys and arrays at 50 items.
+ *
+ * `msg` is deliberately **not** redacted. It is a developer-written literal at
+ * every call site, and the value-shape check only matches a string that *starts*
+ * with a credential, so running it over `msg` would risk blanking a whole
+ * message while catching almost nothing. Values belong in `ctx`.
+ */
 function normalizeCtx(ctx?: Record<string, unknown>): Record<string, unknown> | undefined {
   if (!ctx) return undefined;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(ctx)) {
-    out[k] = v instanceof Error ? serializeError(v) : v;
+    const serialized = v instanceof Error ? serializeError(v) : v;
+    out[k] = SECRET_KEY_PATTERN.test(k) ? "[redacted]" : redactAndCap(serialized);
   }
   return out;
 }
@@ -57,7 +84,11 @@ function normalizeCtx(ctx?: Record<string, unknown>): Record<string, unknown> | 
 function emit(level: Level, scope: string, baseCtx: Record<string, unknown>, msg: string, ctx?: Record<string, unknown>): void {
   if (LEVEL_RANK[level] < LEVEL_RANK[envLevel()]) return;
 
-  const merged = { ...baseCtx, ...normalizeCtx(ctx) };
+  // baseCtx goes through the same normalization as the call-site ctx. It used to
+  // be spread raw, so a credential passed once to `createLogger` or `child`
+  // bypassed redaction on every line that logger ever wrote — the widest version
+  // of the leak, and the least visible.
+  const merged = { ...normalizeCtx(baseCtx), ...normalizeCtx(ctx) };
 
   const write = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
 
