@@ -48,7 +48,7 @@ copied, and copying these without reading them is the actual risk:
   rotation is write-only. This bullet claimed otherwise until 2026-08-13; it was
   wrong, and it is called out rather than quietly edited because a policy that
   overstates is no more usable than one that understates.
-- **The Kubernetes RBAC is broad.** `k8s/console/01-rbac.yaml` requests `get` and
+- **The Kubernetes RBAC is broad.** `k8s/01-rbac.yaml` requests `get` and
   `create` on `pods/exec` and `get`, `list`, `patch` on secrets, in addition to
   the read verbs. Scope it down to the features you actually deploy.
 
