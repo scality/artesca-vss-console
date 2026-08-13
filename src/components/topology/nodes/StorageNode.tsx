@@ -11,7 +11,7 @@ export interface StorageNodeData {
   /** Merged health from topology API + pipeline snapshot (set by
    *  mergeTopologyData on the page). Used as fallback when `runtime`
    *  is undefined — the snapshot keys don't always match the topology
-   *  node IDs (e.g. docker mode emits `centralizedb-dev` while the
+   *  node IDs (e.g. an ingress may emit `centralizedb-dev` while the
    *  snapshot probe emits `vst-postgres`). */
   health?: PipelineHealth;
   runtime?: NodeRuntimeState;

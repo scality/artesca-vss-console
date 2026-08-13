@@ -16,9 +16,6 @@ import path from "node:path";
 
 export const dynamic = "force-dynamic";
 
-const VST_STREAM_CONTAINER = "streamprocessing-ms-dev";
-// Config file path inside sensor-ms-dev (bind-mounted from host via VST_CONFIG_PATH).
-// Verified against refs/video-search-and-summarization/deployments/vst/developer/vst/docker-compose.yaml volumes:.
 // ─── Internal shape of vst_config.json ───────────────────────────────────────
 
 interface VstConfigJson {
@@ -152,10 +149,9 @@ const VstTuningPatchSchema = z
 type VstTuningPatch = z.infer<typeof VstTuningPatchSchema>;
 
 /**
- * Mutates `cfg` in place with the given field-level patches. Shared by the
- * docker path and every ConfigMap target on the k8s path (sensor +
- * streamprocessing each hold their own copy of this schema — see the VST
- * comment in cluster-refs.ts).
+ * Mutates `cfg` in place with the given field-level patches. Shared by every
+ * ConfigMap target (sensor + streamprocessing each hold their own copy of this
+ * schema — see the VST comment in cluster-refs.ts).
  */
 function applyVstPatches(cfg: VstConfigJson, patches: VstTuningPatch): void {
   cfg.data = cfg.data ?? {};
@@ -302,8 +298,6 @@ function parseSensorList(
   }
   return result;
 }
-
-// ─── Docker helpers ───────────────────────────────────────────────────────────
 
 // ─── GET ──────────────────────────────────────────────────────────────────────
 

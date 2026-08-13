@@ -236,7 +236,7 @@ async function startKafkaErrorTap(signal: AbortSignal): Promise<void> {
         await consumeTopic(topic, (payload) => handleKafkaMessage(topic, payload), signal);
       } catch (err) {
         // consumeTopic throws if KAFKA_BROKERS is unset — expected in some
-        // environments (e.g. docker runtime without Kafka). Fail-soft.
+        // environments (e.g. no Kafka configured). Fail-soft.
         log.warn("kafka error tap not started", { topic, err });
       }
     })

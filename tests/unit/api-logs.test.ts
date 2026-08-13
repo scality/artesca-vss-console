@@ -4,7 +4,7 @@
  * The route has three layers:
  *   1. Auth guard          → 401 if no session
  *   2. Namespace allowlist → 403 if ns not in set
- *   3. SSE stream          → 200 text/event-stream (K8s or docker path)
+ *   3. SSE stream          → 200 text/event-stream
  *
  * Layer 3 uses real @kubernetes/client-node KubeConfig+Log (not coreV1) and
  * createSseResponse, which opens a ReadableStream.  We mock the heavy deps
@@ -27,7 +27,6 @@ const {
   mockKubeConfigCtor,
   MockLogClass,
   mockCreateSseResponse,
-  mockStreamDockerLogs,
 } = vi.hoisted(() => {
   const mockAuth = vi.fn();
   const mockLogLog = vi.fn().mockResolvedValue(new AbortController());
@@ -46,7 +45,6 @@ const {
       headers: { "content-type": "text/event-stream; charset=utf-8" },
     })
   );
-  const mockStreamDockerLogs = vi.fn().mockReturnValue(() => {});
 
   return {
     mockAuth,
@@ -54,7 +52,6 @@ const {
     mockKubeConfigCtor,
     MockLogClass,
     mockCreateSseResponse,
-    mockStreamDockerLogs,
   };
 });
 

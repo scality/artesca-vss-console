@@ -37,7 +37,6 @@ vi.mock("@/lib/k8s", () => ({
   rolloutRestart: vi.fn().mockResolvedValue(undefined),
 }));
 
-// fs/promises is used in docker mode only.
 vi.mock("fs/promises", () => ({
   default: {
     readFile: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })),

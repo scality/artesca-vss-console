@@ -45,7 +45,6 @@ export default async function OverviewPage() {
 
   // Degraded probes record *why* in warnings[]; surface them so an empty panel
   // (e.g. a missing GPU section) explains itself instead of silently vanishing.
-  // The compose-empty case has its own hint below, so drop that specific noise.
   const warnings = Array.from(
     new Set([...overviewResult.warnings, ...podsResult.warnings])
   );
@@ -63,7 +62,7 @@ export default async function OverviewPage() {
     total: nsPods.length,
     // Completed Jobs (Succeeded) carry no Ready condition but are terminal
     // successes — count them toward ready so a finished one-shot doesn't show
-    // the namespace as N-1/N WARN. Matches the docker path's succeeded→ready.
+    // the namespace as N-1/N WARN.
     ready: nsPods.filter((p) => p.ready || p.phase === "Succeeded").length,
   }));
 

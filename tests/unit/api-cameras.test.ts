@@ -234,12 +234,6 @@ describe("GET /api/cameras (k8s)", () => {
   });
 });
 
-// Note: Docker-path GET tests (camsim/GCS-based) require DOCKER_MODE=true at module
-// load time. Since DOCKER_MODE is a module-level constant, those tests need a
-
-// ── POST (k8s path) ────────────────────────────────────────────────────────────
-// Auth / validation / camsim-error tests are mode-independent; they live here
-// Docker-mode POST tests (GCS write-through assertions) live in api-cameras-docker.test.ts.
 
 describe("POST /api/cameras (k8s)", () => {
   it("auth missing → 401, no camsim calls", async () => {

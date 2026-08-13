@@ -24,19 +24,20 @@ export interface VstSensor {
 }
 
 /** List all sensors registered in VST. Supports both the k8s sensor-ms /list
- *  shape (`{sensors: [...]} | [...]`) and the docker-compose vst-ingress
+ *  shape (`{sensors: [...]} | [...]`) and the vst-ingress
  *  /vst/api/v1/sensor/streams shape (an array of objects keyed by streamId
  *  containing one element each — `{name, streamId, url, type, metadata}`).
  *  The endpoint is selected by VST_SENSOR_LIST_URL: when the URL ends with
- *  `/sensor/streams` we parse the docker shape, otherwise the k8s shape. */
+ *  `/sensor/streams` we parse the streams shape, otherwise the list shape. */
 export async function vstListSensors(): Promise<{
   sensors: VstSensor[];
   warning?: string;
 }> {
-  // Prefer the explicit VST_SENSOR_LIST_URL when set (docker path); fall
-  // back to `${VST_BASE}/list` (legacy k8s path).
+  // Prefer the explicit VST_SENSOR_LIST_URL when set; fall back to
+  // `${VST_BASE}/list`. The two endpoints return different shapes, keyed below
+  // on the path — this is response tolerance, not a runtime switch.
   const url = CLUSTER.vst.sensorListUrl ?? `${VST_BASE}/list`;
-  const isDockerStreamsShape = /\/sensor\/streams\b/.test(url);
+  const isStreamsShape = /\/sensor\/streams\b/.test(url);
   try {
     const resp = await fetch(url, {
       next: { revalidate: 0 },
@@ -52,7 +53,7 @@ export async function vstListSensors(): Promise<{
 
     const json = await resp.json();
 
-    if (isDockerStreamsShape) {
+    if (isStreamsShape) {
       // [{<streamId>: [<streamObj>]}, ...] → flatten to VstSensor[].
       const sensors: VstSensor[] = [];
       const arr = Array.isArray(json) ? json : [];
@@ -175,7 +176,7 @@ export async function vstAddSensor(input: {
 }
 
 /** Start recording a stream via the streamprocessing-ms proxy endpoint.
- *  Docker-path only — returns ok:true immediately when proxyStreamAddUrl is empty (k8s path). */
+ *  Returns ok:true immediately when proxyStreamAddUrl is empty. */
 export async function vstStartStream(input: {
   sensorId: string;
   rtspUrl: string;

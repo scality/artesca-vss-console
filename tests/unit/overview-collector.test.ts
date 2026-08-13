@@ -29,7 +29,6 @@ const {
   mockPromQuery,
   mockMediamtxListPaths,
   mockVstListSensors,
-  mockListComposeContainers,
   mockInspectContainer,
   mockRunOneShotGpuContainer,
   mockS3Bucket,
@@ -44,7 +43,6 @@ const {
   const mockPromQuery = vi.fn();
   const mockMediamtxListPaths = vi.fn();
   const mockVstListSensors = vi.fn();
-  const mockListComposeContainers = vi.fn();
   const mockInspectContainer = vi.fn();
   const mockRunOneShotGpuContainer = vi.fn();
   const mockS3Bucket = vi.fn(() => "test-bucket");
@@ -59,7 +57,6 @@ const {
     mockPromQuery,
     mockMediamtxListPaths,
     mockVstListSensors,
-    mockListComposeContainers,
     mockInspectContainer,
     mockRunOneShotGpuContainer,
     mockS3Bucket,
@@ -207,7 +204,6 @@ function makeKafkaAdmin(topics: string[] = []) {
 /** Default happy-path setups for all k8s-mode probes. */
 function setupK8sHappyPath() {
   // Force k8s mode.
-  // Provide a kubeconfig-like env var so isDockerMode() → false path is taken.
   vi.stubEnv("KUBECONFIG", "/tmp/fake-kubeconfig");
 
   // Pods per namespace — all ready.
@@ -234,7 +230,7 @@ function setupK8sHappyPath() {
     refreshing: false,
   });
 
-  // Camera-sim / mediamtx — working (docker path only).
+  // Camera-sim / mediamtx — working.
   mockMediamtxListPaths.mockResolvedValue({
     paths: [
       { name: "cam1", ready: true },
@@ -254,43 +250,6 @@ function setupK8sHappyPath() {
     ingesting: new Set(["cam1"]),
     warning: undefined,
   });
-}
-
-/** Default happy-path setups for docker-mode probes. */
-function setupDockerHappyPath() {
-  // Remove KUBECONFIG so hasKubeconfig() returns false.
-  vi.stubEnv("KUBECONFIG", "");
-
-  mockListComposeContainers.mockResolvedValue([
-    {
-      Id: "abc123",
-      Names: ["/my-service"],
-      Image: "test:latest",
-      State: "running",
-      Status: "Up 1 hour (healthy)",
-      Labels: { "com.docker.compose.service": "my-service" },
-    },
-  ]);
-
-  mockInspectContainer.mockResolvedValue(null);
-  mockRunOneShotGpuContainer.mockResolvedValue(null);
-
-  mockBucketStatsCached.mockReturnValue({
-    stats: {
-      bucket: "test-bucket",
-      objectCount: 10,
-      bytesTotal: 500_000,
-      bytesLast24h: 50_000,
-    },
-    refreshing: false,
-  });
-
-  mockMediamtxListPaths.mockResolvedValue({
-    paths: [],
-    warning: undefined,
-  });
-
-  mockVstListSensors.mockResolvedValue({ sensors: [], warning: undefined });
 }
 
 // ─── Lifecycle ──────────────────────────────────────────────────────────────
@@ -646,7 +605,6 @@ describe("collectPodSummaries — phase counts", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Docker mode — basic contract
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── Todos ────────────────────────────────────────────────────────────────────

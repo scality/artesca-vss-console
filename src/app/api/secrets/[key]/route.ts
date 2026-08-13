@@ -13,18 +13,6 @@ import { CLUSTER } from "@/lib/cluster-refs";
 
 export const dynamic = "force-dynamic";
 
-
-// ─── Docker-mode secret checks ────────────────────────────────────────────────
-//
-// In docker mode there is no K8s cluster. Configured status comes from:
-//   "container" — inspect the named container's Env array
-//   "env"       — check process.env (value injected at compose startup)
-//   "multi-env" — all named process.env keys must be non-empty
-//   "file"      — check the file path stored in the named process.env key
-//
-// For PATCH, values are written to DOCKER_SECRETS_DIR/<key> and the target
-// container (if any) is restarted via the docker socket.
-
 // ─── Secret registry ─────────────────────────────────────────────────────────
 //
 // Each entry maps a UI key (used by /secrets page) to a K8s Secret + one or

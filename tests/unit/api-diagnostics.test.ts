@@ -58,7 +58,6 @@ beforeEach(() => {
   };
   vi.mocked(coreV1).mockReturnValue(freshCoreApi as never);
 
-  // Ensure k8s branch (not docker) runs
 });
 
 // ── Tests ────────────────────────────────────────────────────────────────────

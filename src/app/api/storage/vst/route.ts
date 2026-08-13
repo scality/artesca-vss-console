@@ -13,9 +13,6 @@ import { CLUSTER } from "@/lib/cluster-refs";
 import { getRedis } from "@/lib/redis";
 import { makeS3Client } from "@/lib/s3";
 
-const DOCKER_SENSOR_CONTAINER = "sensor-ms-dev";
-const DOCKER_VST_CACHE_PATH = "/home/vst/vst_release/vst_video";
-
 export const dynamic = "force-dynamic";
 
 // ─── In-memory PUT rate cache (fallback when Redis is unavailable) ────────────

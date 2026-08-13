@@ -17,7 +17,6 @@ import {
 export const dynamic = "force-dynamic";
 
 const RTVI_VLM_CONTAINER = "rtvi-vlm";
-const DOCKER_PROMPT_ENV = "VLM_SYSTEM_PROMPT";
 const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 
 // Mutex for GCS writes — same pattern as cameras/route.ts.

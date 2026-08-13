@@ -1,6 +1,5 @@
 // GET /api/logs/[ns]/[pod]/[container]
-// SSE: streams kubectl logs -f or docker logs -f (docker mode).
-// In docker mode `ns` is ignored; `pod` is treated as the container name.
+// SSE: streams kubectl logs -f.
 // Query params:
 //   tailLines  (number, default 100)
 //   timestamps (bool,   default false)

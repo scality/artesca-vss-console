@@ -158,6 +158,5 @@ describe("GET /api/topology", () => {
     expect(body.warnings.length).toBeGreaterThan(0);
   });
 
-  it.todo("docker mode branch: returns docker-shaped graph from docker.sock — full mock surface deferred");
   it.todo("feed sub-nodes: VST sensor list populated → dynamic nodes appended with parent=camera-sim");
 });

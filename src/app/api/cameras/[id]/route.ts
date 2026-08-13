@@ -122,7 +122,6 @@ export async function PUT(
   const updatedBy = session.user?.email ?? "console";
 
   // k8s path: merge overrides into the Firestore camera doc.
-  // Placed ABOVE the docker clear-block so k8s always takes this branch.
   // Semantics: undefined field = leave unchanged; null = remove the field.
   const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
   try {

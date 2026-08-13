@@ -15,7 +15,7 @@ vi.mock("@/lib/cluster-refs", () => ({
   },
 }));
 
-// stub fs so docker-path tests don't touch disk
+// stub fs so tests don't touch disk
 vi.mock("node:fs", () => ({
   existsSync: vi.fn().mockReturnValue(false),
   readFileSync: vi.fn().mockReturnValue(""),

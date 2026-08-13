@@ -234,14 +234,6 @@ async function fetchFeedNodes(
 }
 
 
-interface DockerContainer {
-  Id: string;
-  Names: string[];
-  Image: string;
-  State: string;
-  Status: string;
-}
-
 /** Probe the configured S3 / ARTESCA endpoint and return a health status.
  *  SSL verification failures (custom CA not yet trusted) are reported as
  *  "warn" rather than "fail" because the endpoint IS reachable — the

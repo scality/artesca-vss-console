@@ -14,16 +14,6 @@ export const dynamic = "force-dynamic";
 //   - "nvidia-vss-agent" (not "agent") — k8s/nvidia-vss/agent/20-nvidia-vss-agent.yaml
 //   - "cosmos-reason2-8b" as StatefulSet (not "nim-cosmos-reason2" Deployment)
 const { restartable: RESTARTABLE } = CLUSTER;
-const COMPOSE_PROJECT = process.env.COMPOSE_PROJECT_NAME ?? "mdx";
-
-// Maps console component keys → docker compose service names.
-// Only entries that differ from the component key need an override.
-const DOCKER_SERVICE_NAMES: Record<string, string> = {
-  "sensor-ms": "sensor-ms-dev",
-  "streamprocessing-ms": "streamprocessing-ms-dev",
-  "nvidia-vss-agent": "vss-agent",
-  "alert-worker": "vss-video-analytics-api-alerts",
-};
 
 export const POST = withRequestContext(async (
   _req: Request,

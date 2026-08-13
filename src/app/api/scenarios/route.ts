@@ -22,8 +22,6 @@ import path from "path";
 
 export const dynamic = "force-dynamic";
 
-const DOCKER_ALERT_CONTAINER = "vss-video-analytics-api-alerts";
-
 const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 
 // Mutex for GCS writes.

@@ -38,7 +38,7 @@ const OVERALL: Record<H, { box: string; text: string; word: string }> = {
 };
 
 // Roll the snapshot's individual probes into one operator-facing verdict.
-// Each signal is only emitted when there's data behind it, so a compose box
+// Each signal is only emitted when there's data behind it, so a box
 // with no GPUs doesn't get scored on GPU health.
 function buildSignals(overview: OverviewSnapshot, warningCount: number): Signal[] {
   const signals: Signal[] = [];

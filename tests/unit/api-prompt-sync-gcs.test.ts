@@ -80,7 +80,7 @@ describe("POST /api/prompt/sync-gcs", () => {
     // This branch requires VSS_INSTANCE_NAME to be set at module load time, so
     // we cannot reach it via the top-level module (captured const = ""). Verify
     // the guard ordering: 400 exits before readPromptLive is ever called.
-    vi.mocked(readPromptLive).mockRejectedValue(new Error("docker socket unreachable"));
+    vi.mocked(readPromptLive).mockRejectedValue(new Error("config store unreachable"));
 
     const res = await POST();
 
@@ -118,10 +118,6 @@ describe("POST /api/prompt/sync-gcs — with VSS_INSTANCE_NAME set", () => {
     vi.doMock("@/lib/helpers/gcs-config", () => ({
       gcsPromptPut: vi.fn().mockResolvedValue(undefined),
       gcsPromptGet: vi.fn().mockResolvedValue(null),
-    }));
-    vi.doMock("@/lib/helpers/docker-sock", () => ({
-      dockerSock: vi.fn().mockResolvedValue({}),
-      dockerRecreateWithEnv: vi.fn().mockResolvedValue({ id: "abc" }),
     }));
     vi.doMock("@/lib/helpers/configmaps", () => ({
       readConfigMapKey: vi.fn(),
@@ -163,15 +159,11 @@ describe("POST /api/prompt/sync-gcs — with VSS_INSTANCE_NAME set", () => {
       auth: vi.fn().mockResolvedValue({ user: { name: "op", email: "op@test.com" } }),
     }));
     vi.doMock("@/lib/helpers/prompt-apply", () => ({
-      readPromptLive: vi.fn().mockRejectedValue(new Error("docker socket unreachable")),
+      readPromptLive: vi.fn().mockRejectedValue(new Error("config store unreachable")),
       applyPromptLive: vi.fn().mockResolvedValue(undefined),
     }));
     vi.doMock("@/lib/helpers/gcs-config", () => ({
       gcsPromptPut: vi.fn().mockResolvedValue(undefined),
-    }));
-    vi.doMock("@/lib/helpers/docker-sock", () => ({
-      dockerSock: vi.fn().mockResolvedValue({}),
-      dockerRecreateWithEnv: vi.fn().mockResolvedValue({ id: "abc" }),
     }));
     vi.doMock("@/lib/helpers/configmaps", () => ({
       readConfigMapKey: vi.fn(),
@@ -189,7 +181,7 @@ describe("POST /api/prompt/sync-gcs — with VSS_INSTANCE_NAME set", () => {
     expect(res.status).toBe(502);
     const body = await res.json();
     expect(body.error).toMatch(/Failed to read live prompt/);
-    expect(body.error).toContain("docker socket unreachable");
+    expect(body.error).toContain("config store unreachable");
 
     delete process.env.VSS_INSTANCE_NAME;
     vi.resetModules();
@@ -208,10 +200,6 @@ describe("POST /api/prompt/sync-gcs — with VSS_INSTANCE_NAME set", () => {
     }));
     vi.doMock("@/lib/helpers/gcs-config", () => ({
       gcsPromptPut: vi.fn().mockRejectedValue(new Error("GCS quota exceeded")),
-    }));
-    vi.doMock("@/lib/helpers/docker-sock", () => ({
-      dockerSock: vi.fn().mockResolvedValue({}),
-      dockerRecreateWithEnv: vi.fn().mockResolvedValue({ id: "abc" }),
     }));
     vi.doMock("@/lib/helpers/configmaps", () => ({
       readConfigMapKey: vi.fn(),

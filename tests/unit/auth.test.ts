@@ -24,7 +24,7 @@ vi.mock("bcryptjs", () => ({
   },
 }));
 
-// fs/promises — intercept readFile so we can simulate the docker-secret file.
+// fs/promises — intercept readFile so we can simulate the secret file.
 vi.mock("fs/promises", () => ({
   default: {
     readFile: vi.fn(),
@@ -63,7 +63,6 @@ describe("getPasswordHash — precedence", () => {
   it("returns plain CONSOLE_PASSWORD (isHashed=false) when no env hash", async () => {
     vi.stubEnv("CONSOLE_PASSWORD_HASH", "");
     vi.stubEnv("CONSOLE_PASSWORD", "custompass");
-    // Ensure no leftover docker-mode readFile call from a prior test
     fsReadFile.mockRejectedValueOnce(new Error("ENOENT") as never);
 
     const result = await getPasswordHash();

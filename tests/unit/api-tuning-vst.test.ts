@@ -225,7 +225,6 @@ describe("GET /api/tuning/vst", () => {
     expect(body.observed.sensors[0].gop).toBe(30);
   });
 
-  it.todo("docker mode GET: reads vst_config via execInContainer — deep branch deferred");
 });
 
 // ── PATCH ─────────────────────────────────────────────────────────────────────
@@ -350,5 +349,4 @@ describe("PATCH /api/tuning/vst", () => {
     expect(auditLog).not.toHaveBeenCalled();
   });
 
-  it.todo("docker mode PATCH: writes vst_config via execInContainer + restarts containers via dockerSock — deep branch deferred");
 });

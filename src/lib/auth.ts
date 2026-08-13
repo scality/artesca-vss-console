@@ -6,7 +6,7 @@ import path from "path";
 
 const DEV_USER = { id: "1", name: "console-operator", email: "console@local" };
 
-// In docker mode, PATCH /api/secrets/console-auth-password writes a bcrypt hash
+// PATCH /api/secrets/console-auth-password writes a bcrypt hash
 // to this file so the password can be rotated without restarting the container.
 export async function getPasswordHash(): Promise<{ hash: string; isHashed: boolean } | null> {
   const envHash = process.env.CONSOLE_PASSWORD_HASH;

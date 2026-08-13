@@ -20,13 +20,6 @@ export const dynamic = "force-dynamic";
 
 const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 
-// Docker container names for components the profile apply touches.
-const DOCKER_ALERTS_CONTAINER = "vss-video-analytics-api-alerts";
-const DOCKER_VLM_CONTAINER = "rtvi-vlm";
-const DOCKER_NIM_CONTAINER = "cosmos-reason2-8b";
-// Env var keys on the rtvi-vlm container (matches prompt/route.ts).
-const DOCKER_PROMPT_ENV = "VLM_SYSTEM_PROMPT";
-
 // ─── GET — load a profile ─────────────────────────────────────────────────────
 
 export async function GET(

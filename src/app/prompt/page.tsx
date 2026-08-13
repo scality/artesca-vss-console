@@ -201,7 +201,7 @@ export default function PromptPage() {
           </div>
         </div>
 
-        {/* GCS persistence status banner — docker mode only */}
+        {/* GCS persistence status banner */}
         {data?.gcs?.available === true && (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
             <span>

@@ -114,7 +114,7 @@ export async function listFootage(): Promise<FootageFile[]> {
     entries = await readdir(FOOTAGE_DIR);
   } catch (err) {
     const code = (err as { code?: string }).code;
-    // Volume not mounted yet (or not present in a docker-mode console): an
+    // Volume not mounted yet: an
     // empty list is the honest answer, not a 500.
     if (code === "ENOENT") return [];
     throw err;

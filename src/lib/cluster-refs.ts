@@ -126,7 +126,7 @@ const VST_PROXY_STREAM_ADD_URL =
 // Symmetric to proxy/stream/add: tears down the recording pipeline for a
 // sensor (clears sensor_details.url, stops streamprocessing-ms recording)
 // while leaving the sensor registered + live. Same streamprocessing-ms host
-// as the add URL (only reachable from inside the VSS box on docker).
+// as the add URL.
 const VST_PROXY_STREAM_REMOVE_URL =
   process.env.VST_PROXY_STREAM_REMOVE_URL ??
   (LEGACY

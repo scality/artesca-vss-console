@@ -2,7 +2,7 @@
  * Unit tests for src/lib/helpers/vst.ts
  *
  * Covers:
- *  - vstListSensors(): k8s shape (array), k8s shape (object wrapper), docker
+ *  - vstListSensors(): list shape (array), list shape (object wrapper), streams
  *    /sensor/streams shape, HTTP error, network failure.
  *  - vstAddSensor(): happy path, 409 idempotent, HTTP error, network failure.
  *  - vstStartStream(): no-op when proxyStreamAddUrl empty, happy path, HTTP error.
