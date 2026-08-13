@@ -16,12 +16,6 @@ vi.mock("@/lib/helpers/gcs-config", () => ({
   gcsPromptGet: vi.fn().mockResolvedValue(null),
 }));
 
-// docker-sock is transitively imported by prompt-apply in docker mode — stub it.
-vi.mock("@/lib/helpers/docker-sock", () => ({
-  dockerSock: vi.fn().mockResolvedValue({}),
-  inspectContainer: vi.fn().mockResolvedValue(null),
-  dockerRecreateWithEnv: vi.fn().mockResolvedValue({ id: "abc123" }),
-}));
 
 // configmaps is transitively imported by prompt-apply in k8s mode — stub it.
 vi.mock("@/lib/helpers/configmaps", () => ({
@@ -54,7 +48,6 @@ beforeEach(() => {
   vi.mocked(gcsPromptPut).mockReset().mockResolvedValue(undefined);
 
   delete process.env.VSS_INSTANCE_NAME;
-  delete process.env.CONSOLE_RUNTIME;
 });
 
 // ── POST /api/prompt/sync-gcs ────────────────────────────────────────────────

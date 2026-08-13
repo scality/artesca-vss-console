@@ -2,10 +2,6 @@
  * Shared helper for applying a scenarios update — used by both the route
  * handler and the GCS bootstrap. Isolates the ConfigMap patch logic so
  * the bootstrap can call it directly without HTTP round-trips.
- *
- * Note: docker mode has no separate scenarios ConfigMap (scenarios are only
- * used by the alert-worker which runs inside K8s even in docker-compose stacks).
- * The apply function skips silently when CONSOLE_RUNTIME=docker.
  */
 import "server-only";
 import { stringify as yamlStringify } from "yaml";
@@ -51,16 +47,10 @@ export function scenarioToGcsConfig(s: Scenario): ScenarioConfig {
   };
 }
 
-/** Apply a set of GCS-format scenarios to the live ConfigMap.
- *  Skips silently in docker mode (no scenarios ConfigMap in docker-compose). */
+/** Apply a set of GCS-format scenarios to the live ConfigMap. */
 export async function applyScenariosLive(
-  dockerMode: boolean,
   scenarios: ScenarioConfig[],
 ): Promise<void> {
-  if (dockerMode) {
-    log.info("docker mode — skipping ConfigMap patch (no scenarios CM in compose)");
-    return;
-  }
   const payload = gcsScenariosToCmPayload(scenarios);
   await patchConfigMapKey(
     CLUSTER.scenarios.namespace,

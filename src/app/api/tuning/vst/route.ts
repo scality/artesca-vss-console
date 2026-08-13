@@ -9,11 +9,6 @@ import { rolloutRestart } from "@/lib/k8s";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
-import {
-  execInContainer,
-  dockerSock,
-  DOCKER_TUNING_DIR,
-} from "@/lib/helpers/docker-sock";
 import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import fs from "fs/promises";
@@ -21,14 +16,9 @@ import path from "node:path";
 
 export const dynamic = "force-dynamic";
 
-const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
-const VST_SENSOR_CONTAINER = "sensor-ms-dev";
 const VST_STREAM_CONTAINER = "streamprocessing-ms-dev";
 // Config file path inside sensor-ms-dev (bind-mounted from host via VST_CONFIG_PATH).
 // Verified against refs/video-search-and-summarization/deployments/vst/developer/vst/docker-compose.yaml volumes:.
-const VST_DOCKER_CONFIG_PATH = "/home/vst/vst_release/configs/vst_config.json";
-const VST_PERSIST_FILE = path.join(DOCKER_TUNING_DIR, "vst.json");
-
 // ─── Internal shape of vst_config.json ───────────────────────────────────────
 
 interface VstConfigJson {
@@ -315,82 +305,12 @@ function parseSensorList(
 
 // ─── Docker helpers ───────────────────────────────────────────────────────────
 
-async function readVstConfigDocker(): Promise<VstConfigJson | null> {
-  const raw = await execInContainer(VST_SENSOR_CONTAINER, ["cat", VST_DOCKER_CONFIG_PATH]);
-  if (raw === null) return null;
-  try {
-    const result = VstConfigJsonSchema.safeParse(JSON.parse(raw.trim()));
-    if (!result.success) {
-      log.error("readVstConfigDocker: ConfigMap shape unexpected", { err: result.error });
-      return null;
-    }
-    return result.data as VstConfigJson;
-  } catch {
-    return null;
-  }
-}
-
-async function writeVstConfigDocker(cfg: VstConfigJson): Promise<void> {
-  const json = JSON.stringify(cfg, null, 2);
-  const b64 = Buffer.from(json).toString("base64");
-  const result = await execInContainer(VST_SENSOR_CONTAINER, [
-    "sh",
-    "-c",
-    `printf '%s' '${b64}' | base64 -d > '${VST_DOCKER_CONFIG_PATH}'`,
-  ]);
-  if (result === null) throw new Error(`exec write to ${VST_DOCKER_CONFIG_PATH} failed`);
-  // Also persist backup for GET fallback when containers are stopped.
-  await fs.mkdir(DOCKER_TUNING_DIR, { recursive: true });
-  await fs.writeFile(VST_PERSIST_FILE, json, "utf-8");
-}
-
-async function readPersistedVstConfig(): Promise<VstConfigJson | null> {
-  try {
-    const raw = await fs.readFile(VST_PERSIST_FILE, "utf-8");
-    const result = VstConfigJsonSchema.safeParse(JSON.parse(raw));
-    if (!result.success) {
-      log.error("readPersistedVstConfig: ConfigMap shape unexpected", { err: result.error });
-      return null;
-    }
-    return result.data as VstConfigJson;
-  } catch {
-    return null;
-  }
-}
-
 // ─── GET ──────────────────────────────────────────────────────────────────────
 
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (DOCKER_MODE) {
-    const cfg = (await readVstConfigDocker()) ?? (await readPersistedVstConfig()) ?? {};
-    const warnings: string[] = [];
-    if (!cfg || Object.keys(cfg).length === 0) {
-      warnings.push("sensor-ms-dev container not running and no persisted config — showing defaults");
-    }
-    const sensorEntries = await fetchSensorList();
-    let observed: VstTuningResponse["observed"] | undefined;
-    if (sensorEntries !== null) {
-      const sensors = parseSensorList(sensorEntries);
-      if (sensors.length > 0) observed = { sensors };
-    }
-    const response: VstTuningResponse = {
-      recordingMode: deriveRecordingMode(cfg),
-      eventRecordLengthSecs: cfg.data?.event_record_length_secs ?? 10,
-      recordBufferLengthSecs: cfg.data?.record_buffer_length_secs ?? 0,
-      defaultGovLength: cfg.onvif?.default_gov_length ?? 60,
-      supportedVideoCodecs: filterCodecs(cfg.data?.supported_video_codecs),
-      storageThresholdPercentage: cfg.data?.storage_threshold_percentage ?? 95,
-      storageMonitoringFrequencySecs: cfg.data?.storage_monitoring_frequency_secs ?? 2,
-      defaultFileExpiryMinutes: cfg.data?.default_file_expiry_minutes ?? 10080,
-      enableAgingPolicy: cfg.data?.enable_aging_policy ?? false,
-      recorderEnableFrameDrop: cfg.data?.recorder_enable_frame_drop ?? false,
-      ...(observed ? { observed } : {}),
-    };
-    return NextResponse.json({ ...response, runtime: "docker", ...(warnings.length ? { warnings } : {}) });
-  }
 
   let cfg: VstConfigJson;
   try {
@@ -477,37 +397,6 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
   }
   const patches = parsed.data;
 
-  if (DOCKER_MODE) {
-    const current = (await readVstConfigDocker()) ?? (await readPersistedVstConfig()) ?? {};
-    const cfg: VstConfigJson = { ...current };
-    applyVstPatches(cfg, patches);
-
-    try {
-      await writeVstConfigDocker(cfg);
-    } catch (err) {
-      return NextResponse.json(
-        { error: `VST config write failed: ${String(err)}`, runtime: "docker" },
-        { status: 502 },
-      );
-    }
-
-    const restartErrors: string[] = [];
-    for (const container of [VST_SENSOR_CONTAINER, VST_STREAM_CONTAINER]) {
-      try {
-        await dockerSock("POST", `/containers/${encodeURIComponent(container)}/restart?t=10`, undefined, 30_000);
-      } catch (err) {
-        restartErrors.push(`${container}: ${String(err)}`);
-      }
-    }
-
-    await auditLog("tuning-vst", `docker/${VST_SENSOR_CONTAINER}`, { patches });
-    return NextResponse.json({
-      ok: true,
-      applied: patches,
-      runtime: "docker",
-      ...(restartErrors.length ? { restartErrors } : {}),
-    });
-  }
 
   // Sensor and streamprocessing each hold their own copy of vst_config.json
   // on the Helm path (identical on legacy, where both point at "vst-config")

@@ -59,7 +59,6 @@ beforeEach(() => {
     json: async () => ({ sensors: [] }),
   } as unknown as Response);
   // Clear CONSOLE_RUNTIME so the k8s branch runs (not docker branch).
-  delete process.env.CONSOLE_RUNTIME;
 });
 
 // ── Tests ────────────────────────────────────────────────────────────────────

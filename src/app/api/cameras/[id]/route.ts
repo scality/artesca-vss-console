@@ -37,20 +37,13 @@ const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 
 /**
  * Read a camera's authoritative definition from the config store — Firestore
- * on the k8s path, GCS on the docker path. Independent of the camera-sim
+ * from the config store. Independent of the camera-sim
  * control-plane: a camera is defined by its RTSP URL, not by the simulator.
  */
 async function readStoredCameraEntry(id: string): Promise<CameraEntry | undefined> {
-  if (process.env.CONSOLE_RUNTIME !== "docker") {
-    const { makeReconcileContext } = await import("@/lib/reconcile/context");
-    const ctx = await makeReconcileContext();
-    return (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
-  }
-  if (VSS_INSTANCE_NAME) {
-    const list = await gcsCamerasGet(VSS_INSTANCE_NAME);
-    return list?.cameras.find((c) => c.id === id);
-  }
-  return undefined;
+  const { makeReconcileContext } = await import("@/lib/reconcile/context");
+  const ctx = await makeReconcileContext();
+  return (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
 }
 
 // ─── GET — single camera overrides ────────────────────────────────────────────
@@ -66,31 +59,25 @@ export async function GET(
   const { id } = await params;
 
   // k8s path: read overrides from Firestore camera doc.
-  if (process.env.CONSOLE_RUNTIME !== "docker") {
-    const { makeReconcileContext } = await import("@/lib/reconcile/context");
-    try {
-      const ctx = await makeReconcileContext();
-      const cam = (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
-      const override = cam
-        ? {
-            cameraId: id,
-            scenarioIds: cam.scenarioIds ?? null,
-            recordingEnabled: cam.recording?.enabled ?? null,
-            recordingPolicy: cam.recording?.policy ?? null,
-            recordingRetentionDays: cam.recording?.retentionDays ?? null,
-            updatedAt: "",
-            updatedBy: "",
-          }
-        : null;
-      return NextResponse.json({ cameraId: id, override });
-    } catch {
-      return NextResponse.json({ cameraId: id, override: null });
-    }
+  const { makeReconcileContext } = await import("@/lib/reconcile/context");
+  try {
+    const ctx = await makeReconcileContext();
+    const cam = (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
+    const override = cam
+      ? {
+          cameraId: id,
+          scenarioIds: cam.scenarioIds ?? null,
+          recordingEnabled: cam.recording?.enabled ?? null,
+          recordingPolicy: cam.recording?.policy ?? null,
+          recordingRetentionDays: cam.recording?.retentionDays ?? null,
+          updatedAt: "",
+          updatedBy: "",
+        }
+      : null;
+    return NextResponse.json({ cameraId: id, override });
+  } catch {
+    return NextResponse.json({ cameraId: id, override: null });
   }
-
-  // docker path: read overrides from SQLite.
-  const override = getCameraOverride(id);
-  return NextResponse.json({ cameraId: id, override });
 }
 
 // ─── PUT — upsert per-camera scenario bindings + recording policy ─────────────
@@ -137,110 +124,47 @@ export async function PUT(
   // k8s path: merge overrides into the Firestore camera doc.
   // Placed ABOVE the docker clear-block so k8s always takes this branch.
   // Semantics: undefined field = leave unchanged; null = remove the field.
-  const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
-  if (!DOCKER_MODE) {
-    const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
-    try {
-      const ctx = await makeReconcileContext();
-      const existing = (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
-      if (!existing) {
-        return NextResponse.json({ error: `Camera '${id}' not found in config store` }, { status: 404 });
-      }
-      const next = { ...existing };
-      if (scenarioIds !== undefined) {
-        if (scenarioIds === null) delete next.scenarioIds; else next.scenarioIds = scenarioIds;
-      }
-      if (promptId !== undefined) {
-        if (promptId === null) delete next.promptId; else next.promptId = promptId;
-      }
-      if (recording !== undefined) {
-        if (recording === null) delete next.recording; else next.recording = recording;
-      }
-      await ctx.store.upsertCamera(ctx.instance, next, updatedBy);
-
-      // Apply the recording on/off change to the VST so recording actually
-      // stops/starts (not just the persisted policy). Best-effort: a VST
-      // warning is surfaced but does not fail the config-store write.
-      const warnings: string[] = [];
-      if (recording !== undefined && recording !== null) {
-        const vst = await setRecording(id, recording.enabled, existing.rtspUrl);
-        if (!vst.ok && vst.warning) warnings.push(vst.warning);
-      }
-
-      // Apply the VLM ingestion on/off change to the alert-bridge so the
-      // realtime rule (incident generation) is actually created/deleted.
-      if (ingestion !== undefined) {
-        const ing = await setIngestion(id, ingestion.enabled, existing.rtspUrl);
-        if (!ing.ok && ing.warning) warnings.push(ing.warning);
-      }
-
-      await auditLog("camera-override-update", `camera/${id}`, { scenarioIds, promptId, recording, ingestion });
-      return NextResponse.json({ ok: true, cameraId: id, ...(warnings.length ? { warnings } : {}) });
-    } catch (err) {
-      const msg = err instanceof ReconcileContextError ? err.message : String(err);
-      return NextResponse.json({ error: `config store write failed: ${msg}` }, { status: 502 });
+  const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+  try {
+    const ctx = await makeReconcileContext();
+    const existing = (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
+    if (!existing) {
+      return NextResponse.json({ error: `Camera '${id}' not found in config store` }, { status: 404 });
     }
-  }
-
-  // docker path below: SQLite + GCS.
-
-  // If both fields are absent/null, treat as clearing the override entirely.
-  if (scenarioIds === undefined && recording === undefined && promptId === undefined) {
-    deleteCameraOverride(id);
-    await auditLog("camera-override-clear", `camera/${id}`, {});
-    return NextResponse.json({ ok: true, cameraId: id, cleared: true });
-  }
-
-  const overrideRow: CameraOverrideRow = {
-    cameraId: id,
-    scenarioIds: scenarioIds ?? null,
-    recordingEnabled: recording?.enabled ?? null,
-    recordingPolicy: recording?.policy ?? null,
-    recordingRetentionDays: recording?.retentionDays ?? null,
-    updatedAt: new Date().toISOString(),
-    updatedBy,
-  };
-  upsertCameraOverride(overrideRow);
-
-  await auditLog("camera-override-update", `camera/${id}`, {
-    scenarioIds,
-    recording,
-    promptId,
-  });
-
-  // Apply the recording on/off change to the VST so recording actually
-  // stops/starts (not just the persisted policy). Best-effort — a VST warning
-  // is surfaced but does not fail the request (the policy is already saved).
-  const warnings: string[] = [];
-  if (recording !== undefined && recording !== null) {
-    // The enable path needs the sensor's RTSP URL; resolve it from the GCS
-    // camera list (sensorId == camera id by convention).
-    const instanceName = process.env.VSS_INSTANCE_NAME ?? "";
-    let rtspUrl: string | undefined;
-    if (recording.enabled && instanceName) {
-      try {
-        const list = await gcsCamerasGet(instanceName);
-        rtspUrl = list?.cameras.find((c) => c.id === id)?.rtspUrl;
-      } catch {
-        // Best-effort — setRecording reports the missing-URL warning below.
-      }
+    const next = { ...existing };
+    if (scenarioIds !== undefined) {
+      if (scenarioIds === null) delete next.scenarioIds; else next.scenarioIds = scenarioIds;
     }
-    const vst = await setRecording(id, recording.enabled, rtspUrl);
-    if (!vst.ok && vst.warning) warnings.push(vst.warning);
+    if (promptId !== undefined) {
+      if (promptId === null) delete next.promptId; else next.promptId = promptId;
+    }
+    if (recording !== undefined) {
+      if (recording === null) delete next.recording; else next.recording = recording;
+    }
+    await ctx.store.upsertCamera(ctx.instance, next, updatedBy);
+
+    // Apply the recording on/off change to the VST so recording actually
+    // stops/starts (not just the persisted policy). Best-effort: a VST
+    // warning is surfaced but does not fail the config-store write.
+    const warnings: string[] = [];
+    if (recording !== undefined && recording !== null) {
+      const vst = await setRecording(id, recording.enabled, existing.rtspUrl);
+      if (!vst.ok && vst.warning) warnings.push(vst.warning);
+    }
+
+    // Apply the VLM ingestion on/off change to the alert-bridge so the
+    // realtime rule (incident generation) is actually created/deleted.
+    if (ingestion !== undefined) {
+      const ing = await setIngestion(id, ingestion.enabled, existing.rtspUrl);
+      if (!ing.ok && ing.warning) warnings.push(ing.warning);
+    }
+
+    await auditLog("camera-override-update", `camera/${id}`, { scenarioIds, promptId, recording, ingestion });
+    return NextResponse.json({ ok: true, cameraId: id, ...(warnings.length ? { warnings } : {}) });
+  } catch (err) {
+    const msg = err instanceof ReconcileContextError ? err.message : String(err);
+    return NextResponse.json({ error: `config store write failed: ${msg}` }, { status: 502 });
   }
-
-  // Persist overrides to GCS as v2 (best-effort — SQLite write already done).
-  const gcsWarning = VSS_INSTANCE_NAME
-    ? await pushOverridesToGcs(updatedBy)
-    : undefined;
-  if (gcsWarning) warnings.push(gcsWarning);
-
-  return NextResponse.json({
-    ok: true,
-    cameraId: id,
-    ...(gcsWarning ? { gcsWarning } : {}),
-    ...(warnings.length ? { warnings } : {}),
-  });
 }
 
 /**
@@ -393,27 +317,25 @@ export const PATCH = withRequestContext(async function (
   }
 
   // k8s path: upsert the updated entry to Firestore + apply to cluster.
-  if (process.env.CONSOLE_RUNTIME !== "docker") {
-    const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
-    const { reconcileCameras } = await import("@/lib/reconcile/cameras");
-    const rtspBase = process.env.CAMERA_SIM_HOST ? `rtsp://${process.env.CAMERA_SIM_HOST}:8554/${id}` : "";
-    const entry = { id, rtspUrl: rtspBase, ...(update.role ? { role: update.role } : {}), ...(newDescription ? { description: newDescription } : {}) };
-    try {
-      const ctx = await makeReconcileContext();
-      const existing = (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
-      const merged = {
-        ...entry,
-        ...(existing?.scenarioIds ? { scenarioIds: existing.scenarioIds } : {}),
-        ...(existing?.recording ? { recording: existing.recording } : {}),
-        ...(existing?.rtspUrl && !rtspBase ? { rtspUrl: existing.rtspUrl } : {}),
-      };
-      await ctx.store.upsertCamera(ctx.instance, merged, session.user?.email ?? "console");
-      const result = await reconcileCameras([merged], ctx.adapter, { prune: false });
-      result.failed.forEach((f) => warnings.push(`apply ${f.id}: ${f.warning ?? "failed"}`));
-    } catch (err) {
-      const msg = err instanceof ReconcileContextError ? err.message : String(err);
-      warnings.push(`config store update failed (camera-sim already updated): ${msg}`);
-    }
+  const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+  const { reconcileCameras } = await import("@/lib/reconcile/cameras");
+  const rtspBase = process.env.CAMERA_SIM_HOST ? `rtsp://${process.env.CAMERA_SIM_HOST}:8554/${id}` : "";
+  const entry = { id, rtspUrl: rtspBase, ...(update.role ? { role: update.role } : {}), ...(newDescription ? { description: newDescription } : {}) };
+  try {
+    const ctx = await makeReconcileContext();
+    const existing = (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
+    const merged = {
+      ...entry,
+      ...(existing?.scenarioIds ? { scenarioIds: existing.scenarioIds } : {}),
+      ...(existing?.recording ? { recording: existing.recording } : {}),
+      ...(existing?.rtspUrl && !rtspBase ? { rtspUrl: existing.rtspUrl } : {}),
+    };
+    await ctx.store.upsertCamera(ctx.instance, merged, session.user?.email ?? "console");
+    const result = await reconcileCameras([merged], ctx.adapter, { prune: false });
+    result.failed.forEach((f) => warnings.push(`apply ${f.id}: ${f.warning ?? "failed"}`));
+  } catch (err) {
+    const msg = err instanceof ReconcileContextError ? err.message : String(err);
+    warnings.push(`config store update failed (camera-sim already updated): ${msg}`);
   }
 
   await auditLog("camera-update", `camera/${id}`, { update });
@@ -474,22 +396,15 @@ export const DELETE = withRequestContext(async function (
     }
   }
 
-  // 4. Persist removal: Firestore (k8s) or GCS (docker).
-  const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
+  // 4. Persist removal to the config store.
   const instanceName = process.env.VSS_INSTANCE_NAME ?? "";
-  if (!DOCKER_MODE) {
-    const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
-    try {
-      const ctx = await makeReconcileContext();
-      await ctx.store.deleteCamera(ctx.instance, id, session.user?.email ?? "console");
-    } catch (err) {
-      const msg = err instanceof ReconcileContextError ? err.message : String(err);
-      warnings.push(`config store delete failed (camera removed from camera-sim): ${msg}`);
-    }
-  } else if (instanceName) {
-    const email = session?.user?.email ?? "console";
-    const gcsWarning = await writeToGcs(id, null, email, "remove");
-    if (gcsWarning) warnings.push(gcsWarning);
+  const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");
+  try {
+    const ctx = await makeReconcileContext();
+    await ctx.store.deleteCamera(ctx.instance, id, session.user?.email ?? "console");
+  } catch (err) {
+    const msg = err instanceof ReconcileContextError ? err.message : String(err);
+    warnings.push(`config store delete failed (camera removed from camera-sim): ${msg}`);
   }
 
   await auditLog("camera-delete", `camera/${id}`, {

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { promQuery } from "@/lib/helpers/prometheus";
-import { inspectContainer, runOneShotGpuContainer } from "@/lib/helpers/docker-sock";
 import type { GpuState } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -33,22 +32,6 @@ export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (process.env.CONSOLE_RUNTIME === "docker") {
-    const rtviInspect = await inspectContainer("rtvi-vlm");
-    const image = rtviInspect?.Config.Image ?? "nvcr.io/nvidia/vss-core/vss-rt-vlm:3.1.0";
-    const gpuOut = await runOneShotGpuContainer(image, [
-      "nvidia-smi",
-      "--query-gpu=index,name,memory.total,memory.used,utilization.gpu,temperature.gpu,power.draw",
-      "--format=csv,noheader,nounits",
-    ]);
-    if (!gpuOut) {
-      return NextResponse.json({
-        gpus: [],
-        warnings: ["nvidia-smi unavailable in docker mode"],
-      });
-    }
-    return NextResponse.json({ gpus: parseNvidiaSmiCsv(gpuOut), warnings: [] });
-  }
 
   const warnings: string[] = [];
 

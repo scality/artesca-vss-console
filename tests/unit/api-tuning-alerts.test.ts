@@ -57,12 +57,6 @@ vi.mock("@/lib/helpers/audit", () => ({
   auditLog: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@/lib/helpers/docker-sock", () => ({
-  dockerSock: vi.fn().mockResolvedValue({}),
-  inspectContainer: vi.fn().mockResolvedValue(null),
-  dockerRecreateWithEnv: vi.fn().mockResolvedValue({ id: "abc123def456" }),
-  DOCKER_TUNING_DIR: "/tmp/test-tuning",
-}));
 
 vi.mock("fs/promises", () => ({
   default: {
@@ -133,7 +127,6 @@ beforeEach(() => {
     instance: INSTANCE,
   });
 
-  delete process.env.CONSOLE_RUNTIME;
 });
 
 // ── GET ──────────────────────────────────────────────────────────────────────

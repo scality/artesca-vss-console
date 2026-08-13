@@ -43,10 +43,6 @@ vi.mock("@/lib/helpers/gcs-config", () => ({
   gcsHealthCheck: vi.fn().mockResolvedValue({ status: "ok" }),
 }));
 
-vi.mock("@/lib/gcs-bootstrap", () => ({
-  triggerCameraBootstrap: vi.fn(),
-  awaitBootstrap: vi.fn().mockResolvedValue(undefined),
-}));
 
 vi.mock("@/lib/db", () => ({
   listCameraOverrides: vi.fn().mockReturnValue([]),
@@ -173,7 +169,6 @@ beforeEach(() => {
   vi.mocked(buildK8sCamerasResponse).mockReset().mockReturnValue({ cameras: [], reconcile: null });
   // Ensure no VSS_INSTANCE_NAME so GCS writes are skipped in most tests
   delete process.env.VSS_INSTANCE_NAME;
-  delete process.env.CONSOLE_RUNTIME;
 });
 
 // ── GET (k8s path) ────────────────────────────────────────────────────────────

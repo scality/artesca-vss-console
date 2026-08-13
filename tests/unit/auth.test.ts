@@ -61,36 +61,7 @@ describe("getPasswordHash — precedence", () => {
     expect(fsReadFile).not.toHaveBeenCalled();
   });
 
-  it("reads the docker-secret file when CONSOLE_RUNTIME=docker and no env hash", async () => {
-    vi.stubEnv("CONSOLE_PASSWORD_HASH", "");
-    vi.stubEnv("CONSOLE_RUNTIME", "docker");
-    vi.stubEnv("CONSOLE_DATA_DIR", "/custom-data");
-
-    fsReadFile.mockResolvedValueOnce("$2b$10$filehash\n" as never);
-
-    const result = await getPasswordHash();
-
-    expect(fsReadFile).toHaveBeenCalledWith(
-      "/custom-data/.docker-secrets/console-auth-password",
-      "utf-8",
-    );
-    expect(result).toEqual({ hash: "$2b$10$filehash", isHashed: true });
-  });
-
-  it("falls through to plain when docker-secret file is empty", async () => {
-    vi.stubEnv("CONSOLE_PASSWORD_HASH", "");
-    vi.stubEnv("CONSOLE_RUNTIME", "docker");
-    vi.stubEnv("CONSOLE_PASSWORD", "mypassword");
-
-    // readFile returns whitespace-only — trimmed to "" so we fall through
-    fsReadFile.mockResolvedValueOnce("   \n" as never);
-
-    const result = await getPasswordHash();
-
-    expect(result).toEqual({ hash: "mypassword", isHashed: false });
-  });
-
-  it("returns plain CONSOLE_PASSWORD (isHashed=false) when no env hash and not docker mode", async () => {
+  it("returns plain CONSOLE_PASSWORD (isHashed=false) when no env hash", async () => {
     vi.stubEnv("CONSOLE_PASSWORD_HASH", "");
     vi.stubEnv("CONSOLE_RUNTIME", "");
     vi.stubEnv("CONSOLE_PASSWORD", "custompass");
@@ -102,7 +73,7 @@ describe("getPasswordHash — precedence", () => {
     expect(result).toEqual({ hash: "custompass", isHashed: false });
   });
 
-  it('defaults to "scality" when CONSOLE_PASSWORD is not set and not docker mode', async () => {
+  it('defaults to "scality" when CONSOLE_PASSWORD is not set', async () => {
     vi.stubEnv("CONSOLE_PASSWORD_HASH", "");
     vi.stubEnv("CONSOLE_RUNTIME", "");
     // Do not stub CONSOLE_PASSWORD — let it be absent so `??` kicks in.

@@ -215,24 +215,6 @@ export default function PromptPage() {
           </div>
         )}
 
-        {data?.runtime === "docker" && data?.gcs?.available === false && (
-          <div className="rounded-md border border-brand-light-gray bg-muted p-3 text-sm text-muted-foreground">
-            <span>
-              <span className="font-semibold">RUNTIME-ONLY</span> — prompt is not persisted to GCS.
-              Set <code>GCS_CONFIG_BUCKET</code> and <code>GOOGLE_APPLICATION_CREDENTIALS</code> to
-              enable cross-restart persistence.
-            </span>
-          </div>
-        )}
-
-        {data?.runtime === "docker" && (
-          <div className="rounded-md border border-brand-teal/30 bg-brand-teal-soft p-3 text-sm text-brand-teal">
-            Compose-mode runtime — prompt is the <code>VLM_SYSTEM_PROMPT</code> env on the
-            <code> vss-rtvi-vlm</code> container. Saving recreates the container with the new value
-            (~30 s of downtime; old container is auto-restored on failure).
-          </div>
-        )}
-
         {data?.defaultPrompt && data.prompt === "" && draft !== null && draft !== data.defaultPrompt && (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 flex items-start gap-3">
             <div className="flex-1">
@@ -306,18 +288,8 @@ export default function PromptPage() {
             <DialogHeader>
               <DialogTitle>Save + Restart vss-rtvi-vlm?</DialogTitle>
               <DialogDescription>
-                {data?.runtime === "docker" ? (
-                  <>
-                    The <code>vss-rtvi-vlm</code> container will be recreated with
-                    the new <code>VLM_SYSTEM_PROMPT</code>. Image, mounts, GPU
-                    binding, network, and restart policy are preserved.
-                  </>
-                ) : (
-                  <>
-                    This will patch the prompt and restart the{" "}
-                    <code>vss-rtvi-vlm</code> deployment.
-                  </>
-                )}
+                This will patch the prompt and restart the{" "}
+                <code>vss-rtvi-vlm</code> deployment.
               </DialogDescription>
             </DialogHeader>
             <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
@@ -325,10 +297,6 @@ export default function PromptPage() {
               <p className="text-sm text-amber-700">
                 Expect ~30 s downtime while vss-rtvi-vlm restarts. Live inference
                 will be paused during this time.
-                {data?.runtime === "docker" && (
-                  <> If the new container fails to start, the old one is
-                  auto-restored from the backup snapshot.</>
-                )}
               </p>
             </div>
             <DialogFooter>

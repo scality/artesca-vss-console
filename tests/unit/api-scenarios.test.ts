@@ -22,11 +22,6 @@ vi.mock("@/lib/helpers/gcs-config", () => ({
   gcsScenariosGet: vi.fn().mockResolvedValue(null),
   gcsScenariosPut: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock("@/lib/helpers/docker-sock", () => ({
-  dockerSock: vi.fn().mockResolvedValue({}),
-  inspectContainer: vi.fn().mockResolvedValue(null),
-  dockerRecreateWithEnv: vi.fn().mockResolvedValue({ id: "abc123def456" }),
-}));
 vi.mock("@/lib/helpers/scenarios-apply", () => ({
   scenarioToGcsConfig: vi.fn((s: unknown) => s),
   applyScenariosLive: vi.fn().mockResolvedValue(undefined),

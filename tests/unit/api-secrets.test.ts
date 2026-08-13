@@ -48,17 +48,6 @@ vi.mock("@/lib/helpers/audit", () => ({
   auditLog: vi.fn().mockResolvedValue(undefined),
 }));
 
-// docker-sock stubs
-vi.mock("@/lib/helpers/docker-sock", () => ({
-  dockerSock: vi.fn().mockResolvedValue(undefined),
-  inspectContainer: vi.fn().mockResolvedValue(null),
-  listComposeContainers: vi.fn().mockResolvedValue([]),
-  DOCKER_TUNING_DIR: "/tmp/docker-tuning",
-  dockerRecreateWithEnv: vi.fn().mockResolvedValue(undefined),
-  runOneShotGpuContainer: vi.fn().mockResolvedValue(undefined),
-  streamDockerLogs: vi.fn(),
-  execInContainer: vi.fn().mockResolvedValue(undefined),
-}));
 
 // fs/promises: most tests use K8s mode — default to no-ops; individual tests
 // override specific methods.
@@ -144,7 +133,6 @@ beforeEach(() => {
   }) as never);
 
   // Default to K8s mode
-  delete process.env.CONSOLE_RUNTIME;
   delete process.env.CONSOLE_DATA_DIR;
 });
 
@@ -241,49 +229,6 @@ describe("PATCH /api/secrets/[key]", () => {
       "rtvi/secret/ngc-secret",
       expect.objectContaining({ key: "ngc-key" })
     );
-  });
-
-  it("happy path docker mode: vi.resetModules + re-import with CONSOLE_RUNTIME=docker → writes to file, no k8s call, markRotated called", async () => {
-    // DOCKER_MODE is evaluated once at module load time. We must reset the module
-    // cache and re-import the route with CONSOLE_RUNTIME set so DOCKER_MODE=true.
-    process.env.CONSOLE_RUNTIME = "docker";
-    process.env.CONSOLE_DATA_DIR = "/data";
-
-    const fs = (await import("fs/promises")).default;
-    vi.mocked(fs.mkdir).mockResolvedValue(undefined);
-    vi.mocked(fs.writeFile).mockResolvedValue(undefined);
-
-    // Reset module cache so next import re-evaluates module-level constants.
-    vi.resetModules();
-
-    // Re-import the route after all mocks are already registered with vi.mock
-    // (vi.mock calls are hoisted and persist across resetModules).
-    const { PATCH: PATCHdocker } = await import("@/app/api/secrets/[key]/route");
-
-    // Track K8s patch calls on the fresh coreV1 instance
-    const { coreV1: freshCoreV1 } = await import("@/lib/k8s");
-    const freshPatch = vi.mocked(freshCoreV1)().patchNamespacedSecret as ReturnType<typeof vi.fn>;
-
-    const [req, ctx] = makePatchRequest("slack-webhook-url", { value: "https://hooks.slack.com/xxx" });
-    const res = await PATCHdocker(req, ctx);
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-
-    // File should have been written
-    expect(fs.writeFile).toHaveBeenCalled();
-    const writeCall = vi.mocked(fs.writeFile).mock.calls.find(
-      ([p]) => String(p).includes("slack-webhook-url")
-    );
-    expect(writeCall).toBeDefined();
-    expect(writeCall![1]).toBe("https://hooks.slack.com/xxx");
-
-    expect(markRotated).toHaveBeenCalledWith("slack-webhook-url");
-
-    // Restore for subsequent tests
-    delete process.env.CONSOLE_RUNTIME;
-    vi.resetModules();
   });
 
   it("bcrypt password key: value is hashed before storage (K8s mode)", async () => {

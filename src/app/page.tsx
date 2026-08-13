@@ -30,8 +30,7 @@ export default async function OverviewPage() {
       : collectPodSummaries(),
     kiosk ? collectHeroExtras() : Promise.resolve(null),
   ]);
-  const { snapshot: overview, mode } = overviewResult;
-  const dockerMode = mode === "docker";
+  const { snapshot: overview } = overviewResult;
   const pods = podsResult.pods;
 
   // Kiosk / showroom display: a story-first hero, no cluster plumbing.
@@ -49,7 +48,7 @@ export default async function OverviewPage() {
   // The compose-empty case has its own hint below, so drop that specific noise.
   const warnings = Array.from(
     new Set([...overviewResult.warnings, ...podsResult.warnings])
-  ).filter((w) => !(dockerMode && w.includes("No containers found")));
+  );
 
   // Group pods by namespace
   const nsByName = new Map<string, typeof pods>();
@@ -104,11 +103,6 @@ export default async function OverviewPage() {
                 KIOSK
               </span>
             )}
-            {dockerMode && (
-              <span className="rounded border border-brand-teal/30 bg-brand-teal-soft px-2 py-1 text-xs font-medium text-brand-teal">
-                COMPOSE
-              </span>
-            )}
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
               Updated {new Date(overview.takenAt).toLocaleTimeString()}
@@ -139,46 +133,23 @@ export default async function OverviewPage() {
           </div>
         )}
 
-        {/* Compose-mode empty hint */}
-        {dockerMode && Object.keys(overview.namespaces).length === 0 && (
-          <div className="rounded-lg border border-brand-teal/30 bg-brand-teal-soft p-4 text-sm text-brand-teal">
-            <p className="font-medium">Compose-mode runtime — no compose containers detected.</p>
-            <p className="mt-1 text-brand-teal/80">
-              Run <code>scripts/stacks/nvidia-vss/bootstrap-compose.sh</code> on the workspace to bring up the stack.
-              KPIs and topology populate automatically once containers are running.
-            </p>
-          </div>
-        )}
-
-        {/* Row 1 — KPI cards. Docker path populates the same OverviewSnapshot
-            shape from docker.sock + nvidia-smi exec, so the grid renders unchanged. */}
+        {/* Row 1 — KPI cards. */}
         {hasOverviewData && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              {dockerMode ? "Compose Stack Overview" : "System Overview"}
+              System Overview
             </h2>
             <KpiGrid data={overview} />
           </section>
         )}
 
-        {/* Row 2 — Per-namespace summary (compose services on docker mode). */}
+        {/* Row 2 — Per-namespace summary. */}
         {(nsGroups.length > 0 || Object.keys(overview.namespaces).length > 0) && (
           <section>
             <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              {dockerMode ? "Compose Services" : "Namespaces"}
+              Namespaces
             </h2>
-            {dockerMode ? (
-              <PodSummaryList
-                groups={Object.entries(overview.namespaces).map(([namespace, n]) => ({
-                  namespace,
-                  pods: [],
-                  total: n.total,
-                  ready: n.ready,
-                }))}
-              />
-            ) : (
-              <PodSummaryList groups={nsGroups} />
-            )}
+            <PodSummaryList groups={nsGroups} />
           </section>
         )}
 

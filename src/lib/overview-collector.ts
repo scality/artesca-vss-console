@@ -8,12 +8,6 @@ import { CLUSTER } from "@/lib/cluster-refs";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger("overview-collector");
-import {
-  inspectContainer,
-  listComposeContainers,
-  runOneShotGpuContainer,
-  type ComposeContainer,
-} from "@/lib/helpers/docker-sock";
 import { getKafka } from "@/lib/kafka";
 import { bucketStatsCached } from "@/lib/storage-substrate";
 import { s3BucketForRecordings, describeS3Error } from "@/lib/s3";
@@ -22,9 +16,7 @@ import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
 import { vstListSensors } from "@/lib/helpers/vst";
 import type { OverviewSnapshot, GpuState, PodSummary } from "@/lib/types";
 
-const COMPOSE_PROJECT = process.env.COMPOSE_PROJECT_NAME ?? "mdx";
-
-export type CollectorMode = "docker" | "k8s";
+export type CollectorMode = "k8s";
 
 export interface OverviewResult {
   snapshot: OverviewSnapshot;
@@ -37,25 +29,6 @@ export interface PodsResult {
   warnings: string[];
 }
 
-/** Returns true iff a kubeconfig is reachable — either an in-cluster
- *  service-account token or a local ~/.kube/config file. When neither
- *  exists the k8s client-node library throws at first apiserver call,
- *  so the overview collector falls back to the docker-mode empty
- *  snapshot instead of returning a 500. */
-function hasKubeconfig(): boolean {
-  if (existsSync("/var/run/secrets/kubernetes.io/serviceaccount/token")) {
-    return true;
-  }
-  if (process.env.KUBECONFIG && existsSync(process.env.KUBECONFIG)) {
-    return true;
-  }
-  try {
-    return existsSync(join(homedir(), ".kube", "config"));
-  } catch {
-    return false;
-  }
-}
-
 function emptySnapshot(takenAt: string): OverviewSnapshot {
   return {
     takenAt,
@@ -66,39 +39,6 @@ function emptySnapshot(takenAt: string): OverviewSnapshot {
     s3: { bucket: s3BucketForRecordings(), objectCount: 0, bytesTotal: 0, growth24h: 0, bytesCapacity: CLUSTER.s3.capacityBytes },
     cameraSim: { instanceState: "unreachable", pathsReady: 0, pathsTotal: 0, cameras: [] },
   };
-}
-
-function isDockerMode(): boolean {
-  // CONSOLE_RUNTIME is an explicit override in both directions. Only fall back
-  // to kubeconfig autodetection when it is unset — otherwise mode would depend
-  // on whether a ~/.kube/config happens to exist on the host (true on a dev
-  // laptop, false in CI), which made the k8s-mode unit tests environment-flaky.
-  if (process.env.CONSOLE_RUNTIME === "docker") return true;
-  if (process.env.CONSOLE_RUNTIME === "k8s") return false;
-  return !hasKubeconfig();
-}
-
-/** Bucket compose containers by service name and aggregate health. Maps the
- *  compose service taxonomy onto the snapshot's `namespaces` field so the
- *  existing KpiGrid / PodSummaryList renders unchanged. */
-function summariseComposeServices(
-  containers: ComposeContainer[],
-): OverviewSnapshot["namespaces"] {
-  const byService: OverviewSnapshot["namespaces"] = {};
-  for (const c of containers) {
-    const svc = c.Labels["com.docker.compose.service"] ?? c.Names[0]?.replace(/^\//, "") ?? "unknown";
-    if (!byService[svc]) byService[svc] = { total: 0, ready: 0, failed: 0 };
-    byService[svc].total += 1;
-    const status = (c.Status ?? "").toLowerCase();
-    if (c.State === "running") {
-      if (status.includes("(healthy)") || !status.includes("(")) {
-        byService[svc].ready += 1;
-      }
-    } else {
-      byService[svc].failed += 1;
-    }
-  }
-  return byService;
 }
 
 /** Parse `nvidia-smi --query-gpu=...` CSV output into GpuState[].
@@ -125,105 +65,6 @@ function parseNvidiaSmiCsv(out: string): GpuState[] {
     });
   }
   return gpus;
-}
-
-async function collectDockerOverview(
-  takenAt: string,
-  warnings: string[],
-): Promise<OverviewSnapshot> {
-  const cameraSimConfigured = Boolean(
-    process.env.CAMERA_SIM_HOST ?? process.env.MEDIAMTX_BASE_URL,
-  );
-  const s3Configured = Boolean(
-    s3BucketForRecordings() && (process.env.AWS_ACCESS_KEY_ID || process.env.OBJECTSTORE_ACCESS_KEY_ID),
-  );
-
-  const [containers, nimInspect, gpuOut, mtxResult, s3] = await Promise.all([
-    listComposeContainers(COMPOSE_PROJECT).catch((err) => {
-      warnings.push(`docker.sock list failed: ${String(err)}`);
-      return [] as ComposeContainer[];
-    }),
-    inspectContainer("cosmos-reason2-8b").catch(() => null),
-    (async () => {
-      const rtviInspect = await inspectContainer("rtvi-vlm").catch(() => null);
-      const image = rtviInspect?.Config.Image ?? "nvcr.io/nvidia/vss-core/vss-rt-vlm:3.1.0";
-      return runOneShotGpuContainer(
-        image,
-        [
-          "nvidia-smi",
-          "--query-gpu=index,name,memory.total,memory.used,utilization.gpu,temperature.gpu,power.draw",
-          "--format=csv,noheader,nounits",
-        ],
-        6_000,
-      ).catch((err) => {
-        warnings.push(`nvidia-smi one-shot failed: ${String(err)}`);
-        return null;
-      });
-    })(),
-    cameraSimConfigured
-      ? mediamtxListPaths().catch((err) => {
-          warnings.push(`mediamtx ping failed: ${String(err)}`);
-          return { paths: [], warning: undefined };
-        })
-      : Promise.resolve({ paths: [], warning: undefined }),
-    (async () => {
-      const bucket = s3BucketForRecordings();
-      const capacity = CLUSTER.s3.capacityBytes;
-      if (!s3Configured) return { bucket: bucket || "", objectCount: 0, bytesTotal: 0, growth24h: 0, bytesCapacity: capacity };
-      // Same cached read as the k8s path. This used to race s3Stats against a 5 s
-      // timeout, which bounded the latency by discarding the numbers — on a bucket
-      // this size the walk never finished inside 5 s, so the tile read zero.
-      try {
-        const { stats, refreshing } = bucketStatsCached(bucket);
-        if (stats) {
-          return { ...stats, growth24h: stats.bytesLast24h, bytesCapacity: capacity };
-        }
-        if (refreshing) warnings.push("S3 stats still loading (first bucket scan in flight)");
-        return { bucket, objectCount: 0, bytesTotal: 0, growth24h: 0, bytesCapacity: capacity };
-      } catch (err) {
-        warnings.push(`S3 stats failed: ${describeS3Error(err)}`);
-        return { bucket, objectCount: 0, bytesTotal: 0, growth24h: 0, bytesCapacity: capacity };
-      }
-    })(),
-  ]);
-
-  const namespaces = summariseComposeServices(containers);
-  if (containers.length === 0) {
-    warnings.push(`No containers found for compose project "${COMPOSE_PROJECT}"`);
-  }
-
-  const nimReady = nimInspect?.State?.Health?.Status === "healthy" ||
-    (nimInspect?.State?.Running === true && !nimInspect?.State?.Health);
-  const nim: OverviewSnapshot["nim"] = {
-    ready: nimReady,
-    warmupPct: nimReady ? 100 : nimInspect?.State?.Running ? 50 : 0,
-    queueDepth: 0,
-  };
-
-  const gpus = gpuOut ? parseNvidiaSmiCsv(gpuOut) : [];
-  if (mtxResult.warning) warnings.push(mtxResult.warning);
-  // Camera-sim mediamtx publishes two paths per camera: <name> (H.265 — what
-  // VSS consumes) and <name>-h264 (transcode for browser HLS preview). The
-  // dashboard counts cameras, not raw paths, so filter the transcode variants.
-  const cameraPaths = mtxResult.paths.filter((p) => !p.name.endsWith("-h264"));
-  const pathsReady = cameraPaths.filter((p) => p.ready).length;
-  const cameraSim: OverviewSnapshot["cameraSim"] = {
-    instanceState: cameraSimConfigured && cameraPaths.length > 0 ? "running" : cameraSimConfigured ? "unreachable" : "stopped",
-    pathsReady,
-    pathsTotal: cameraPaths.length,
-    // Docker overview has no VST sensor list — liveness from mediamtx readiness.
-    cameras: cameraPaths.map((p) => ({ name: p.name, live: p.ready })),
-  };
-
-  return {
-    takenAt,
-    namespaces,
-    nim,
-    gpus,
-    kafka: {},
-    s3,
-    cameraSim,
-  };
 }
 
 async function collectK8sOverview(
@@ -519,11 +360,9 @@ async function collectK8sOverview(
 export async function collectOverviewSnapshot(): Promise<OverviewResult> {
   const warnings: string[] = [];
   const takenAt = new Date().toISOString();
-  const mode: CollectorMode = isDockerMode() ? "docker" : "k8s";
+  const mode: CollectorMode = "k8s";
   try {
-    const snapshot = mode === "docker"
-      ? await collectDockerOverview(takenAt, warnings)
-      : await collectK8sOverview(takenAt, warnings);
+    const snapshot = await collectK8sOverview(takenAt, warnings);
     return { snapshot, mode, warnings };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
@@ -577,31 +416,6 @@ function summarisePod(pod: V1Pod, ns: string): PodSummary {
 export async function collectPodSummaries(nsFilter?: string): Promise<PodsResult> {
   const warnings: string[] = [];
   try {
-    if (isDockerMode()) {
-      const containers = await listComposeContainers(COMPOSE_PROJECT);
-      const pods: PodSummary[] = containers.map((c) => {
-        const svc = c.Labels["com.docker.compose.service"] ?? c.Names[0]?.replace(/^\//, "") ?? "unknown";
-        const running = c.State === "running";
-        const status = (c.Status ?? "").toLowerCase();
-        const exitMatch = status.match(/exited \((\d+)\)/);
-        const exitCode = exitMatch ? parseInt(exitMatch[1], 10) : null;
-        const succeeded = c.State === "exited" && exitCode === 0;
-        const healthy = running && (status.includes("(healthy)") || !status.includes("("));
-        const phase: PodSummary["phase"] = running ? "Running" : succeeded ? "Succeeded" : "Failed";
-        const cname = c.Names[0]?.replace(/^\//, "") ?? c.Id.slice(0, 12);
-        return {
-          namespace: svc,
-          name: cname,
-          phase,
-          ready: running ? healthy : succeeded,
-          restarts: 0,
-          age: c.Status ?? "?",
-          containers: [cname],
-        };
-      });
-      return { pods, warnings };
-    }
-
     const namespaces = !nsFilter || nsFilter === "all" ? watchedNamespaces() : [nsFilter];
     const pods: PodSummary[] = [];
 

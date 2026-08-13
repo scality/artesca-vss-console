@@ -47,7 +47,6 @@ beforeEach(() => {
     json: async () => ({ incidents: [] }),
   } as unknown as Response);
   vi.stubGlobal("fetch", fetchMock);
-  delete process.env.CONSOLE_RUNTIME;
 });
 
 // ── Tests ────────────────────────────────────────────────────────────────────

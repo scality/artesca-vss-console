@@ -16,16 +16,6 @@ vi.mock("@/lib/errors", () => ({
   extractK8sError: vi.fn((e) => ({ status: 500, message: String(e) })),
 }));
 
-vi.mock("@/lib/helpers/docker-sock", () => ({
-  inspectContainer: vi.fn().mockResolvedValue(null),
-  dockerSock: vi.fn().mockResolvedValue(undefined),
-  listComposeContainers: vi.fn().mockResolvedValue([]),
-  DOCKER_TUNING_DIR: "/tmp/docker-tuning",
-  dockerRecreateWithEnv: vi.fn().mockResolvedValue(undefined),
-  runOneShotGpuContainer: vi.fn().mockResolvedValue(undefined),
-  streamDockerLogs: vi.fn(),
-  execInContainer: vi.fn().mockResolvedValue(undefined),
-}));
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
@@ -83,7 +73,6 @@ beforeEach(() => {
   vi.mocked(coreV1).mockReset().mockImplementation(() => ({
     readNamespacedPod: vi.fn().mockResolvedValue(makePod()),
   }) as never);
-  delete process.env.CONSOLE_RUNTIME;
 });
 
 // ── Tests ────────────────────────────────────────────────────────────────────

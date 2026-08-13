@@ -4,7 +4,6 @@ import { rolloutRestart } from "@/lib/k8s";
 import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { auditLog } from "@/lib/helpers/audit";
-import { dockerSock, listComposeContainers } from "@/lib/helpers/docker-sock";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { withRequestContext } from "@/lib/with-request-context";
 
@@ -50,26 +49,6 @@ export const POST = withRequestContext(async (
 
   const restartedAt = new Date().toISOString();
 
-  if (process.env.CONSOLE_RUNTIME === "docker") {
-    const serviceName = DOCKER_SERVICE_NAMES[component] ?? component;
-    const containers = await listComposeContainers(COMPOSE_PROJECT);
-    const target = containers.find(
-      (c) => c.Labels["com.docker.compose.service"] === serviceName,
-    );
-    if (!target) {
-      return NextResponse.json(
-        { error: `No running container found for compose service "${serviceName}"` },
-        { status: 404 },
-      );
-    }
-    try {
-      await dockerSock("POST", `/containers/${target.Id}/restart?t=10`);
-    } catch (err) {
-      return NextResponse.json({ error: String(err) }, { status: 502 });
-    }
-    await auditLog("restart", `docker/${serviceName}`, { component, serviceName, restartedAt });
-    return NextResponse.json({ ok: true, restartedAt });
-  }
 
   try {
     await rolloutRestart(spec.kind, spec.namespace, spec.name);

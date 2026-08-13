@@ -30,17 +30,6 @@ vi.mock("@/lib/helpers/audit", () => ({
   auditLog: vi.fn().mockResolvedValue(undefined),
 }));
 
-// docker-sock is used in docker mode — mock it to avoid real socket calls.
-vi.mock("@/lib/helpers/docker-sock", () => ({
-  dockerSock: vi.fn().mockResolvedValue(undefined),
-  listComposeContainers: vi.fn().mockResolvedValue([]),
-  DOCKER_TUNING_DIR: "/tmp/docker-tuning",
-  inspectContainer: vi.fn().mockResolvedValue(null),
-  runOneShotGpuContainer: vi.fn().mockResolvedValue(undefined),
-  streamDockerLogs: vi.fn(),
-  dockerRecreateWithEnv: vi.fn().mockResolvedValue(undefined),
-  execInContainer: vi.fn().mockResolvedValue(undefined),
-}));
 
 // cluster-refs uses "server-only" — stub it so tests don't fail outside Next.js
 vi.mock("@/lib/cluster-refs", () => {
@@ -90,7 +79,6 @@ beforeEach(() => {
     message: String(err),
   }));
   // Ensure K8s mode
-  delete process.env.CONSOLE_RUNTIME;
 });
 
 // ── Tests ──────────────────────────────────────────────────────────────────────

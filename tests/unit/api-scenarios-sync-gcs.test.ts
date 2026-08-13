@@ -86,7 +86,6 @@ beforeEach(() => {
   vi.mocked(readConfigMapKey).mockReset().mockResolvedValue({ value: SCENARIO_CM_VALUE } as never);
 
   delete process.env.VSS_INSTANCE_NAME;
-  delete process.env.CONSOLE_RUNTIME;
 });
 
 // ── POST /api/scenarios/sync-gcs ─────────────────────────────────────────────
@@ -271,40 +270,4 @@ describe("POST /api/scenarios/sync-gcs — with VSS_INSTANCE_NAME set", () => {
     vi.resetModules();
   });
 
-  it("docker mode: scenarios.json missing → 404 with explanation", async () => {
-    process.env.VSS_INSTANCE_NAME = "test-instance";
-    process.env.CONSOLE_RUNTIME = "docker";
-
-    vi.resetModules();
-    vi.doMock("@/lib/auth", () => ({
-      auth: vi.fn().mockResolvedValue({ user: { name: "op", email: "op@test.com" } }),
-    }));
-    vi.doMock("@/lib/helpers/gcs-config", () => ({
-      gcsScenariosPut: vi.fn().mockResolvedValue(undefined),
-    }));
-    vi.doMock("@/lib/helpers/configmaps", () => ({
-      readConfigMapKey: vi.fn(),
-    }));
-    vi.doMock("@/lib/k8s", () => ({
-      coreV1: vi.fn(() => ({ readNamespacedConfigMap: vi.fn() })),
-    }));
-    vi.doMock("fs/promises", () => ({
-      default: {
-        readFile: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" })),
-        mkdir: vi.fn().mockResolvedValue(undefined),
-      },
-    }));
-
-    const { POST: POST2 } = await import("@/app/api/scenarios/sync-gcs/route");
-
-    const res = await POST2();
-
-    expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(body.error).toMatch(/No local scenarios found/);
-
-    delete process.env.VSS_INSTANCE_NAME;
-    delete process.env.CONSOLE_RUNTIME;
-    vi.resetModules();
-  });
 });

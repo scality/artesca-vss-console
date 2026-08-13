@@ -18,11 +18,6 @@ vi.mock("@/lib/helpers/configmaps", () => ({
   patchConfigMapRawKey: vi.fn().mockResolvedValue(undefined),
   replaceConfigMapData: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock("@/lib/helpers/docker-sock", () => ({
-  dockerSock: vi.fn().mockResolvedValue({}),
-  inspectContainer: vi.fn().mockResolvedValue(null),
-  dockerRecreateWithEnv: vi.fn().mockResolvedValue({ id: "abc123def456" }),
-}));
 vi.mock("@/lib/helpers/gcs-config", () => ({
   gcsPromptGet: vi.fn().mockResolvedValue(null),
   gcsPromptPut: vi.fn().mockResolvedValue(undefined),
@@ -51,7 +46,6 @@ function patchReq(body: unknown) {
 }
 
 beforeEach(() => {
-  delete process.env.CONSOLE_RUNTIME;
   vi.mocked(auth).mockResolvedValue({ user: { email: "op@test" } } as never);
 });
 

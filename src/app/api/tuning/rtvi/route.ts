@@ -5,14 +5,12 @@ import { withRequestContext } from "@/lib/with-request-context";
 import { patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
-import { inspectContainer, dockerRecreateWithEnv } from "@/lib/helpers/docker-sock";
 import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { RtviTuningSchema } from "./schema";
 
 export const dynamic = "force-dynamic";
 
-const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
 const NIM_CONTAINER = "cosmos-reason2-8b";
 
 // Defaults align with k8s/nvidia-vss/rtvi/11-configmap-runtime-env.yaml + the
@@ -68,35 +66,6 @@ export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (DOCKER_MODE) {
-    const inspect = await inspectContainer(NIM_CONTAINER);
-    if (!inspect) {
-      return NextResponse.json(
-        {
-          ...RTVI_TUNING_DEFAULTS,
-          kvCachePct: RTVI_TUNING_DEFAULTS.kvCachePct,
-          runtime: "docker",
-          warnings: ["cosmos-reason2-8b container not running — showing defaults"],
-        },
-      );
-    }
-    const env: Record<string, string> = {};
-    for (const line of inspect.Config.Env ?? []) {
-      const eq = line.indexOf("=");
-      if (eq > 0) env[line.slice(0, eq)] = line.slice(eq + 1);
-    }
-    return NextResponse.json({
-      maxNumSeqs: parseIntOrDefault(env[CLUSTER.rtvi.nimMaxNumSeqsKey], RTVI_TUNING_DEFAULTS.maxNumSeqs),
-      kvCachePct: parseFloatOrDefault(env[CLUSTER.rtvi.nimKvCacheKey], RTVI_TUNING_DEFAULTS.kvCachePct),
-      maxModelLen: parseIntOrDefault(env[CLUSTER.rtvi.nimMaxModelLenKey], RTVI_TUNING_DEFAULTS.maxModelLen),
-      modelProfile: env[CLUSTER.rtvi.nimModelProfileKey] ?? RTVI_TUNING_DEFAULTS.modelProfile,
-      disableCudaGraph: env["NIM_DISABLE_CUDA_GRAPH"] === "1",
-      numSchedulerSteps: parseIntOrDefault(env["VLLM_NUM_SCHEDULER_STEPS"], RTVI_TUNING_DEFAULTS.numSchedulerSteps),
-      maxNumBatchedTokens: parseIntOrDefault(env["VLLM_MAX_NUM_BATCHED_TOKENS"], RTVI_TUNING_DEFAULTS.maxNumBatchedTokens),
-      maxGenerationTokens: parseIntOrDefault(env["VLM_MAX_GENERATION_TOKENS"], RTVI_TUNING_DEFAULTS.maxGenerationTokens),
-      runtime: "docker",
-    });
-  }
 
   // Helm "alerts" profile: no NIM tuning ConfigMap — the VLM tunables are env
   // vars on the vss-rtvi-vlm Deployment. Other Helm layouts keep a per-NIM CM.
@@ -219,60 +188,6 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
 
   const tuning = parsed.data;
 
-  if (DOCKER_MODE) {
-    const envPatch: Record<string, string> = {};
-    if (tuning.maxNumSeqs !== undefined) {
-      envPatch[CLUSTER.rtvi.nimMaxNumSeqsKey] = String(tuning.maxNumSeqs);
-    }
-    if (tuning.kvCachePercent !== undefined) {
-      envPatch[CLUSTER.rtvi.nimKvCacheKey] = String(tuning.kvCachePercent);
-    }
-    if (tuning.maxModelLen !== undefined) {
-      envPatch[CLUSTER.rtvi.nimMaxModelLenKey] = String(tuning.maxModelLen);
-    }
-    if (tuning.modelProfile !== undefined) {
-      envPatch[CLUSTER.rtvi.nimModelProfileKey] = tuning.modelProfile;
-    }
-    if (tuning.disableCudaGraph !== undefined) {
-      if (tuning.disableCudaGraph) {
-        envPatch["NIM_DISABLE_CUDA_GRAPH"] = "1";
-      }
-      // In docker mode we can't "remove" an env var — set to "0" when false.
-      // The container reads absence or "0" as graphs-enabled.
-      else {
-        envPatch["NIM_DISABLE_CUDA_GRAPH"] = "0";
-      }
-    }
-    if (tuning.numSchedulerSteps !== undefined) {
-      envPatch["VLLM_NUM_SCHEDULER_STEPS"] = String(tuning.numSchedulerSteps);
-    }
-    if (tuning.maxNumBatchedTokens !== undefined) {
-      envPatch["VLLM_MAX_NUM_BATCHED_TOKENS"] = String(tuning.maxNumBatchedTokens);
-    }
-    if (tuning.maxGenerationTokens !== undefined) {
-      envPatch["VLM_MAX_GENERATION_TOKENS"] = String(tuning.maxGenerationTokens);
-    }
-    try {
-      const { id } = await dockerRecreateWithEnv(NIM_CONTAINER, envPatch);
-      await auditLog("tuning-rtvi", `docker/${NIM_CONTAINER}`, { patches: envPatch });
-      return NextResponse.json({
-        ok: true,
-        applied: envPatch,
-        runtime: "docker",
-        containerId: id.slice(0, 12),
-        note: "NIM container recreating — expect 5–10 min downtime.",
-      });
-    } catch (err) {
-      return NextResponse.json(
-        {
-          error: `cosmos-reason2-8b recreate failed: ${String(err)}`,
-          hint: "Old container restored automatically.",
-          runtime: "docker",
-        },
-        { status: 502 },
-      );
-    }
-  }
 
   // ── Step 1: ConfigMap patches (NIM tuning CM) ─────────────────────────────
   const cmPatches: Array<[string, string]> = [];

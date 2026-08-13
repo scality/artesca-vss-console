@@ -1,5 +1,5 @@
 // GET /api/logs/[ns]/[pod]/[container]
-// SSE: streams kubectl logs -f (k8s mode) or docker logs -f (docker mode).
+// SSE: streams kubectl logs -f or docker logs -f (docker mode).
 // In docker mode `ns` is ignored; `pod` is treated as the container name.
 // Query params:
 //   tailLines  (number, default 100)
@@ -8,7 +8,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { createSseResponse } from "@/lib/streams/sse";
-import { streamDockerLogs } from "@/lib/helpers/docker-sock";
 import { Log } from "@kubernetes/client-node";
 import { PassThrough } from "stream";
 import { getKubeConfig, watchedNamespaces } from "@/lib/k8s";
@@ -56,22 +55,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   );
   const timestamps = sp.get("timestamps") === "true";
 
-  if (process.env.CONSOLE_RUNTIME === "docker") {
-    return createSseResponse<{ ts: string; line: string }>(
-      req.signal,
-      async (write) => {
-        void ns; // ignored in docker mode
-        void container; // docker logs combines stdout+stderr; container param is unused
-        const destroy = streamDockerLogs(
-          pod,
-          { tail: tailLines, timestamps },
-          (line) => write({ ts: new Date().toISOString(), line }),
-          req.signal,
-        );
-        return destroy;
-      },
-    );
-  }
 
   return createSseResponse<{ ts: string; line: string }>(
     req.signal,

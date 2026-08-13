@@ -114,15 +114,10 @@ describe("scenarioToGcsConfig", () => {
 // ─── applyScenariosLive ───────────────────────────────────────────────────────
 
 describe("applyScenariosLive", () => {
-  it("docker mode: skips ConfigMap patch and returns without error", async () => {
-    await applyScenariosLive(true, [SCENARIO_GCS]);
-    expect(configmapsMod.patchConfigMapKey).not.toHaveBeenCalled();
-  });
-
   it("k8s mode: calls patchConfigMapKey with correct namespace/name/key/payload", async () => {
     vi.mocked(configmapsMod.patchConfigMapKey).mockResolvedValue(undefined);
 
-    await applyScenariosLive(false, [SCENARIO_GCS]);
+    await applyScenariosLive([SCENARIO_GCS]);
 
     expect(configmapsMod.patchConfigMapKey).toHaveBeenCalledTimes(1);
     const [ns, name, key, payload] = vi.mocked(configmapsMod.patchConfigMapKey).mock.calls[0];
@@ -137,12 +132,12 @@ describe("applyScenariosLive", () => {
     vi.mocked(configmapsMod.patchConfigMapKey).mockRejectedValue(
       new Error("409 Conflict"),
     );
-    await expect(applyScenariosLive(false, [SCENARIO_GCS])).rejects.toThrow("409 Conflict");
+    await expect(applyScenariosLive([SCENARIO_GCS])).rejects.toThrow("409 Conflict");
   });
 
   it("k8s mode: handles empty scenarios array without error", async () => {
     vi.mocked(configmapsMod.patchConfigMapKey).mockResolvedValue(undefined);
-    await expect(applyScenariosLive(false, [])).resolves.toBeUndefined();
+    await expect(applyScenariosLive([])).resolves.toBeUndefined();
     const [, , , payload] = vi.mocked(configmapsMod.patchConfigMapKey).mock.calls[0];
     expect((payload as { scenarios: unknown[] }).scenarios).toHaveLength(0);
   });

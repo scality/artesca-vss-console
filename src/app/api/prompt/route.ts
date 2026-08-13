@@ -13,14 +13,11 @@ import {
   gcsPromptPut,
   type PromptConfig,
 } from "@/lib/helpers/gcs-config";
-import { inspectContainer, dockerRecreateWithEnv } from "@/lib/helpers/docker-sock";
 
 export const dynamic = "force-dynamic";
 
-const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
 const RTVI_VLM_CONTAINER = "rtvi-vlm";
 const DOCKER_PROMPT_ENV = "VLM_SYSTEM_PROMPT";
-const DOCKER_MODEL_ENV = "VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME";
 const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 
 // Mutex for GCS writes — same pattern as cameras/route.ts.
@@ -28,17 +25,6 @@ let _gcsWriteChain: Promise<void> = Promise.resolve();
 function chainGcsWrite(fn: () => Promise<void>): Promise<void> {
   _gcsWriteChain = _gcsWriteChain.then(fn).catch((err) => log.error("gcs-write failed", { err }));
   return _gcsWriteChain;
-}
-
-async function dockerInspectEnv(name: string): Promise<Record<string, string>> {
-  const inspect = await inspectContainer(name);
-  if (!inspect) throw new Error(`container ${name} not found or docker.sock unavailable`);
-  const env: Record<string, string> = {};
-  for (const line of inspect.Config.Env ?? []) {
-    const eq = line.indexOf("=");
-    if (eq > 0) env[line.slice(0, eq)] = line.slice(eq + 1);
-  }
-  return env;
 }
 
 // ─── GET ───────────────────────────────────────────────────────────────────────
@@ -49,40 +35,6 @@ export async function GET() {
 
   const warnings: string[] = [];
 
-  if (DOCKER_MODE) {
-    // Fetch GCS state in parallel with the live docker read.
-    const gcsPromise = VSS_INSTANCE_NAME
-      ? gcsPromptGet(VSS_INSTANCE_NAME)
-      : Promise.resolve(null);
-    const defaultPrompt = readDefaultPrompt();
-    try {
-      const [env, gcsCfg] = await Promise.all([
-        dockerInspectEnv(RTVI_VLM_CONTAINER),
-        gcsPromise,
-      ]);
-      const livePrompt = env[DOCKER_PROMPT_ENV] ?? "";
-      if (gcsCfg && !livePrompt) {
-        warnings.push("GCS-persisted prompt not yet applied — restart will pick it up");
-      }
-      return NextResponse.json({
-        prompt: livePrompt,
-        model: env[DOCKER_MODEL_ENV] ?? "",
-        resourceVersion: undefined,
-        runtime: "docker",
-        defaultPrompt,
-        gcs: buildGcsField(gcsCfg),
-        previewAvailable: Boolean(process.env.NIM_PREVIEW_ENDPOINT),
-        warnings,
-      });
-    } catch (err) {
-      warnings.push(`rtvi-vlm inspect failed: ${String(err)}`);
-      const gcsCfg = await gcsPromise.catch(() => null);
-      return NextResponse.json(
-        { prompt: "", model: "", runtime: "docker", defaultPrompt: readDefaultPrompt(), gcs: buildGcsField(gcsCfg), warnings },
-        { status: 502 }
-      );
-    }
-  }
 
   // k8s path: Firestore is the source of truth for the desired prompt.
   // defaultPrompt is surfaced so the page's "Load default" affordance works
@@ -146,45 +98,6 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
 
   const body = await req.json().catch(() => null);
 
-  if (DOCKER_MODE) {
-    const parsed = PatchPromptSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "Validation failed", issues: parsed.error.issues }, { status: 400 });
-    }
-    const { prompt: newPrompt } = parsed.data;
-    try {
-      const { id } = await dockerRecreateWithEnv(RTVI_VLM_CONTAINER, {
-        [DOCKER_PROMPT_ENV]: newPrompt,
-      });
-      await auditLog("prompt-update", `docker/${RTVI_VLM_CONTAINER}`, {
-        promptLength: newPrompt.length,
-        newContainerId: id.slice(0, 12),
-      });
-
-      // Persist to GCS (best-effort — live update already done).
-      const gcsWarnings: string[] = [];
-      if (VSS_INSTANCE_NAME) {
-        const gcsWarning = await persistPromptToGcs(newPrompt, undefined, session.user?.email ?? "console");
-        if (gcsWarning) gcsWarnings.push(gcsWarning);
-      }
-
-      return NextResponse.json({
-        ok: true,
-        runtime: "docker",
-        containerId: id.slice(0, 12),
-        ...(gcsWarnings.length ? { gcsWarnings } : {}),
-      });
-    } catch (err) {
-      return NextResponse.json(
-        {
-          error: `rtvi-vlm recreate failed: ${String(err)}`,
-          hint: "Old container restored automatically. Check `docker logs rtvi-vlm` on the workspace.",
-          runtime: "docker",
-        },
-        { status: 502 },
-      );
-    }
-  }
 
   {
     const { makeReconcileContext, ReconcileContextError } = await import("@/lib/reconcile/context");

@@ -13,11 +13,6 @@ import path from "path";
 
 export const dynamic = "force-dynamic";
 
-const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
-const DOCKER_TUNING_DIR = path.join(
-  process.env.CONSOLE_DATA_DIR ?? "/data",
-  ".docker-tuning",
-);
 
 const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 
@@ -55,31 +50,18 @@ export const POST = withRequestContext(async function () {
 
   let raw: ScenariosConfigRaw;
 
-  if (DOCKER_MODE) {
-    try {
-      raw = JSON.parse(
-        await fs.readFile(path.join(DOCKER_TUNING_DIR, "scenarios.json"), "utf-8"),
-      ) as ScenariosConfigRaw;
-    } catch {
-      return NextResponse.json(
-        { error: "No local scenarios found — save scenarios first before syncing to GCS" },
-        { status: 404 },
-      );
-    }
-  } else {
-    try {
-      const { value } = await readConfigMapKey<ScenariosConfigRaw>(
-        CLUSTER.scenarios.namespace,
-        CLUSTER.scenarios.configMap,
-        CLUSTER.scenarios.yamlKey,
-      );
-      raw = value ?? {};
-    } catch (err) {
-      return NextResponse.json(
-        { error: `Failed to read scenarios ConfigMap: ${err instanceof Error ? err.message : String(err)}` },
-        { status: 502 },
-      );
-    }
+  try {
+    const { value } = await readConfigMapKey<ScenariosConfigRaw>(
+      CLUSTER.scenarios.namespace,
+      CLUSTER.scenarios.configMap,
+      CLUSTER.scenarios.yamlKey,
+    );
+    raw = value ?? {};
+  } catch (err) {
+    return NextResponse.json(
+      { error: `Failed to read scenarios ConfigMap: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 502 },
+    );
   }
 
   // Convert raw entries to GCS wire format.

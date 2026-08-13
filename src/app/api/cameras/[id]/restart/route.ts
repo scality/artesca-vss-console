@@ -14,7 +14,6 @@ import { gcsCamerasGet, type CameraEntry } from "@/lib/helpers/gcs-config";
 
 export const dynamic = "force-dynamic";
 
-const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
 const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 
 // ─── POST — restart a camera's ingest ─────────────────────────────────────────
@@ -31,16 +30,9 @@ const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 
 /** Read the stored camera definition from the authoritative config store. */
 async function readStoredCamera(id: string): Promise<CameraEntry | undefined> {
-  if (!DOCKER_MODE) {
-    const { makeReconcileContext } = await import("@/lib/reconcile/context");
-    const ctx = await makeReconcileContext();
-    return (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
-  }
-  if (VSS_INSTANCE_NAME) {
-    const list = await gcsCamerasGet(VSS_INSTANCE_NAME);
-    return list?.cameras.find((c) => c.id === id);
-  }
-  return undefined;
+  const { makeReconcileContext } = await import("@/lib/reconcile/context");
+  const ctx = await makeReconcileContext();
+  return (await ctx.store.readCameras(ctx.instance)).find((c) => c.id === id);
 }
 
 export const POST = withRequestContext(async function (
@@ -78,9 +70,9 @@ export const POST = withRequestContext(async function (
   // Resolve the RTSP URL from the camera's own definition. NEVER construct it
   // from host+id: the source publishes arbitrary path names (e.g. the pyramid
   // camera-sim serves aisle-1 as `gcp-aisle-1-h264`), so a `rtsp://<host>/<id>`
-  // guess silently registers a dead stream. Priority: config store (Firestore
-  // on k8s, GCS on docker) → GCS camera doc (holds the real URLs even when the
-  // Firestore entry doesn't) → the live VST sensor's explicit URL.
+  // guess silently registers a dead stream. Priority: config store → GCS camera
+  // doc (holds the real URLs even when the store entry doesn't) → the live VST
+  // sensor's explicit URL.
   let rtspUrl = stored?.rtspUrl?.trim() || "";
   if (!rtspUrl && VSS_INSTANCE_NAME) {
     try {

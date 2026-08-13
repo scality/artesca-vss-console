@@ -66,12 +66,6 @@ vi.mock("@/lib/errors", () => ({
   }),
 }));
 
-vi.mock("@/lib/helpers/docker-sock", () => ({
-  dockerSock: vi.fn().mockResolvedValue({}),
-  inspectContainer: vi.fn().mockResolvedValue(null),
-  dockerRecreateWithEnv: vi.fn().mockResolvedValue({ id: "deadbeef1234" }),
-  DOCKER_TUNING_DIR: "/tmp/test-tuning",
-}));
 
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
@@ -128,7 +122,6 @@ beforeEach(() => {
   vi.mocked(patchConfigMapRawKey).mockReset().mockResolvedValue(undefined);
   vi.mocked(auditLog).mockReset().mockResolvedValue(undefined);
 
-  delete process.env.CONSOLE_RUNTIME;
 });
 
 // ── GET ──────────────────────────────────────────────────────────────────────

@@ -12,17 +12,6 @@ export async function getPasswordHash(): Promise<{ hash: string; isHashed: boole
   const envHash = process.env.CONSOLE_PASSWORD_HASH;
   if (envHash) return { hash: envHash, isHashed: true };
 
-  if (process.env.CONSOLE_RUNTIME === "docker") {
-    try {
-      const dir = process.env.CONSOLE_DATA_DIR ?? "/data";
-      const stored = await fs.readFile(
-        path.join(dir, ".docker-secrets", "console-auth-password"),
-        "utf-8",
-      );
-      const trimmed = stored.trim();
-      if (trimmed) return { hash: trimmed, isHashed: true };
-    } catch { /* no stored hash yet */ }
-  }
 
   const plain = process.env.CONSOLE_PASSWORD ?? "scality";
   return { hash: plain, isHashed: false };

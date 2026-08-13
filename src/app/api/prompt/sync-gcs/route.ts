@@ -6,7 +6,6 @@ import { withRequestContext } from "@/lib/with-request-context";
 
 export const dynamic = "force-dynamic";
 
-const DOCKER_MODE = process.env.CONSOLE_RUNTIME === "docker";
 const VSS_INSTANCE_NAME = process.env.VSS_INSTANCE_NAME ?? "";
 
 // ─── POST /api/prompt/sync-gcs ────────────────────────────────────────────────
@@ -28,7 +27,7 @@ export const POST = withRequestContext(async function () {
 
   let prompt: string;
   try {
-    prompt = await readPromptLive(DOCKER_MODE);
+    prompt = await readPromptLive();
   } catch (err) {
     return NextResponse.json(
       { error: `Failed to read live prompt: ${err instanceof Error ? err.message : String(err)}` },

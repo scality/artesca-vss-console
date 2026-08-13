@@ -33,44 +33,6 @@ type CaptionsEnvelope = {
   };
 };
 
-/**
- * Read the SSE-captured JSONL on the docker-runtime path and convert each
- * VLM caption into the Incident shape the console renders. The JSONL is
- * append-only; we read up to `limit` most recent entries and reverse so
- * the newest is first. Best-effort: a malformed line is skipped, not fatal.
- */
-function readDockerIncidents(limit: number): unknown[] {
-  if (!existsSync(SYNTHETIC_EVENTS_PATH)) return [];
-  const raw = readFileSync(SYNTHETIC_EVENTS_PATH, "utf8");
-  const lines = raw.split("\n").filter(Boolean);
-  // Take the last N lines so the response is bounded — the file grows
-  // unbounded over the life of the demo (one caption every 5 s).
-  const tail = lines.slice(Math.max(0, lines.length - limit));
-  const out: unknown[] = [];
-  for (const line of tail) {
-    let env: CaptionsEnvelope;
-    try {
-      env = JSON.parse(line) as CaptionsEnvelope;
-    } catch {
-      continue;
-    }
-    const chunk = env.vlmResponse?.chunk_responses?.[0];
-    if (!chunk?.content) continue;
-    out.push({
-      ts: env.ingestedAt,
-      scenarioId: "synthetic",
-      scenarioName: "Synthetic VLM activity",
-      severity: "low",
-      sensorId: env.sensorName,
-      topic: "mdx-vlm",
-      summary: chunk.content,
-      raw: env.vlmResponse,
-    });
-  }
-  // newest first
-  return out.reverse();
-}
-
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -78,10 +40,6 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(req.nextUrl.searchParams.get("limit") ?? "50", 10);
   const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 500) : 50;
 
-  if (process.env.CONSOLE_RUNTIME === "docker") {
-    const incidents = readDockerIncidents(safeLimit);
-    return NextResponse.json({ incidents });
-  }
 
   try {
     const resp = await fetch(

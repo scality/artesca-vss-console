@@ -26,11 +26,6 @@ vi.mock("@/lib/helpers/audit", () => ({
   auditLog: vi.fn().mockResolvedValue(undefined),
 }));
 
-// docker-sock is only called in DOCKER_MODE; mock it to avoid native http
-// socket calls in tests.
-vi.mock("@/lib/helpers/docker-sock", () => ({
-  dockerSock: vi.fn().mockResolvedValue({}),
-}));
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
@@ -64,7 +59,6 @@ beforeEach(() => {
   vi.mocked(coreV1).mockReturnValue(freshCoreApi as never);
 
   // Ensure k8s branch (not docker) runs
-  delete process.env.CONSOLE_RUNTIME;
 });
 
 // ── Tests ────────────────────────────────────────────────────────────────────

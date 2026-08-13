@@ -103,12 +103,6 @@ vi.mock("@/lib/helpers/ingestion", () => ({
   listIngestingCameras: mockListIngestingCameras,
 }));
 
-vi.mock("@/lib/helpers/docker-sock", () => ({
-  listComposeContainers: mockListComposeContainers,
-  inspectContainer: mockInspectContainer,
-  runOneShotGpuContainer: mockRunOneShotGpuContainer,
-  DOCKER_TUNING_DIR: "/tmp/docker-tuning",
-}));
 
 vi.mock("@/lib/s3", () => ({
   s3BucketForRecordings: mockS3Bucket,
@@ -656,35 +650,6 @@ describe("collectPodSummaries — phase counts", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Docker mode — basic contract
 // ═══════════════════════════════════════════════════════════════════════════════
-
-describe("collectOverviewSnapshot — docker mode", () => {
-  it("happy path: returns populated snapshot from compose containers; no warnings", async () => {
-    setupDockerHappyPath();
-    // Provide S3 creds so the s3 probe fires.
-    vi.stubEnv("OBJECTSTORE_ACCESS_KEY_ID", "ak");
-
-    const result = await collectOverviewSnapshot();
-
-    expect(result.mode).toBe("docker");
-    expect(result.warnings).toEqual([]);
-    expect(result.snapshot.namespaces["my-service"]).toBeDefined();
-    expect(result.snapshot.namespaces["my-service"].total).toBe(1);
-    expect(result.snapshot.namespaces["my-service"].ready).toBe(1);
-  });
-
-  it("docker.sock throws → warning emitted; result still returned", async () => {
-    setupDockerHappyPath();
-    mockListComposeContainers.mockRejectedValue(new Error("socket gone"));
-
-    const result = await collectOverviewSnapshot();
-
-    expect(result).toBeDefined();
-    const dockerWarning = result.warnings.find(
-      (w) => w.toLowerCase().includes("docker") || w.toLowerCase().includes("socket") || w.toLowerCase().includes("container")
-    );
-    expect(dockerWarning).toBeDefined();
-  });
-});
 
 // ─── Todos ────────────────────────────────────────────────────────────────────
 // The following cases have high mock surface area and are left as TODOs

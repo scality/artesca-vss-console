@@ -64,9 +64,6 @@ vi.mock("@/lib/auth", () => ({ auth: mockAuth }));
 
 vi.mock("@/lib/streams/sse", () => ({ createSseResponse: mockCreateSseResponse }));
 
-vi.mock("@/lib/helpers/docker-sock", () => ({
-  streamDockerLogs: mockStreamDockerLogs,
-}));
 
 // Mock the entire @kubernetes/client-node so no real kubeconfig is needed.
 vi.mock("@kubernetes/client-node", () => ({
@@ -115,7 +112,6 @@ beforeEach(() => {
   mockAuth.mockResolvedValue({ user: { name: "operator" } });
   // Default: k8s mode.
   delete process.env.KUBE_NAMESPACES;
-  delete process.env.CONSOLE_RUNTIME;
   // Use legacy namespace layout so "vst" is in the default allowlist.
   vi.stubEnv("CONSOLE_LEGACY_NAMESPACES", "1");
 });

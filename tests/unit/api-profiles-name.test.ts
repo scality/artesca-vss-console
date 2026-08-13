@@ -69,16 +69,6 @@ vi.mock("@/lib/cluster-refs", () => {
   };
 });
 
-vi.mock("@/lib/helpers/docker-sock", () => ({
-  dockerSock: vi.fn().mockResolvedValue(undefined),
-  listComposeContainers: vi.fn().mockResolvedValue([]),
-  DOCKER_TUNING_DIR: "/tmp/docker-tuning",
-  inspectContainer: vi.fn().mockResolvedValue(null),
-  runOneShotGpuContainer: vi.fn().mockResolvedValue(undefined),
-  streamDockerLogs: vi.fn(),
-  dockerRecreateWithEnv: vi.fn().mockResolvedValue(undefined),
-  execInContainer: vi.fn().mockResolvedValue(undefined),
-}));
 
 vi.mock("@/lib/helpers/gcs-config", () => ({
   gcsScenariosPut: vi.fn().mockResolvedValue(undefined),
@@ -172,7 +162,6 @@ beforeEach(() => {
     prepare: vi.fn(() => ({ run: vi.fn().mockReturnValue({ changes: 1 }) })),
   }) as never);
 
-  delete process.env.CONSOLE_RUNTIME;
   delete process.env.VSS_INSTANCE_NAME;
 });
 

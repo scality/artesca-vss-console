@@ -2,10 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const startReconcileLoop = vi.fn(async () => {});
-const startCameraRestoreWatcher = vi.fn();
 vi.mock("@/lib/reconcile-agent", () => ({ startReconcileLoop }));
-vi.mock("@/lib/camera-restore-watcher", () => ({ startCameraRestoreWatcher }));
-vi.mock("@/lib/caption-bridge", () => ({ startCaptionBridge: vi.fn() }));
 
 describe("instrumentation register() — agent mode", () => {
   const OLD = { ...process.env };
@@ -15,7 +12,6 @@ describe("instrumentation register() — agent mode", () => {
     // test gets a fresh register() execution.
     delete (globalThis as unknown as { __started?: boolean }).__started;
     startReconcileLoop.mockClear();
-    startCameraRestoreWatcher.mockClear();
     process.env.NEXT_RUNTIME = "nodejs";
   });
   afterEach(() => { process.env = { ...OLD }; });
@@ -26,7 +22,6 @@ describe("instrumentation register() — agent mode", () => {
     const { register } = await import("@/instrumentation");
     await register();
     expect(startReconcileLoop).toHaveBeenCalledTimes(1);
-    expect(startCameraRestoreWatcher).not.toHaveBeenCalled();
   });
 
   it("without RECONCILE_AGENT, k8s mode runs the reconcile loop (not the camera watcher)", async () => {
@@ -35,6 +30,5 @@ describe("instrumentation register() — agent mode", () => {
     const { register } = await import("@/instrumentation");
     await register();
     expect(startReconcileLoop).toHaveBeenCalledTimes(1);
-    expect(startCameraRestoreWatcher).not.toHaveBeenCalled();
   });
 });
