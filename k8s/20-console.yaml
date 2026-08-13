@@ -136,6 +136,15 @@ spec:
           secretName: config-store-rw
           # 0440 + pod fsGroup 1001 → readable by the non-root console user
           defaultMode: 0440
+          # The file backend is the default and needs no GCP credential, so this
+          # secret does not exist on a deployment that never chose Firestore.
+          # Without `optional`, kubelet refuses to start the container at all
+          # when a referenced secret is absent — so a console configured for the
+          # file store would hang in ContainerCreating on a credential it never
+          # reads, and the credential could never be removed from an instance
+          # that migrated off Firestore. Marking it optional is what makes
+          # `kubectl delete secret config-store-rw` a supported end state.
+          optional: true
 
 ---
 # ClusterIP Service — lets in-cluster callers (health probes, future AI agents)

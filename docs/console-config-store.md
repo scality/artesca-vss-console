@@ -116,6 +116,11 @@ kubectl -n console exec deploy/console -- \
 kubectl -n console patch cm console-env --type merge \
   -p '{"data":{"CONSOLE_CONFIG_STORE":"file"}}'
 kubectl -n console rollout restart deploy/console deploy/reconcile-agent
+
+# 4. only once /about names the file backend AND reports the counts: drop the
+#    credential. This is the step that actually removes the GCP dependency —
+#    everything above merely stops reading it.
+kubectl -n console delete secret config-store-rw
 ```
 
 Four things about it that are deliberate:
@@ -127,4 +132,18 @@ Four things about it that are deliberate:
 
 The in-pod `curl` reaches the route unauthenticated only because `k8s/11-configmap-env.yaml` sets `CONSOLE_DISABLE_AUTH: "true"` — the same dependency `/api/sentry-verify` has. On a pod with the sign-in gate on, the request is redirected to `/sign-in` with a `307` and nothing happens.
 
-Rolling back is the reverse and needs no migration, because the copy leaves Firestore untouched: set `CONSOLE_CONFIG_STORE=firestore` and restart.
+Rolling back is the reverse and needs no migration, because the copy leaves Firestore untouched: set `CONSOLE_CONFIG_STORE=firestore` and restart. After step 4 a rollback also has to recreate the secret, so leave the credential in place for as long as you want a one-command rollback — steps 3 and 4 are deliberately separate for that reason.
+
+## What removes the GCP dependency, and what only stops using it
+
+Cutting over is not the same as weaning off GCP, and only one of these three is the credential actually leaving the cluster:
+
+| Change | Effect |
+| --- | --- |
+| `CONSOLE_CONFIG_STORE=file` | the console stops *reading* GCP. The SA key is still mounted, still valid, and still grants `datastore.user` to anything that can exec into the pod |
+| `kubectl delete secret config-store-rw` | the credential is gone. `kubectl get secrets -A \| grep -c config-store` returning `0` is the proof |
+| the secret volume being `optional: true` | what makes the line above *possible*. kubelet will not start a container that references a missing secret, so before this the credential could not be removed from a running instance at all |
+
+The last one is why `k8s/20-console.yaml` marks the volume optional even though every Scality lab currently provisions the secret: without it, "migrate to the file backend" ends at a pod that reads no GCP and still cannot start without a GCP key.
+
+On the deploy side, `deploy-console.sh` fetches that key from Secret Manager **only when the resolved backend is `firestore`**. That is the single `gcloud` call on the console deploy path, so an instance on the file backend deploys with no GCP project, no `gcloud` on `PATH` and no Secret Manager grant — which was the point of making the file store the default. It used to run unconditionally, which made `gcloud` a hard prerequisite of deploying a console that would never read the key.
