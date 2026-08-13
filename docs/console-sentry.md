@@ -33,13 +33,13 @@ Init files: [`console/src/instrumentation-client.ts`](../src/instrumentation-cli
 
 ## Secret-leak hardening — the constraints that must hold
 
-The console holds lab secrets (objectstore/S3 keys, the camera-sim SSH PEM, the Firestore SA key) in server-side locals, logs cluster command lines, and renders credentials as text (Grafana/Keycloak passwords on Overview, the Secrets page, S3 endpoint keys). Three SDK features are therefore deliberately off / pinned, and **must stay that way when anyone adds a Sentry signal later**:
+The console holds lab secrets (objectstore/S3 keys, the camera-sim SSH PEM, the Firestore SA key) in server-side locals, and renders the Grafana password as selectable text on Overview plus the S3 access key **id** in the `/cameras` chain diagnosis. Three SDK features are therefore deliberately off / pinned, and **must stay that way when anyone adds a Sentry signal later**:
 
 | Setting | State | Why |
 | ------- | ----- | --- |
 | `includeLocalVariables` | off (server) | frame locals routinely hold key material |
-| `enableLogs` | off (all runtimes) | forwarded console/log lines carry cluster command lines and fetched secret state |
-| Replay masking | pinned explicit (`maskAllText`, `maskAllInputs`, `blockAllMedia`, `networkDetailAllowUrls: []`) | the UI renders credentials as plain text; pinning survives SDK default changes |
+| `enableLogs` | off (all runtimes) | forwarded console/log lines carry fetched secret state and upstream error bodies |
+| Replay masking | pinned explicit (`maskAllText`, `maskAllInputs`, `blockAllMedia`, `networkDetailAllowUrls: []`) | the UI renders a credential as plain text; pinning survives SDK default changes |
 
 ## Source maps + releases (image builds)
 

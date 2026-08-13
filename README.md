@@ -4,6 +4,8 @@ Operator console for [NVIDIA VSS](https://build.nvidia.com/nvidia/video-search-a
 
 It runs **inside** the cluster as a `Deployment` in namespace `console`, serving `:8800`. It assumes VSS is already deployed and reachable — **it does not install or provision anything**, and it is not a VSS component: it is a separate UI that reads and patches a running stack.
 
+There is a second runtime: `CONSOLE_RUNTIME=docker` drives a local Docker daemon over `/var/run/docker.sock` instead of the Kubernetes API, recreating compose containers where the k8s path patches and rolls Deployments. Thirty modules under `src/` branch on it, so **a change to a route that touches cameras, prompt, scenarios, restart, logs, gpu, pods or diagnostics usually has to work both ways.** Kubernetes is the default and what the manifests deploy; see [`.env.example`](.env.example) and [`docs/console-docker-parity-plan.md`](docs/console-docker-parity-plan.md).
+
 Design rationale and the operator-facing intent of each page: [`docs/console-design.md`](docs/console-design.md).
 
 > **Do not expose this to an untrusted network.** Authentication is a single shared password, the Kubernetes RBAC it requests is broad, and some pages render credentials. Those are properties of the code as published, not oversights — [SECURITY.md](SECURITY.md) lists them in full and is worth reading before you copy this into a cluster.
@@ -120,7 +122,9 @@ The console also needs a `console-writer` Role and RoleBinding in each namespace
 
 ## Env vars
 
-[`.env.example`](.env.example) is the full list, each with what it does and what breaks without it.
+[`.env.example`](.env.example) documents 23 variables, each with what it does and what breaks without it — the ones you need to get the app up.
+
+**It is not the full set.** `src/` reads **143**, of which 18 are documented here — so **125 are not** (the other 5 in this file are consumed by Auth.js and the AWS SDK rather than read directly). They are mostly service URLs, Kafka topic names and ConfigMap keys with working defaults derived from `VSS_NAMESPACE`, which is why nothing appears broken without them. When something is misbehaving and you suspect configuration, [`src/lib/cluster-refs.ts`](src/lib/cluster-refs.ts) resolves most of them in one place and `git grep 'process\.env\.' src/` is the authority. Closing that gap is tracked as an issue; a patch that documents a group of them is a good first contribution.
 
 ## Telemetry
 

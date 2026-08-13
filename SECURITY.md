@@ -34,10 +34,20 @@ copied, and copying these without reading them is the actual risk:
 - **Authentication is a single shared password.** `CONSOLE_PASSWORD` is one
   credential shared by everyone who opens the console. There is no per-user
   identity, so the audit log records that an action happened and not who took it.
-- **Credentials are rendered and logged in clear.** The Secrets page displays
-  secret values, the Grafana password is shown in clear on the overview, and
-  cluster command lines are written to the logs with their arguments. This is why
-  Sentry replay masking is pinned on and `includeLocalVariables` is off.
+- **One credential is rendered in clear, and secret material reaches server-side
+  frame locals.** The overview renders the Grafana user and password as
+  selectable text when `GRAFANA_PASSWORD` is set
+  ([`src/app/page.tsx`](src/app/page.tsx)), and `/cameras` shows the S3 access key
+  **id** in its chain diagnosis. Server-side, the routes that report whether a
+  secret is configured read the stored value to do it, so it is live in a stack
+  frame. This is why Sentry replay masking is pinned on and
+  `includeLocalVariables` is off.
+
+  The Secrets page is **not** part of this: `GET /api/secrets/<key>` returns
+  `{ key, configured, ageMs }` — a boolean and an age, never a value — and
+  rotation is write-only. This bullet claimed otherwise until 2026-08-13; it was
+  wrong, and it is called out rather than quietly edited because a policy that
+  overstates is no more usable than one that understates.
 - **The Kubernetes RBAC is broad.** `k8s/console/01-rbac.yaml` requests `get` and
   `create` on `pods/exec` and `get`, `list`, `patch` on secrets, in addition to
   the read verbs. Scope it down to the features you actually deploy.
