@@ -49,7 +49,7 @@ function patchReq(body: unknown) {
   return new Request("http://localhost/api/scenarios", { method: "PATCH", body: JSON.stringify(body), headers: { "content-type": "application/json" } }) as unknown as import("next/server").NextRequest;
 }
 
-beforeEach(() => { delete process.env.CONSOLE_RUNTIME; vi.mocked(auth).mockResolvedValue({ user: { email: "op@test" } } as never); });
+beforeEach(() => { vi.mocked(auth).mockResolvedValue({ user: { email: "op@test" } } as never); });
 
 describe("scenarios route (k8s)", () => {
   it("GET returns Firestore scenarios mapped to the client shape", async () => {

@@ -11,7 +11,6 @@ vi.mock("@/lib/helpers/gcs-config", () => ({
   gcsScenariosGet: vi.fn().mockResolvedValue(null),
 }));
 
-// readConfigMapKey is called in k8s mode (CONSOLE_RUNTIME !== "docker").
 vi.mock("@/lib/helpers/configmaps", () => ({
   readConfigMapKey: vi.fn().mockResolvedValue({
     value: {

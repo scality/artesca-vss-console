@@ -52,7 +52,6 @@ describe("getPasswordHash — precedence", () => {
 
   it("returns the env hash (isHashed=true) when CONSOLE_PASSWORD_HASH is set", async () => {
     vi.stubEnv("CONSOLE_PASSWORD_HASH", "$2b$10$envhash");
-    vi.stubEnv("CONSOLE_RUNTIME", "docker");       // should be ignored
     vi.stubEnv("CONSOLE_PASSWORD", "plaintext");   // should be ignored
 
     const result = await getPasswordHash();
@@ -63,7 +62,6 @@ describe("getPasswordHash — precedence", () => {
 
   it("returns plain CONSOLE_PASSWORD (isHashed=false) when no env hash", async () => {
     vi.stubEnv("CONSOLE_PASSWORD_HASH", "");
-    vi.stubEnv("CONSOLE_RUNTIME", "");
     vi.stubEnv("CONSOLE_PASSWORD", "custompass");
     // Ensure no leftover docker-mode readFile call from a prior test
     fsReadFile.mockRejectedValueOnce(new Error("ENOENT") as never);
@@ -75,7 +73,6 @@ describe("getPasswordHash — precedence", () => {
 
   it('defaults to "scality" when CONSOLE_PASSWORD is not set', async () => {
     vi.stubEnv("CONSOLE_PASSWORD_HASH", "");
-    vi.stubEnv("CONSOLE_RUNTIME", "");
     // Do not stub CONSOLE_PASSWORD — let it be absent so `??` kicks in.
     delete process.env.CONSOLE_PASSWORD;
 
@@ -131,7 +128,6 @@ describe("_authorize — authorize logic", () => {
 
   it("returns the user on correct plain-text password match", async () => {
     vi.stubEnv("CONSOLE_PASSWORD_HASH", "");
-    vi.stubEnv("CONSOLE_RUNTIME", "");
     vi.stubEnv("CONSOLE_PASSWORD", "myplainpass");
 
     const result = await _authorize("myplainpass");
@@ -142,7 +138,6 @@ describe("_authorize — authorize logic", () => {
 
   it("returns null on plain-text password mismatch", async () => {
     vi.stubEnv("CONSOLE_PASSWORD_HASH", "");
-    vi.stubEnv("CONSOLE_RUNTIME", "");
     vi.stubEnv("CONSOLE_PASSWORD", "myplainpass");
 
     const result = await _authorize("wrongpass");

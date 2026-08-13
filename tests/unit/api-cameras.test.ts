@@ -53,7 +53,6 @@ vi.mock("@/lib/helpers/audit", () => ({
   auditLog: vi.fn().mockResolvedValue(undefined),
 }));
 
-// k8s path mocks — needed so the k8s branch resolves when CONSOLE_RUNTIME is not "docker"
 vi.mock("@/lib/reconcile/context", () => ({
   ReconcileContextError: class extends Error {
     name = "ReconcileContextError";
@@ -237,11 +236,9 @@ describe("GET /api/cameras (k8s)", () => {
 
 // Note: Docker-path GET tests (camsim/GCS-based) require DOCKER_MODE=true at module
 // load time. Since DOCKER_MODE is a module-level constant, those tests need a
-// separate vitest project with CONSOLE_RUNTIME=docker pre-set — out of scope here.
 
 // ── POST (k8s path) ────────────────────────────────────────────────────────────
 // Auth / validation / camsim-error tests are mode-independent; they live here
-// because the k8s path is the default (CONSOLE_RUNTIME unset).
 // Docker-mode POST tests (GCS write-through assertions) live in api-cameras-docker.test.ts.
 
 describe("POST /api/cameras (k8s)", () => {

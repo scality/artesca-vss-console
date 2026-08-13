@@ -207,7 +207,6 @@ function makeKafkaAdmin(topics: string[] = []) {
 /** Default happy-path setups for all k8s-mode probes. */
 function setupK8sHappyPath() {
   // Force k8s mode.
-  vi.stubEnv("CONSOLE_RUNTIME", "k8s");
   // Provide a kubeconfig-like env var so isDockerMode() → false path is taken.
   vi.stubEnv("KUBECONFIG", "/tmp/fake-kubeconfig");
 
@@ -259,7 +258,6 @@ function setupK8sHappyPath() {
 
 /** Default happy-path setups for docker-mode probes. */
 function setupDockerHappyPath() {
-  vi.stubEnv("CONSOLE_RUNTIME", "docker");
   // Remove KUBECONFIG so hasKubeconfig() returns false.
   vi.stubEnv("KUBECONFIG", "");
 

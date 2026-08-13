@@ -43,7 +43,6 @@ function patchReq(body: unknown) {
   return new Request("http://localhost/api/prompt", { method: "PATCH", body: JSON.stringify(body), headers: { "content-type": "application/json" } }) as unknown as import("next/server").NextRequest;
 }
 
-beforeEach(() => { delete process.env.CONSOLE_RUNTIME; });
 
 describe("prompt-sets (k8s)", () => {
   it("GET returns sets + activeId + active prompt", async () => {

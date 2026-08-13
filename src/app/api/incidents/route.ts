@@ -12,12 +12,6 @@ export const dynamic = "force-dynamic";
 // ALERT_WORKER_URL (vss-video-analytics-api) has no /api/incidents endpoint.
 const ALERT_BRIDGE_URL = CLUSTER.alertBridge.url;
 
-// docker runtime: the upstream blueprint's alert-bridge (captions →
-// incidents filter) only runs in --mode verification (2d_cv). For
-// --mode real-time (2d_vlm) we capture rtvi-vlm's caption SSE stream
-// directly into a JSONL on a host volume mounted into the console at
-// /data; each line is one VLM caption. Set CONSOLE_RUNTIME=docker on
-// the deployment to opt in to this path.
 const SYNTHETIC_EVENTS_PATH =
   process.env.SYNTHETIC_EVENTS_PATH ?? "/data/synthetic-events.jsonl";
 
