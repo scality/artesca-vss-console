@@ -1,0 +1,25 @@
+name: Question
+description: Ask how something works, or why it is built the way it is.
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Read `README.md` and `docs/console-design.md` first — the design document
+        states the operator-facing intent of every page, which is what most
+        questions turn out to be about.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: What you are trying to do
+      description: >-
+        The task behind the question. It frequently changes the answer, and
+        sometimes means the console is not the right place to do it at all.

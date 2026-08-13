@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a capability the console does not have.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >-
+        What an operator cannot do today, and what they do instead. Describe the
+        situation rather than the solution — a described situation can be solved
+        more than one way.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+      description: Which page or API route it would live on, and what it would show or do.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you considered instead
+      description: >-
+        Including doing it outside the console — `kubectl`, Grafana, the VSS APIs
+        directly. The console is an operator UI over a stack that has its own
+        tools, so a capability being available elsewhere is a real answer.
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: >-
+            This concerns the console itself, not the NVIDIA VSS blueprint, its
+            models, or ARTESCA.
+          required: true

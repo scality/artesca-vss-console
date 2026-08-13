@@ -1,0 +1,16 @@
+# Blank issues are off so every report arrives with the fields a maintainer needs
+# to act on it. A blank issue is not rejected by a human later — it is answered
+# with a request for the same information the form would have collected.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/scality/artesca-vss-console/security/advisories/new
+    about: >-
+      Do not open a public issue for a vulnerability. This link opens a private
+      report visible only to the maintainers. See SECURITY.md.
+  - name: NVIDIA VSS blueprint
+    url: https://build.nvidia.com/nvidia/video-search-and-summarization
+    about: >-
+      Questions about the VSS blueprint, its models or its APIs belong upstream.
+      This console is a separate operator UI over a deployed VSS stack.

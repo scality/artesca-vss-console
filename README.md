@@ -70,6 +70,20 @@ Manifests live in `k8s/` (owned by a parallel agent). The console Deployment mou
 
 See `.env.example` for the full list with descriptions.
 
+## Issues and contributing
+
+Bugs, feature requests and questions go to
+[GitHub Issues](https://github.com/scality/artesca-vss-console/issues) on this
+repository — that is the tracker. Setup, conventions and what is in scope:
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+Vulnerabilities do **not** go in an issue. Use the Security tab's private
+reporting flow; [SECURITY.md](SECURITY.md) also lists the known limitations of a
+default deployment, which are worth reading before copying this into a cluster.
+
+`ISVD-…` keys in the source and the git history refer to Scality's internal
+tracker and are not publicly readable. They are provenance markers, not links.
+
 ## Licence
 
 Apache License 2.0 — see [LICENSE](LICENSE). Copyright Scality.

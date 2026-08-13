@@ -189,8 +189,40 @@ Two things the walk surfaces, both still open:
 - **Four nav links break in kiosk mode.** `/search`, `/analytics`, `/evidence` and `/storage` are in neither `KIOSK_HIDDEN_ROUTES` nor `KIOSK_ALLOWED_ROUTES`. `Nav.tsx` filters only the hidden list so the links render; [`proxy.ts`](src/proxy.ts) serves only the allowed list so the paths redirect to `/`. A showroom visitor clicks and lands back on the overview. Whichever list they belong in, they belong in one.
 - **Seven mutating routes outlive their own page.** `proxy.ts` states that "mutating API routes are already guarded by `rejectIfKiosk()` in each handler", and 17 of 33 are. The other 16 include seven under a page kiosk hides — `/api/cameras/[id]` (PUT/PATCH/DELETE), `/api/cameras/[id]/restart`, the three `sync-gcs` routes and `/api/diagnostics/[test]`. `/api/cameras/[id]` DELETE is the sharpest: the sibling collection route `/api/cameras` POST *does* guard, so the asymmetry is within one resource. `/api/settings/kiosk` is exempt by design and named as such in the dumper — it is the exit from kiosk mode, and guarding it would trap the session.
 
+## Issue tracking — GitHub, not Jira
+
+**Work on this repository is tracked in its own GitHub Issues.** This repository is
+published under Apache-2.0 and read by people with no Scality account, so a tracker
+they cannot open is not a tracker: an `ISVD-…` key tells an outside reader that a
+decision exists and denies them every word of it.
+
+Three consequences, and the third is the one that gets forgotten:
+
+- **File here, not in ISVD.** A bug, a feature, a limitation of the published
+  console — GitHub. What stays in ISVD is work that is *about* Scality's own
+  deployment rather than about the console: lab migrations, showroom demos, the
+  publication programme itself (ISVD-547 and its children).
+- **`ISVD-…` keys already in the tree stay.** 33 of them across 26 files, plus 62
+  commit footers. They record which change a line came from, and that is worth
+  more than a tidy tree. [CONTRIBUTING.md](CONTRIBUTING.md) tells an outside reader
+  what they are so they do not hunt for a dead link. New references use
+  `Issue: #<number>`.
+- **A Jira ticket that has a public counterpart says so, one way.** Put the GitHub
+  URL in the ISVD ticket. Never the reverse, and never paste Jira content into a
+  GitHub issue — internal tickets carry customer names, lab hostnames and
+  credential-adjacent detail, and a public comment cannot be unpublished. This is
+  also why no two-way sync connector is wired: the throughput it would buy on a
+  repository with near-zero external issue volume does not pay for a leak that
+  posts itself.
+
+Security findings are the exception to all of it and go through the Security tab's
+private advisory flow, never an issue — [SECURITY.md](SECURITY.md) states the
+policy and the known limitations of a default deployment.
+
 ## Pointers
 
+- Contributing + issue conventions: [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- Security policy: [`SECURITY.md`](SECURITY.md)
 - Top-level platform: [`isv-labs:CLAUDE.md`](isv-labs:CLAUDE.md)
 - Deployer (laptop-side pre-install UI): [`isv-labs:deployer/CLAUDE.md`](isv-labs:deployer/CLAUDE.md)
 - Design rationale + per-page spec: [`docs/console-design.md`](docs/console-design.md)

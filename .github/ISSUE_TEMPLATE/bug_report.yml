@@ -1,0 +1,90 @@
+name: Bug report
+description: Something in the console behaves differently from what it says it does.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        The console reads from a running cluster — Kubernetes, ARTESCA S3, Kafka,
+        Redis and the VSS services. Most reports turn on *which* of those it could
+        not reach, so the deployment fields below matter as much as the symptom.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The behaviour you saw, and on which page or API route.
+      placeholder: /incidents renders an empty timeline while the alert-bridge backlog is non-empty.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the exact URL or `curl` where you can.
+      placeholder: |
+        1. Open /incidents
+        2. Set the time window to 24h
+        3. …
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How it is running
+      options:
+        - In-cluster Kubernetes pod (namespace `console`)
+        - Docker container
+        - Local dev (`npm run dev`)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Console version
+      description: >-
+        The image tag (`ghcr.io/scality/artesca-vss-console:sha-…`) or the commit
+        SHA you built from. The `/about` page reports both.
+      placeholder: sha-e309480
+    validations:
+      required: true
+
+  - type: input
+    id: stack
+    attributes:
+      label: VSS profile and storage
+      description: >-
+        Which VSS profile the cluster runs, and whether object storage is ARTESCA
+        or something else.
+      placeholder: alerts profile, ARTESCA 4.3
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: >-
+        The `/diagnostics` page's connectivity strip, and any relevant pod logs.
+        Redact credentials, hostnames and bucket names before pasting.
+      render: text
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before submitting
+      options:
+        - label: >-
+            This is not a security vulnerability. (Those go through the Security
+            tab — see SECURITY.md.)
+          required: true
+        - label: I have redacted credentials, tokens and internal hostnames.
+          required: true
