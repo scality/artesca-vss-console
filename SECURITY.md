@@ -28,14 +28,16 @@ cannot fetch cannot be reproduced.
 ## Known limitations of a default deployment
 
 These are properties of the code as published, not vulnerabilities to report. Each
-is tracked as an issue. They are listed here because a reference implementation is
-copied, and copying these without reading them is the actual risk:
+is tracked as an issue, linked below — so "known" is checkable rather than a claim
+this file makes about itself. They are listed here because a reference
+implementation is copied, and copying these without reading them is the actual
+risk:
 
-- **Authentication is a single shared password.** `CONSOLE_PASSWORD` is one
+- **Authentication is a single shared password** ([#7](https://github.com/scality/artesca-vss-console/issues/7)). `CONSOLE_PASSWORD` is one
   credential shared by everyone who opens the console. There is no per-user
   identity, so the audit log records that an action happened and not who took it.
 - **One credential is rendered in clear, and secret material reaches server-side
-  frame locals.** The overview renders the Grafana user and password as
+  frame locals** ([#8](https://github.com/scality/artesca-vss-console/issues/8)). The overview renders the Grafana user and password as
   selectable text when `GRAFANA_PASSWORD` is set
   ([`src/app/page.tsx`](src/app/page.tsx)), and `/cameras` shows the S3 access key
   **id** in its chain diagnosis. Server-side, the routes that report whether a
@@ -48,7 +50,7 @@ copied, and copying these without reading them is the actual risk:
   rotation is write-only. This bullet claimed otherwise until 2026-08-13; it was
   wrong, and it is called out rather than quietly edited because a policy that
   overstates is no more usable than one that understates.
-- **The Kubernetes RBAC is broad.** `k8s/01-rbac.yaml` requests `get` and
+- **The Kubernetes RBAC is broad** ([#9](https://github.com/scality/artesca-vss-console/issues/9)). `k8s/01-rbac.yaml` requests `get` and
   `create` on `pods/exec` and `get`, `list`, `patch` on secrets, in addition to
   the read verbs. Scope it down to the features you actually deploy.
 

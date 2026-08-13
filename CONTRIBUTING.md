@@ -49,7 +49,7 @@ the stack.
 
 Parts of the tree still assume the Scality lab — hardcoded namespaces and service
 names in `src/lib/cluster-refs.ts`, and AWS EC2 code paths that exist to drive a
-lab instance. Those are known and tracked as issues; a report that the console
+lab instance. Those are known and tracked ([#4](https://github.com/scality/artesca-vss-console/issues/4), [#5](https://github.com/scality/artesca-vss-console/issues/5)); a report that the console
 does not start against a differently-named deployment is useful, not a duplicate
 of something obvious.
 

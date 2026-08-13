@@ -122,7 +122,7 @@ The console also needs a `console-writer` Role and RoleBinding in each namespace
 
 [`.env.example`](.env.example) documents 22 variables, each with what it does and what breaks without it — the ones you need to get the app up.
 
-**It is not the full set.** `src/` reads **137**, of which 17 are documented here — so **120 are not** (the other 5 in this file are consumed by Auth.js and the AWS SDK rather than read directly). They are mostly service URLs, Kafka topic names and ConfigMap keys with working defaults derived from `VSS_NAMESPACE`, which is why nothing appears broken without them. When something is misbehaving and you suspect configuration, [`src/lib/cluster-refs.ts`](src/lib/cluster-refs.ts) resolves most of them in one place and `git grep 'process\.env\.' src/` is the authority. Closing that gap is tracked as an issue; a patch that documents a group of them is a good first contribution.
+**It is not the full set.** `src/` reads **137**, of which 17 are documented here — so **120 are not** (the other 5 in this file are consumed by Auth.js and the AWS SDK rather than read directly). They are mostly service URLs, Kafka topic names and ConfigMap keys with working defaults derived from `VSS_NAMESPACE`, which is why nothing appears broken without them. When something is misbehaving and you suspect configuration, [`src/lib/cluster-refs.ts`](src/lib/cluster-refs.ts) resolves most of them in one place and `git grep 'process\.env\.' src/` is the authority. Closing that gap is [#6](https://github.com/scality/artesca-vss-console/issues/6); a patch that documents one coherent group of them is a good first contribution.
 
 ## Telemetry
 
