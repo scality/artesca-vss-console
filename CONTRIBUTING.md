@@ -66,6 +66,22 @@ npm run build        # next build
 hook copies it. `postinstall` deliberately does not, because the Dockerfile
 installs with `--ignore-scripts`.
 
+### Secrets
+
+Nothing that authenticates anything belongs in a commit — a credential in the
+history is removed by rewriting it, not by reverting it. [`.gitleaks.toml`](.gitleaks.toml)
+configures a scan for that:
+
+```bash
+gitleaks git --staged -v --no-banner .   # before you commit
+gitleaks git -v --no-banner .            # the whole history
+```
+
+The three matches this repository's history contains are fabricated — a fake
+Kubernetes Secret the smoke test creates, and the jwt.io example token a
+redaction test asserts against — and are allowlisted individually by value, so a
+real one is still caught.
+
 ## Pull requests
 
 - Branch from `main` and open the PR against `main`.
@@ -84,7 +100,7 @@ Conventional-commit subjects — `feat(scope):`, `fix(scope):`, `chore(scope):`,
 `test(scope):`, `docs(scope):`, `ci:`. One logical change per commit. Reference
 the issue in a footer:
 
-```
+```text
 fix(incidents): keep the SSE backlog when the stream reconnects
 
 Issue: #12

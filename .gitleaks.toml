@@ -1,0 +1,45 @@
+# gitleaks configuration.
+#
+#   gitleaks git --staged -v --no-banner .   # what is about to be committed
+#   gitleaks git -v --no-banner .            # the whole history
+#
+# Run the first before committing anything that touches a manifest, a script or a
+# test fixture; the second before publishing. It is the standing check against a
+# credential reaching the history, where removing it means a rewrite rather than
+# a revert.
+#
+# `gitleaks dir` is deliberately not the command to use here. It walks the
+# filesystem rather than git, so it reads `.env.local`, `.next/` and
+# `public/monaco/` — all gitignored, none of them ever committed — and returns 16
+# findings that are correct about the disk and irrelevant to what ships. Answering
+# that with path allowlists would be worse than not running it: the same entries
+# would hide those paths in the history scan too, and `.env.local` reaching a
+# commit is precisely the thing worth catching.
+#
+# GitHub's own push protection would refuse such a commit at the point of push,
+# which is strictly better than finding it afterwards. It is not available here:
+# enabling secret scanning on this repository is blocked by a GitHub enterprise
+# policy (measured 2026-08-13, HTTP 422 on the repository settings API). Until an
+# enterprise owner lifts that, this file is the compensating control.
+
+[extend]
+useDefault = true
+
+# Three fabricated values, each of which the default rules read as a live
+# credential. They are allowlisted individually, by their exact literal, rather
+# than by silencing a file or a rule — a path allowlist over `scripts/` or a
+# disabled `jwt` rule would also hide the next real one.
+[[allowlists]]
+description = "Fabricated credentials in the smoke test and the redaction fixtures"
+regexes = [
+  # scripts/smoke-test-console.sh — the fake Secret the smoke test creates in its
+  # throwaway namespace. The line above it says "creating fake secrets".
+  # `NEXTAUTH_SECRET` is the same value under the name the script used before
+  # Auth.js required `AUTH_SECRET`; it survives in the history.
+  '''smoke-test-secret-32-bytes-padding''',
+  '''AKIAFAKEFAKEFAKEFAKE''',
+  # src/lib/error-bridge.test.ts — the canonical jwt.io example token, whose
+  # payload is {"sub":"1234567890"}. The test asserts that the error redactor
+  # redacts it, so the fixture has to look exactly like a real bearer token.
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U''',
+]
