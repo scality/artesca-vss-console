@@ -4,6 +4,7 @@ import { HealthBanner } from "@/components/overview/HealthBanner";
 import { KpiGrid } from "@/components/overview/KpiGrid";
 import { GpuCard } from "@/components/overview/GpuCard";
 import { GpuSharingCard } from "@/components/overview/GpuSharingCard";
+import { GrafanaAccessCard } from "@/components/overview/GrafanaAccessCard";
 import { ConnectivityStrip } from "@/components/overview/ConnectivityStrip";
 import { KafkaLagTable } from "@/components/overview/KafkaLagTable";
 import { PodSummaryList } from "@/components/overview/PodSummaryList";
@@ -161,52 +162,18 @@ export default async function OverviewPage() {
               </h2>
             </div>
 
-            {/* Monitoring access — URL + login surfaced in clear so the operator
-                can open the historical GPU dashboard without hunting for creds. */}
+            {/* Monitoring access — URL and user in clear; the password is fetched
+                on request from POST /api/grafana-credential, which audits the
+                reveal. Passing it as a prop would put it back in this server
+                component's payload on every dashboard load, which is the thing
+                ISVD-550 removes. `hasPassword` is a boolean by design. */}
             {CLUSTER.grafana.url && (
-              <div className="mb-4 rounded-lg border border-brand-light-gray bg-muted p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Historical graphs — Grafana
-                  </p>
-                  <a
-                    href={CLUSTER.grafana.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs font-medium text-brand-teal hover:text-brand-teal/80 hover:underline"
-                  >
-                    Open Grafana ↗
-                  </a>
-                </div>
-                <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-                  <div className="space-y-0.5">
-                    <dt className="text-xs text-muted-foreground uppercase tracking-wider">URL</dt>
-                    <dd className="font-mono text-xs break-all">
-                      <a
-                        href={CLUSTER.grafana.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-brand-teal hover:text-brand-teal/80 hover:underline"
-                      >
-                        {CLUSTER.grafana.url}
-                      </a>
-                    </dd>
-                  </div>
-                  <div className="space-y-0.5">
-                    <dt className="text-xs text-muted-foreground uppercase tracking-wider">User</dt>
-                    <dd className="font-mono text-xs select-all">{CLUSTER.grafana.user}</dd>
-                  </div>
-                  <div className="space-y-0.5">
-                    <dt className="text-xs text-muted-foreground uppercase tracking-wider">Password</dt>
-                    <dd className="font-mono text-xs select-all break-all">
-                      {CLUSTER.grafana.password || "—"}
-                    </dd>
-                  </div>
-                </dl>
-                <p className="mt-3 text-xs text-muted-foreground">
-                  {CLUSTER.grafana.loginHint}
-                </p>
-              </div>
+              <GrafanaAccessCard
+                url={CLUSTER.grafana.url}
+                user={CLUSTER.grafana.user}
+                hasPassword={Boolean(CLUSTER.grafana.password)}
+                loginHint={CLUSTER.grafana.loginHint}
+              />
             )}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
