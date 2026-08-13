@@ -40,31 +40,6 @@ COPY package.json package-lock.json ./
 # bindings file" and never becomes Ready.
 RUN npm ci --ignore-scripts && npm rebuild better-sqlite3
 
-# Drop the image optimizer's native stack before the build (ISVD-609).
-#
-# `sharp` is not declared in package.json — it is an optionalDependency of `next`,
-# pulled in for `next/image` optimization. This app imports `next/image` nowhere:
-# the one component that renders a camera still uses a plain <img> on purpose,
-# because the frame is proxied per-request from VST and would be cached stale.
-# A test asserts that stays true, and names this removal as the reason.
-#
-# It still shipped. Measured on next@16.2.11: `output: standalone` traces
-# sharp + @img into .next/standalone/node_modules unconditionally — 10.6 MB, and
-# `@img/sharp-libvips-*` is **LGPL-3.0-or-later**, the only copyleft licence in
-# the production tree of a repository about to be public. With this removal the
-# standalone output contains no LGPL/GPL/AGPL/FSL package at all.
-#
-# ⚠ Two obvious alternatives do not work, both measured:
-#   - `images: { unoptimized: true }` in next.config.js — the documented switch
-#     for turning optimization off. It does not affect the trace; sharp is copied
-#     regardless, so the config would assert a decision and change nothing.
-#   - `npm ci --omit=optional` — also drops lightningcss's platform binary, which
-#     Tailwind v4 requires, so the build fails.
-# Hence remove-after-install: npm has no way to exclude one optional dependency.
-# The `sharp` override in package.json stays — it keeps the libvips CVEs out of a
-# local install and out of `npm audit`, which this line does not touch.
-RUN rm -rf node_modules/sharp node_modules/@img
-
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 
@@ -118,11 +93,51 @@ RUN if [ -n "$WITH_FIRESTORE" ]; then \
       echo "firestore: not installed (WITH_FIRESTORE unset) — the YAML file store is the only backend"; \
     fi
 
-# next build emits .next/standalone — a self-contained Node server tree that
-# includes node_modules entries for serverExternalPackages (ssh2, better-sqlite3,
-# cpu-features) resolved at build time for the current arch.
+# Drop the image optimizer's native stack, then build — in ONE step (ISVD-609).
+#
+# next build emits .next/standalone: a self-contained Node server tree carrying
+# node_modules entries for the serverExternalPackages (ssh2, better-sqlite3,
+# cpu-features) resolved at build time for the current arch. That trace is also
+# how sharp gets in, which is what the removal below is about.
+#
+# `sharp` is not declared in package.json: it is an optionalDependency of `next`,
+# for `next/image` optimization. This app imports `next/image` nowhere — the one
+# component that renders a camera still uses a plain <img> on purpose, because the
+# frame is proxied per-request from VST and would be cached stale. A unit test
+# asserts that stays true and names this removal as the reason.
+#
+# It shipped anyway. Measured on next@16.2.11: `output: standalone` traces
+# sharp + @img into .next/standalone/node_modules unconditionally — 10.6 MB, and
+# `@img/sharp-libvips-*` is LGPL-3.0-or-later, the only copyleft licence in the
+# production tree of a repository about to be public.
+#
+# ⚠ The removal MUST be in this step, not an earlier one. It was a separate RUN
+# straight after `npm ci`, and the published image still contained sharp: the two
+# opt-in steps above run `npm install --no-save`, and npm repairs the dependency
+# tree as it goes — reinstalling next's optional deps. Verified by inspecting the
+# pushed image rather than the build log, which showed the `rm` running and told
+# us nothing about what survived.
+#
+# ⚠ Two obvious alternatives do not work, both measured:
+#   - `images: { unoptimized: true }` in next.config.js — the documented switch
+#     for turning optimization off. It does not affect the trace; sharp is copied
+#     regardless, so the config would assert a decision and change nothing.
+#   - `npm ci --omit=optional` — also drops lightningcss's platform binary, which
+#     Tailwind v4 requires, so the build fails.
+# npm has no way to exclude a single optional dependency, hence remove-then-build.
+#
+# The final assertion is the part that makes this stick: a build that would ship
+# sharp fails here instead. Nothing outside the image can check this — a unit test
+# sees a laptop's node_modules, where `npm ci` legitimately installs it.
 RUN --mount=type=secret,id=sentry_auth_token,env=SENTRY_AUTH_TOKEN,required=false \
-    npm run build
+    rm -rf node_modules/sharp node_modules/@img \
+    && npm run build \
+    && if [ -e .next/standalone/node_modules/sharp ] || [ -e .next/standalone/node_modules/@img ]; then \
+         echo "ISVD-609: sharp was traced into .next/standalone despite removal — refusing to ship an LGPL libvips" >&2; \
+         exit 1; \
+       else \
+         echo "sharp: absent from .next/standalone (no LGPL libvips in the image)"; \
+       fi
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 2 – runner: minimal Alpine with runtime-only packages
