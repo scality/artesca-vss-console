@@ -12,6 +12,8 @@ import { runInPod } from "@/lib/k8s";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { getRedis } from "@/lib/redis";
 import { makeS3Client } from "@/lib/s3";
+import { vstListSensors } from "@/lib/helpers/vst";
+import { sampleNewestBySensor } from "@/lib/storage/vst-sample";
 
 export const dynamic = "force-dynamic";
 
@@ -151,6 +153,15 @@ interface VstStorageResponse {
   bytesTotal: number;
   bucketScanTruncated: boolean;
   bucketScanStaleSecs: number;
+  /** How recentObjects, the histogram and the duration percentiles were sampled.
+   *  `per-sensor` walks each live sensor's newest recorded hours. `first-page` is
+   *  the fallback when VST lists no sensors or none has written: a single
+   *  bucket-wide page, which is the lexicographically first 500 keys and therefore
+   *  says nothing about what is recent. They are reported apart because they are
+   *  not equally trustworthy, and the old behaviour was the second one unlabelled. */
+  sampleMode: "per-sensor" | "first-page";
+  /** Sensors the per-sensor sample walked. 0 on the fallback path. */
+  sampleSensorCount: number;
   localCacheFillPercent: number | null;
   segmentSizeKBHistogram: SegmentBucket[];
   segmentDurationSecsP50: number | null;
@@ -386,18 +397,43 @@ export async function GET() {
   const alerts: StorageAlert[] = [];
   const nowMs = Date.now();
 
-  // ── Stats pass: first page (up to 500) for histogram + recent objects ─────
-  // This is the "sample window" — fast, bounded, feeds per-object analysis.
+  // ── Stats pass: the newest recorded hours, per sensor ─────────────────────
+  // This is the "sample window" — it feeds recentObjects, the size histogram and
+  // the segment-duration percentiles, so it has to be recent and it has to belong
+  // to sensors that exist. See sampleNewestBySensor for what the single
+  // bucket-wide first-page read did instead.
   let sampleObjects: S3Object[] = [];
+  let sampleMode: "per-sensor" | "first-page" = "per-sensor";
+
+  // Sensors as VST knows them, minus its tombstones — `status` is vstListSensors'
+  // normalisation of VST's `state`, and "removed" means already deleted. Sampling a
+  // tombstone's prefix is how the old window ended up describing a camera that had
+  // not recorded in eight days. vstListSensors never throws: it reports a warning
+  // and an empty list, which falls through to the first-page path below.
+  const { sensors: vstSensors } = await vstListSensors();
+  const sensorIds = vstSensors
+    .filter((s) => s.status !== "removed")
+    .map((s) => s.sensor_uuid ?? s.sensor_id)
+    .filter((id): id is string => Boolean(id));
 
   try {
-    const resp = await s3.send(
-      new ListObjectsV2Command({
-        Bucket: bucket,
-        MaxKeys: 500,
-      })
-    );
-    sampleObjects = resp.Contents ?? [];
+    if (sensorIds.length > 0) {
+      sampleObjects = await sampleNewestBySensor(s3, bucket, sensorIds);
+    }
+    // No sensors, or none of them has written anything: fall back to the
+    // bucket-wide first page. It is a poor sample — see sampleNewestBySensor — but
+    // an empty panel would be worse, and `sampleMode` says which one you are
+    // looking at rather than leaving the two indistinguishable.
+    if (sampleObjects.length === 0) {
+      sampleMode = "first-page";
+      const resp = await s3.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          MaxKeys: 500,
+        })
+      );
+      sampleObjects = resp.Contents ?? [];
+    }
   } catch (err: unknown) {
     const awsErr = err as { name?: string; message?: string; $metadata?: { httpStatusCode?: number } };
     return NextResponse.json(
@@ -562,6 +598,8 @@ export async function GET() {
     bytesTotal,
     bucketScanTruncated,
     bucketScanStaleSecs,
+    sampleMode,
+    sampleSensorCount: sampleMode === "per-sensor" ? sensorIds.length : 0,
     localCacheFillPercent,
     segmentSizeKBHistogram,
     segmentDurationSecsP50,

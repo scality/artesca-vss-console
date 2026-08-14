@@ -99,6 +99,9 @@ const VstStorageResponseSchema = z.object({
   bucketScanTruncated: z.boolean().optional(),
   /** NEW — seconds since object totals were last refreshed */
   bucketScanStaleSecs: z.number().optional(),
+  /** How the sample below was drawn. "first-page" is the degraded fallback. */
+  sampleMode: z.enum(["per-sensor", "first-page"]).optional(),
+  sampleSensorCount: z.number().optional(),
 });
 
 type VstStorageData = z.infer<typeof VstStorageResponseSchema>;
@@ -500,6 +503,23 @@ export function VstStoragePanel() {
       severity: "info",
       message:
         "Total object count is a conservative estimate — full bucket scan truncated at 5000 objects for latency. Will refresh in background.",
+    });
+  }
+
+  // Sample drawn the degraded way → say so, because everything below it is derived
+  // from that sample: the recent-objects table, the size histogram and the duration
+  // percentiles. "first-page" means one bucket-wide page, which S3 returns in
+  // lexicographic key order — so it describes whichever sensor UUIDs sort first
+  // rather than anything recent, and can show a deleted camera's last recordings as
+  // the newest in the bucket. Warn rather than info: the numbers are not merely
+  // approximate, they are about the wrong objects.
+  if (d.sampleMode === "first-page") {
+    clientAlerts.unshift({
+      severity: "warn",
+      message:
+        "Recent objects, the size histogram and the duration percentiles are drawn " +
+        "from one bucket-wide page in key order, not from the newest recordings — " +
+        "VST listed no sensors that have recorded anything. Treat them as unreliable.",
     });
   }
 
