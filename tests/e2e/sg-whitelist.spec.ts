@@ -13,7 +13,7 @@ function stubAuth(page: Page) {
   );
 }
 
-async function stubSettingsApis(page: Page) {
+async function stubSettingsApis(page: Page, sgAvailable = true) {
   await stubAuth(page);
 
   let entries = [...sgWhitelistFixture];
@@ -21,10 +21,13 @@ async function stubSettingsApis(page: Page) {
   await page.route("/api/settings/sg", async (route) => {
     const method = route.request().method();
     if (method === "GET") {
+      // Matches what the route returns: the capability flag plus the rows. A
+      // bare array is still tolerated by the page, but stubbing one here would
+      // test a response shape the server does not produce.
       return route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(entries),
+        body: JSON.stringify({ available: sgAvailable, entries: sgAvailable ? entries : [] }),
       });
     }
     if (method === "POST") {
@@ -80,6 +83,30 @@ async function stubSettingsApis(page: Page) {
     })
   );
 }
+
+test.describe("settings — no security group under management", () => {
+  // The customer-cluster case: no EC2 in front of the console, so the panel is
+  // absent rather than present with buttons that 404. A panel here would offer
+  // an operator network controls that cannot act.
+  test("the Network access panel is not rendered at all", async ({ page }) => {
+    await stubSettingsApis(page, false);
+    await page.goto("/settings");
+
+    // The page itself still works — Kiosk mode is a sibling card. Located by
+    // role: the words also appear in the page subtitle and on the toggle's own
+    // label, which a text match resolves to three elements.
+    await expect(page.getByRole("heading", { name: "Kiosk mode" })).toBeVisible({
+      timeout: 8_000,
+    });
+
+    // The card title, not the bare words "network access" — those also appear in
+    // the page's own subtitle, where a substring match picks them up and the
+    // test passes or fails for the wrong reason.
+    await expect(page.getByText("Network access — SG allow-list")).toHaveCount(0);
+    await expect(page.locator("button", { hasText: /add cidr/i })).toHaveCount(0);
+    await expect(page.locator("body")).not.toContainText("203.0.113.0/29");
+  });
+});
 
 test.describe("settings — SG whitelist", () => {
   test("settings page renders without crashing", async ({ page }) => {

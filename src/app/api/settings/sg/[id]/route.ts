@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { listSgEntries, deleteSgEntry } from "@/lib/db";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
-import { revokeSgIngress } from "@/lib/aws";
+import { revokeSgIngress, sgManagementConfig } from "@/lib/ec2-sg";
 import { auditLog } from "@/lib/helpers/audit";
 import { createLogger } from "@/lib/logger";
 import { withRequestContext } from "@/lib/with-request-context";
@@ -21,6 +21,17 @@ export const DELETE = withRequestContext(async function (
   const blocked = await rejectIfKiosk();
   if (blocked) return blocked;
 
+  // 404 rather than 500 — see the POST route: on a deployment that manages no
+  // security group this route is not part of the console. Checked before the
+  // entry lookup so the answer does not depend on what happens to be stored.
+  const cfg = sgManagementConfig();
+  if (!cfg) {
+    return NextResponse.json(
+      { error: "This deployment does not manage a security group" },
+      { status: 404 }
+    );
+  }
+
   const { id } = await params;
 
   // Look up the entry in SQLite
@@ -31,14 +42,9 @@ export const DELETE = withRequestContext(async function (
     return NextResponse.json({ error: `SG entry ${id} not found` }, { status: 404 });
   }
 
-  const sgId = process.env.CONSOLE_SG_ID;
-  if (!sgId) {
-    return NextResponse.json({ error: "CONSOLE_SG_ID env var not configured" }, { status: 500 });
-  }
-
   // Revoke in AWS SG
   try {
-    await revokeSgIngress(sgId, entry.cidr, entry.port);
+    await revokeSgIngress(cfg, entry.cidr, entry.port);
   } catch (err: unknown) {
     const awsErr = err as { name?: string; message?: string };
     // Ignore "not found" errors — rule may already be gone
@@ -54,7 +60,7 @@ export const DELETE = withRequestContext(async function (
   // Remove from SQLite
   deleteSgEntry(id);
 
-  await auditLog("sg-remove", `sg/${sgId}/ingress`, {
+  await auditLog("sg-remove", `sg/${cfg.sgId}/ingress`, {
     cidr: entry.cidr,
     label: entry.label,
     port: entry.port,

@@ -1,9 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
 
 // The in-cluster console is normally port-forwarded to :8800 on an operator's
-// laptop, which makes the default port unusable for a local suite run. CI sets
-// nothing and keeps :8800.
-const PORT = Number(process.env.E2E_PORT ?? 8800);
+// laptop, and `reuseExistingServer` below is on locally — so a local run on
+// :8800 attaches to whatever holds the port. Measured 2026-08-14: with a
+// `kubectl port-forward` to the Pyramid showroom console up, the whole suite ran
+// green against the **deployed pod** instead of the working tree, which is worse
+// than a red run because it reads as proof. Local runs therefore default to a
+// port nothing forwards to; CI has no port-forward and keeps :8800.
+const PORT = Number(process.env.E2E_PORT ?? (process.env.CI ? 8800 : 8899));
 const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({

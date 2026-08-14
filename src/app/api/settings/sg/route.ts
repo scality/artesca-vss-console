@@ -4,7 +4,7 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { listSgEntries, upsertSgEntry } from "@/lib/db";
-import { authorizeSgIngress } from "@/lib/aws";
+import { authorizeSgIngress, sgManagementConfig, CONSOLE_INGRESS_PORT } from "@/lib/ec2-sg";
 import { auditLog } from "@/lib/helpers/audit";
 import { createLogger } from "@/lib/logger";
 import { withRequestContext } from "@/lib/with-request-context";
@@ -22,14 +22,26 @@ function isValidCidr(cidr: string): boolean {
   return true;
 }
 
-// ─── GET — list whitelist entries ──────────────────────────────────────────────
+// ─── GET — capability probe + whitelist entries ─────────────────────────────────
+//
+// `available` says whether this deployment manages a security group at all, so
+// the /settings panel can be absent rather than present-and-failing. It is a
+// 200 with a flag rather than a 404 on purpose: this is the probe, and an error
+// status here would leave the page unable to tell a feature that is not part of
+// the deployment from a console that is broken.
+//
+// The stored rows are a display mirror of AWS, so when nothing is managed there
+// is nothing they could be a mirror of, and they are withheld.
 
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const entries = listSgEntries();
-  return NextResponse.json({ entries });
+  if (!sgManagementConfig()) {
+    return NextResponse.json({ available: false, entries: [] });
+  }
+
+  return NextResponse.json({ available: true, entries: listSgEntries() });
 }
 
 // ─── POST — add a new CIDR entry ───────────────────────────────────────────────
@@ -49,6 +61,18 @@ export const POST = withRequestContext(async (req: NextRequest) => {
   const blocked = await rejectIfKiosk();
   if (blocked) return blocked;
 
+  // 404 rather than 500: on a deployment that manages no security group this is
+  // not a misconfiguration to be fixed, it is a route that is not part of the
+  // console. Resolved before the body is parsed so a request that cannot
+  // succeed is not reported as a validation problem.
+  const cfg = sgManagementConfig();
+  if (!cfg) {
+    return NextResponse.json(
+      { error: "This deployment does not manage a security group" },
+      { status: 404 }
+    );
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = AddSgEntrySchema.safeParse(body);
   if (!parsed.success) {
@@ -58,14 +82,9 @@ export const POST = withRequestContext(async (req: NextRequest) => {
   const { cidr, label } = parsed.data;
   const operator = session.user?.name ?? session.user?.email ?? "unknown";
 
-  const sgId = process.env.CONSOLE_SG_ID;
-  if (!sgId) {
-    return NextResponse.json({ error: "CONSOLE_SG_ID env var not configured" }, { status: 500 });
-  }
-
   // Authorize in AWS SG
   try {
-    await authorizeSgIngress(sgId, cidr, 8800);
+    await authorizeSgIngress(cfg, cidr, CONSOLE_INGRESS_PORT);
   } catch (err: unknown) {
     const awsErr = err as { name?: string; message?: string };
     // Ignore "already exists" errors
@@ -85,12 +104,16 @@ export const POST = withRequestContext(async (req: NextRequest) => {
     label,
     addedBy: operator,
     addedAt: new Date().toISOString(),
-    port: 8800 as const,
+    port: CONSOLE_INGRESS_PORT,
   };
 
   upsertSgEntry(entry);
 
-  await auditLog("sg-add", `sg/${sgId}/ingress`, { cidr, label, port: 8800 });
+  await auditLog("sg-add", `sg/${cfg.sgId}/ingress`, {
+    cidr,
+    label,
+    port: CONSOLE_INGRESS_PORT,
+  });
 
   return NextResponse.json({ ok: true, entry });
 });

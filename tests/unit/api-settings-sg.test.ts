@@ -10,10 +10,12 @@ vi.mock("@/lib/kiosk-server", () => ({
   rejectIfKiosk: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock("@/lib/aws", () => ({
+vi.mock("@/lib/ec2-sg", () => ({
   authorizeSgIngress: vi.fn().mockResolvedValue(undefined),
   revokeSgIngress: vi.fn().mockResolvedValue(undefined),
   listSgIngress: vi.fn().mockResolvedValue([]),
+  sgManagementConfig: vi.fn(),
+  CONSOLE_INGRESS_PORT: 8800,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -32,12 +34,12 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
-import { authorizeSgIngress, revokeSgIngress } from "@/lib/aws";
+import { authorizeSgIngress, revokeSgIngress, sgManagementConfig } from "@/lib/ec2-sg";
 import { listSgEntries, upsertSgEntry, deleteSgEntry } from "@/lib/db";
 import { auditLog } from "@/lib/helpers/audit";
 
 // Import route handlers after mocks are set up.
-import { POST } from "@/app/api/settings/sg/route";
+import { GET, POST } from "@/app/api/settings/sg/route";
 import { DELETE } from "@/app/api/settings/sg/[id]/route";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
@@ -70,10 +72,80 @@ beforeEach(() => {
   vi.mocked(upsertSgEntry).mockReset().mockReturnValue(undefined);
   vi.mocked(deleteSgEntry).mockReset().mockReturnValue(undefined);
   vi.mocked(auditLog).mockReset().mockResolvedValue(undefined);
-  process.env.CONSOLE_SG_ID = SG_ID;
+  vi.mocked(sgManagementConfig).mockReturnValue({ sgId: SG_ID, region: "us-west-2" });
 });
 
 // ── POST ─────────────────────────────────────────────────────────────────────────
+
+// ── GET — the capability probe ───────────────────────────────────────────────────
+//
+// /settings decides whether to render the SG panel at all from this response, so
+// the flag is load-bearing: get it wrong and a customer cluster shows a panel
+// whose every button 404s.
+
+describe("GET /api/settings/sg", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(auth).mockResolvedValue({ user: { name: "operator" } } as never);
+  });
+
+  it("reports available with the stored rows when a group is managed", async () => {
+    vi.mocked(sgManagementConfig).mockReturnValue({ sgId: SG_ID, region: "us-west-2" });
+    vi.mocked(listSgEntries).mockReturnValue([
+      {
+        id: "e1",
+        cidr: VALID_CIDR,
+        label: VALID_LABEL,
+        addedBy: "operator",
+        addedAt: "2026-08-01T00:00:00.000Z",
+        port: 8800,
+      },
+    ]);
+
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ available: true, entries: [{ id: "e1" }] });
+  });
+
+  // A 200 with a flag, not a 404: this is the probe, and an error status would
+  // leave the page unable to tell "not part of this deployment" from "broken".
+  it("reports unavailable as a 200 when no group is managed", async () => {
+    vi.mocked(sgManagementConfig).mockReturnValue(null);
+
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ available: false, entries: [] });
+  });
+
+  // The rows describe ingress rules on an AWS security group. Where none is
+  // managed they mirror nothing, so serving them would furnish a page with
+  // network rules that do not exist for this cluster.
+  it("withholds the stored rows when no group is managed", async () => {
+    vi.mocked(sgManagementConfig).mockReturnValue(null);
+    vi.mocked(listSgEntries).mockReturnValue([
+      {
+        id: "stale",
+        cidr: "192.0.2.0/24",
+        label: "from another cluster",
+        addedBy: "operator",
+        addedAt: "2026-01-01T00:00:00.000Z",
+        port: 8800,
+      },
+    ]);
+
+    const body = await (await GET()).json();
+
+    expect(body.entries).toEqual([]);
+    expect(JSON.stringify(body)).not.toContain("192.0.2.0/24");
+  });
+
+  it("refuses an unauthenticated caller", async () => {
+    vi.mocked(auth).mockResolvedValue(null as never);
+    expect((await GET()).status).toBe(401);
+  });
+});
 
 describe("POST /api/settings/sg", () => {
   it("happy path: valid CIDR + label → 200 with ok:true, calls authorizeSgIngress and auditLog", async () => {
@@ -87,7 +159,11 @@ describe("POST /api/settings/sg", () => {
     expect(body.entry.label).toBe(VALID_LABEL);
 
     expect(authorizeSgIngress).toHaveBeenCalledOnce();
-    expect(authorizeSgIngress).toHaveBeenCalledWith(SG_ID, VALID_CIDR, 8800);
+    expect(authorizeSgIngress).toHaveBeenCalledWith(
+      { sgId: SG_ID, region: "us-west-2" },
+      VALID_CIDR,
+      8800
+    );
     expect(upsertSgEntry).toHaveBeenCalledOnce();
     expect(auditLog).toHaveBeenCalledOnce();
     expect(auditLog).toHaveBeenCalledWith("sg-add", `sg/${SG_ID}/ingress`, {
@@ -187,15 +263,28 @@ describe("POST /api/settings/sg", () => {
     expect(auditLog).toHaveBeenCalled();
   });
 
-  it("CONSOLE_SG_ID env var missing → 500", async () => {
-    delete process.env.CONSOLE_SG_ID;
+  // A deployment that manages no security group has no such route, so this is a
+  // 404 rather than the 500 a misconfiguration would deserve. It is resolved
+  // before the body is parsed, so an unconfigured deployment answers the same
+  // way whatever was posted.
+  it("no security group under management → 404, and nothing is written", async () => {
+    vi.mocked(sgManagementConfig).mockReturnValue(null);
 
     const req = makePostRequest({ cidr: VALID_CIDR, label: VALID_LABEL });
     const res = await POST(req);
 
-    expect(res.status).toBe(500);
-    const body = await res.json();
-    expect(body.error).toMatch(/CONSOLE_SG_ID/);
+    expect(res.status).toBe(404);
+    expect(authorizeSgIngress).not.toHaveBeenCalled();
+    expect(upsertSgEntry).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it("no security group under management → 404 even for an invalid body", async () => {
+    vi.mocked(sgManagementConfig).mockReturnValue(null);
+
+    const res = await POST(makePostRequest({ cidr: "not-a-cidr", label: "" }));
+
+    expect(res.status).toBe(404);
   });
 });
 
@@ -226,7 +315,11 @@ describe("DELETE /api/settings/sg/[id]", () => {
     expect(body.id).toBe(ENTRY_ID);
 
     expect(revokeSgIngress).toHaveBeenCalledOnce();
-    expect(revokeSgIngress).toHaveBeenCalledWith(SG_ID, ENTRY.cidr, ENTRY.port);
+    expect(revokeSgIngress).toHaveBeenCalledWith(
+      { sgId: SG_ID, region: "us-west-2" },
+      ENTRY.cidr,
+      ENTRY.port
+    );
     expect(deleteSgEntry).toHaveBeenCalledWith(ENTRY_ID);
     expect(auditLog).toHaveBeenCalledOnce();
     expect(auditLog).toHaveBeenCalledWith("sg-remove", `sg/${SG_ID}/ingress`, {
@@ -302,14 +395,14 @@ describe("DELETE /api/settings/sg/[id]", () => {
     expect(auditLog).toHaveBeenCalled();
   });
 
-  it("CONSOLE_SG_ID env var missing → 500", async () => {
-    delete process.env.CONSOLE_SG_ID;
+  it("no security group under management → 404, and nothing is revoked", async () => {
+    vi.mocked(sgManagementConfig).mockReturnValue(null);
 
     const req = new Request(`http://localhost/api/settings/sg/${ENTRY_ID}`, { method: "DELETE" });
     const res = await DELETE(req, makeDeleteParams(ENTRY_ID));
 
-    expect(res.status).toBe(500);
-    const body = await res.json();
-    expect(body.error).toMatch(/CONSOLE_SG_ID/);
+    expect(res.status).toBe(404);
+    expect(revokeSgIngress).not.toHaveBeenCalled();
+    expect(deleteSgEntry).not.toHaveBeenCalled();
   });
 });

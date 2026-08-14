@@ -21,6 +21,10 @@ export default function SettingsPage() {
   if (kiosk) redirect("/");
 
   const [entries, setEntries] = useState<SgWhitelistEntry[]>([]);
+  // Whether this deployment manages a security group at all. Starts true so the
+  // panel does not flicker in on a deployment that has one; only an explicit
+  // `available: false` from the probe takes it away.
+  const [sgAvailable, setSgAvailable] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [rotations, setRotations] = useState<Record<string, number | null>>({});
   const { toast } = useToast();
@@ -29,7 +33,10 @@ export default function SettingsPage() {
     const res = await fetch("/api/settings/sg");
     if (!res.ok) return;
     const data = await res.json();
-    // GET /api/settings/sg returns { entries: [...] }; tolerate a bare array too.
+    // GET /api/settings/sg returns { available, entries: [...] }; tolerate a
+    // bare array too. Absence of `available` reads as available — the panel goes
+    // away only when the route says so, never because a field was missing.
+    if (data?.available === false) setSgAvailable(false);
     setEntries(Array.isArray(data) ? data : Array.isArray(data?.entries) ? data.entries : []);
   }
 
@@ -95,20 +102,24 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Network access */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Network access — SG allow-list</CardTitle>
-              <Button size="sm" onClick={() => setAddOpen(true)}>
-                Add CIDR
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <SgWhitelistTable entries={entries} onDelete={handleDelete} />
-          </CardContent>
-        </Card>
+        {/* Network access — only where a security group is under management.
+            On a cluster with no EC2 in front of it there is nothing to allow,
+            so the panel is absent rather than present and unable to act. */}
+        {sgAvailable && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Network access — SG allow-list</CardTitle>
+                <Button size="sm" onClick={() => setAddOpen(true)}>
+                  Add CIDR
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <SgWhitelistTable entries={entries} onDelete={handleDelete} />
+            </CardContent>
+          </Card>
+        )}
 
         {/* Kiosk mode */}
         <Card>

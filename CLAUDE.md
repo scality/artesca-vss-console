@@ -52,6 +52,57 @@ The exported `CLUSTER` object covers: kafka brokers + topic names, redis URL, VS
 
 `prometheus.url` defaults to **metalk8s-monitoring**'s `prometheus-operated` (not artesca-monitoring, whose Prometheus CR has `serviceMonitorSelector=null` and holds 0 GPU series — the DCGM ServiceMonitor is discovered by metalk8s-monitoring via the `metalk8s.scality.com/monitor: ""` label). `grafana.url` is derived per-instance from `OBJECTSTORE_ENDPOINT_IP` → `https://<ip>:8443/` (or explicit `GRAFANA_URL`); `grafana.password` comes from `GRAFANA_PASSWORD` (empty in-cluster; `dev-console.sh` auto-populates it laptop-side from the node's ARTESCA Keycloak admin secret). Grafana sits behind ARTESCA's `:8443` Keycloak SSO (realm `artesca`), so the login is the ARTESCA admin, **not** the Grafana local admin (its form is disabled).
 
+## AWS — one lab-only feature, and one filename that is not about AWS
+
+Exactly one thing in this console talks to an AWS service: the `/settings` →
+**Network access** panel, which writes `:8800` ingress rules on the EC2 security
+group in front of a lab instance. It lives in
+[`src/lib/ec2-sg.ts`](src/lib/ec2-sg.ts) and is lab-only.
+
+[`src/lib/aws.ts`](src/lib/aws.ts) is **not** AWS despite the name — `s3Stats` /
+`s3SubstrateStats` speak the S3 protocol against `OBJECTSTORE_ENDPOINT`, which on
+a real deployment is the ARTESCA connector. Those back the storage panels and are
+part of the product. The two are separate files so that boundary is visible; the
+filename is misleading and renaming it is open on ISVD-610.
+
+**The feature is absent, not broken, where there is no EC2.**
+`sgManagementConfig()` returns the config or null, and null is the ordinary state
+on a customer cluster:
+
+| Surface | With no security group under management |
+| --- | --- |
+| `GET /api/settings/sg` | `200 { available: false, entries: [] }` — the probe, so the page can tell "not part of this deployment" from "console is broken". The stored rows are withheld: they mirror AWS ingress rules, and there is nothing here for them to mirror |
+| `POST /api/settings/sg`, `DELETE /api/settings/sg/[id]` | **404**, resolved before the body is parsed. Not a 500 — this is a route that is not part of this console, not a misconfiguration for someone to fix |
+| `/settings` Network access card | not rendered. Only an explicit `available: false` removes it, so a missing field never hides a working panel |
+
+⚠ **The env-var names are a contract with the deployment, and it is the half
+nobody checks.** `ec2-sg.ts` reads `VSS_INSTANCE_SG_ID` + `AWS_REGION` — the keys
+the `console-aws` Secret carries. Both are required and neither is defaulted: a
+group id with no region resolves to whichever region the SDK picks, which is a
+live AWS account chosen by omission. `OBJECTSTORE_REGION` is deliberately **not**
+a region source here — it is the signing region of the S3 endpoint the storage
+panels use, and on an ARTESCA cluster it is set and unrelated to where any EC2
+instance lives.
+
+[tests/unit/env-contract.test.ts](tests/unit/env-contract.test.ts) compares the
+names the module reads against the names the manifests supply. That test exists
+because four gates each checked one side and none compared them: the route unit
+tests set the variable themselves, the smoke test provisions it and never calls
+the route, the e2e spec intercepts the request in the browser so nothing
+server-side runs, and `docs/console-config-validation.md` lists the Secret's keys
+— which were correct, so validating the Secret could never reveal that the code
+read a different name. It is scoped to this module rather than repo-wide because
+telling a *required* read from an optional override is not syntactic: 136 env
+names are read across `src/`, 76 are unprovisioned optional overrides, and
+absence is handled in five different shapes. Generalising it means routing
+required reads through one accessor — ISVD-665.
+
+**The lab does not use this panel to write rules.**
+`scality/isv-labs/scripts/providers/aws/seed-sg-whitelist.sh` does, across six
+admin ports, and states the division: *"SG source of truth is AWS. The console
+SQLite whitelist is a display mirror."* That is the case for moving this out of
+the console altogether, which is the open half of ISVD-610.
+
 ## VSS 3.2 Helm compatibility
 
 The Helm path is the default and targets the NVIDIA VSS 3.2 chart (internal version `3.2.0-26.05.5`; clone at `../refs/video-search-and-summarization` @ `dev-26.06.1-2`). Most object names match the chart as-deployed: namespace `vss-base` (via `VSS_NAMESPACE`), `vss-vios-{sensor,streamprocessing,ingress}`, `vss-rtvi-vlm`, `vss-agent`, broker `kafka-kafka` (Confluent Kafka KRaft), `redis`, the `VLM_SYSTEM_PROMPT` env on the VLM Deployment, and NIM tuning keys `NIM_KVCACHE_PERCENT` / `NIM_MAX_MODEL_LEN` / `NIM_MAX_NUM_SEQS`.
@@ -132,6 +183,8 @@ The host-ctr import flow on Rocky 8 nodes is fragile (libdl.so.2-class glibc 2.2
 ⚠ **A missing secret used to be survivable, and that is why this hid.** On `@auth/core` 0.37.4 it let requests through; 0.41.3 refuses. The last green run before the bump logged `MissingSecret` **1421 times** and still reported 76 passed — so the misconfiguration long predated the version that exposed it. [`tests/unit/e2e-workflow-env.test.ts`](tests/unit/e2e-workflow-env.test.ts) now reads the required-env list out of `src/instrumentation.ts` and asserts the workflow sets each one, so adding a required variable fails a unit test instead of 26 E2E specs.
 
 Consequence worth knowing: no spec exercises a genuine session. `k8s/11-configmap-env.yaml` also sets `CONSOLE_DISABLE_AUTH=true`, so the deployed console is in the same posture — the sign-in gate is covered only by `auth.spec.ts` against the sign-in page itself.
+
+⚠ **A local E2E run can be green against a cluster instead of your code.** `reuseExistingServer` is on outside CI, so Playwright attaches to whatever holds its port rather than starting `next dev` — and `:8800` is the port an operator forwards the in-cluster console to. Measured 2026-08-14: with a `kubectl port-forward` to the Pyramid showroom console up, all 8 specs of `sg-whitelist.spec.ts` passed **against the deployed pod**, including one written that minute for a page change that pod had never seen. Nothing looked wrong; the browser-level `page.route` stubs make most specs pass against any console. `PORT` therefore defaults to `8899` locally and `:8800` only under `CI`, where no port-forward exists; `E2E_PORT` overrides either. If a spec ever passes that you expected to fail, check what is listening (`lsof -nP -iTCP:<port> -sTCP:LISTEN`) before believing it.
 
 **Nothing in the workflow can send mail, so the alarm is laptop-side.** `scality/artesca-vss-console` is **not** in the `github-pool` WIF allowlist and the repository has **no Actions secrets or variables at all**, so a job here reaches neither Secret Manager nor the Gmail token. ⚠ The same gap silently disables the Sentry source-map upload in `build-and-push`: its `google-github-actions/auth` step reads `secrets.GCP_WIF_PROVIDER`, which does not exist, and is `continue-on-error: true`.
 

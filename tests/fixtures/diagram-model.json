@@ -37,10 +37,10 @@
     "backendCounts": {
       "k8s": 29,
       "ssh": 2,
-      "s3": 17,
+      "s3": 15,
       "kafka": 6,
       "redis": 1,
-      "aws": 7,
+      "ec2-sg": 2,
       "config-store": 11,
       "helpers/gcs-config": 15
     },
