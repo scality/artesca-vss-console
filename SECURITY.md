@@ -36,14 +36,18 @@ risk:
 - **Authentication is a single shared password** ([#7](https://github.com/scality/artesca-vss-console/issues/7)). `CONSOLE_PASSWORD` is one
   credential shared by everyone who opens the console. There is no per-user
   identity, so the audit log records that an action happened and not who took it.
-- **One credential is rendered in clear, and secret material reaches server-side
-  frame locals** ([#8](https://github.com/scality/artesca-vss-console/issues/8)). The overview renders the Grafana user and password as
-  selectable text when `GRAFANA_PASSWORD` is set
-  ([`src/app/page.tsx`](src/app/page.tsx)), and `/cameras` shows the S3 access key
-  **id** in its chain diagnosis. Server-side, the routes that report whether a
-  secret is configured read the stored value to do it, so it is live in a stack
-  frame. This is why Sentry replay masking is pinned on and
-  `includeLocalVariables` is off.
+- **One credential can be revealed on request, and secret material reaches
+  server-side frame locals** ([#8](https://github.com/scality/artesca-vss-console/issues/8)). The Grafana password is no longer part of the
+  overview's page payload: the card
+  ([`src/components/overview/GrafanaAccessCard.tsx`](src/components/overview/GrafanaAccessCard.tsx))
+  fetches it from `POST /api/grafana-credential`, which requires a session and
+  audits the reveal. **The residual exposure is that "a session" means the single
+  shared password above**, so anyone who can open the console can reveal it, and
+  the audit line cannot say who did. Once revealed it is selectable text in the
+  DOM. `/cameras` shows the S3 access key **id** in its chain diagnosis.
+  Server-side, the routes that report whether a secret is configured read the
+  stored value to do it, so it is live in a stack frame. This is why Sentry replay
+  masking is pinned on and `includeLocalVariables` is off.
 
   The Secrets page is **not** part of this: `GET /api/secrets/<key>` returns
   `{ key, configured, ageMs }` — a boolean and an age, never a value — and
