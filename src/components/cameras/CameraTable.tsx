@@ -200,7 +200,12 @@ export function CameraTable() {
                           <div className="rounded border border-brand-red/40 bg-red-50 px-3 py-2 text-sm text-brand-red">
                             <strong>Persistence unavailable</strong> — cameras could not be loaded (this is not an empty list).
                             <div className="mt-1 font-mono text-xs opacity-80">{msg}</div>
-                            <div className="mt-1 text-xs">See Diagnostics → Config store (Firestore).</div>
+                            {/* Deliberately does not name the backend. This is a client
+                                component and `configStoreLabel` lives beside the two
+                                server-only store modules, so importing it would pull
+                                them into the browser bundle. The Diagnostics row names
+                                the backend in use, which is the one place that should. */}
+                            <div className="mt-1 text-xs">See Diagnostics → Config store.</div>
                           </div>
                         </TableCell>
                       </TableRow>

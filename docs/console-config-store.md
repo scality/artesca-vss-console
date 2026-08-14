@@ -11,6 +11,8 @@ The file store is the default so that running this console needs nothing but a v
 
 Nothing calls a backend directly. `makeConfigStore()` in [`src/lib/config-store/index.ts`](../src/lib/config-store/index.ts) resolves the selection; `/about` reports which one answered and what it holds.
 
+**Three surfaces name the backend, and all three take the name from `STORE_LABEL`** in that module: the `/about` panel, the Diagnostics row, and the Overview reachability strip (via `configStoreLabel()`). That row was the literal `"Config store (Firestore)"` and stayed so after pyramid-showroom migrated and deleted its GCP credential — reading `Config store (Firestore) — ok`, green, because the probe goes through `makeConfigStore()` and was correctly reporting a healthy YAML file under the name of a service the pod cannot reach. Nothing failed; the page simply named the wrong system, and the camera and scenario tables' "where do I look" hint sent an operator to it. Those two hints now say only *Diagnostics → Config store*, because they are client components and the label helper sits beside the two `server-only` store modules.
+
 ## Unset is not the same as `file`
 
 With `CONSOLE_CONFIG_STORE` unset **and `FIRESTORE_PROJECT_ID` set**, the console selects Firestore and says so on `/about`.

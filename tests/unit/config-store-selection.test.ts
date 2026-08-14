@@ -14,8 +14,10 @@ import { createRequire } from "module";
 import {
   configStoreKind,
   storeKindWasInferred,
+  configStoreLabel,
   ConfigStoreSelectionError,
   STORE_KINDS,
+  STORE_LABEL,
 } from "@/lib/config-store";
 
 const ROOT = path.resolve(__dirname, "../..");
@@ -88,6 +90,47 @@ describe("configStoreKind", () => {
       msg = err instanceof Error ? err.message : String(err);
     }
     for (const kind of STORE_KINDS) expect(msg).toContain(kind);
+  });
+});
+
+// The row on Overview and in Diagnostics used to read "Config store (Firestore)" as a
+// literal. pyramid-showroom migrated to the file backend and deleted its GCP
+// credential, and the row still said Firestore — green, because the probe goes through
+// makeConfigStore() and was correctly reporting a healthy YAML file under the name of a
+// service the pod cannot reach. Nothing failed; the page simply lied, and it pointed an
+// operator debugging an empty camera list at GCP permissions.
+describe("configStoreLabel", () => {
+  it("names the file backend when that is what is in use", () => {
+    // The case that was wrong. Asserting on the whole string, not just "not Firestore",
+    // because the row is read at a glance and the noun in the parentheses is the part
+    // an operator acts on.
+    expect(configStoreLabel({ CONSOLE_CONFIG_STORE: "file" })).toBe("Config store (YAML file)");
+  });
+
+  it("names Firestore when that is what is in use", () => {
+    expect(configStoreLabel({ CONSOLE_CONFIG_STORE: "firestore" })).toBe("Config store (Firestore)");
+  });
+
+  it("follows the inference, not just the explicit setting", () => {
+    // An instance predating the selector reaches Firestore by inference from
+    // FIRESTORE_PROJECT_ID. The label has to follow the same rule the store does, or it
+    // is wrong in exactly the population that has real data in Firestore.
+    expect(configStoreLabel({ FIRESTORE_PROJECT_ID: "isv-alliances" })).toBe("Config store (Firestore)");
+    expect(configStoreLabel({})).toBe("Config store (YAML file)");
+  });
+
+  it("degrades to the bare noun rather than naming a backend it cannot determine", () => {
+    // An invalid selection makes configStoreKind throw. Naming either backend here
+    // would be a guess printed as fact on a health page.
+    expect(configStoreLabel({ CONSOLE_CONFIG_STORE: "gcs" })).toBe("Config store");
+  });
+
+  it("covers every backend, so a new one cannot ship unnamed", () => {
+    // STORE_LABEL is a Record<StoreKind, string>, so the compiler already requires an
+    // entry — this catches the empty-string version of forgetting.
+    for (const kind of STORE_KINDS) {
+      expect(STORE_LABEL[kind], `${kind} has no label`).toBeTruthy();
+    }
   });
 });
 

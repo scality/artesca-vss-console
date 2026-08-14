@@ -169,8 +169,13 @@ export default function PromptPage() {
             )}
             {data?.runtime === "k8s" && (
               <p className="text-xs text-muted-foreground mt-0.5">
+                {/* Backend deliberately unnamed: this is a client component, and which
+                    store is in use is a server-side fact — /about and Diagnostics name
+                    it. It read "(Firestore)", which is wrong on any instance using the
+                    default YAML file store, and the claim that matters here is that the
+                    prompt survives a restart, which holds either way. */}
                 <span className="text-emerald-700">Persisted</span> — saved in the config
-                store (Firestore) and restored across restarts.
+                store and restored across restarts.
               </p>
             )}
           </div>

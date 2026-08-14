@@ -61,6 +61,36 @@ export function storeKindWasInferred(env: StoreEnv = process.env): boolean {
   return !env.CONSOLE_CONFIG_STORE?.trim();
 }
 
+/** How each backend is named in the UI. One definition, because the name appears on
+ *  the Overview reachability row, in Diagnostics, and in the "where do I look" hint
+ *  on the camera and scenario tables — and those disagreeing is what sends an
+ *  operator to the wrong system. */
+export const STORE_LABEL: Record<StoreKind, string> = {
+  file: "YAML file",
+  firestore: "Firestore",
+};
+
+/**
+ * The config-store row's label, naming the backend actually in use.
+ *
+ * It was the literal `"Config store (Firestore)"`, which stopped being true the
+ * moment an instance migrated: pyramid-showroom holds no GCP credential at all and
+ * the row still read `Config store (Firestore) — ok`. The probe was right — it goes
+ * through `makeConfigStore()` — so the page was reporting a healthy file store under
+ * the name of a service it cannot reach. An operator debugging an empty camera list
+ * was pointed at GCP permissions for a store that is not involved.
+ *
+ * Falls back to the bare noun when the selection itself is invalid, since in that
+ * case there is no backend to name and `configStoreKind` is about to throw anyway.
+ */
+export function configStoreLabel(env: StoreEnv = process.env): string {
+  try {
+    return `Config store (${STORE_LABEL[configStoreKind(env)]})`;
+  } catch {
+    return "Config store";
+  }
+}
+
 /**
  * Build the configured store. Throws rather than falling back: a store that is
  * not the one the deployment asked for is worse than no store, because writes

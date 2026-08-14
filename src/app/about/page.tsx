@@ -1,7 +1,7 @@
 import { Shell } from "@/components/Shell";
 import { ExternalLink } from "lucide-react";
 import { gcsHealthCheck, gcsCamerasGet, gcsPromptGet, gcsScenariosGet } from "@/lib/helpers/gcs-config";
-import { configStoreHealthCheck } from "@/lib/config-store";
+import { configStoreHealthCheck, STORE_LABEL } from "@/lib/config-store";
 import { serverTelemetryDsn, clientTelemetryDsn } from "@/lib/telemetry-config";
 
 interface ServiceUrlRow {
@@ -354,7 +354,7 @@ export default async function AboutPage() {
         {/* Config store health (k8s-path runtime-config canonical) */}
         <section className="rounded-lg border border-border bg-card p-5 space-y-4">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Config Store — {storeHealth.kind === "file" ? "YAML file" : "Firestore"}
+            Config Store — {STORE_LABEL[storeHealth.kind]}
           </h2>
 
           <div className="flex items-center gap-3">

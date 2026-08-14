@@ -7,6 +7,7 @@ import { makeS3Client, s3Endpoint, s3BucketForRecordings } from "@/lib/s3";
 import { HeadBucketCommand } from "@aws-sdk/client-s3";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { vstListSensors } from "@/lib/helpers/vst";
+import { configStoreLabel } from "@/lib/config-store";
 
 export interface BackendStatus {
   id: "k8s" | "prometheus" | "kafka" | "vst" | "s3" | "alert-bridge" | "config-store";
@@ -173,7 +174,7 @@ async function probeAlertBridge(): Promise<BackendStatus> {
 
 export async function probeConfigStore(): Promise<BackendStatus> {
   const id: BackendStatus["id"] = "config-store";
-  const label = "Config store (Firestore)";
+  const label = configStoreLabel();
   const t0 = Date.now();
   const fail = (detail: string): BackendStatus => ({ id, label, ok: false, severity: "error", detail, latencyMs: Date.now() - t0 });
 
@@ -193,10 +194,11 @@ export async function probeConfigStore(): Promise<BackendStatus> {
     return fail(err instanceof Error ? err.message : String(err));
   }
 
-  // Reachability only: a successful readStatus means Firestore is reachable.
-  // Reconcile-run errors are an application-health concern, not a store-
-  // reachability one — surface them in the detail text but never downgrade the
-  // signal, so a failing convergence doesn't masquerade as "Firestore degraded".
+  // Reachability only: a successful readStatus means the configured store is
+  // reachable — whichever it is, since the context is built through
+  // makeConfigStore(). Reconcile-run errors are an application-health concern, not a
+  // store-reachability one — surface them in the detail text but never downgrade the
+  // signal, so a failing convergence doesn't masquerade as a degraded store.
   const when = status?.lastRunAt ? ` ${status.lastRunAt}` : "";
   const errs = status?.errors?.length ?? 0;
   const detail = !status?.lastRunAt
@@ -221,7 +223,7 @@ export async function collectConnectivity(): Promise<BackendStatus[]> {
     Promise.race([probeVst(), timeoutStatus("vst", "Cameras (VST)", PROBE_TIMEOUT_MS)]),
     Promise.race([probeS3(), timeoutStatus("s3", "S3", PROBE_TIMEOUT_MS)]),
     Promise.race([probeAlertBridge(), timeoutStatus("alert-bridge", "Alert bridge (incidents)", PROBE_TIMEOUT_MS)]),
-    Promise.race([probeConfigStore(), timeoutStatus("config-store", "Config store (Firestore)", PROBE_TIMEOUT_MS)]),
+    Promise.race([probeConfigStore(), timeoutStatus("config-store", configStoreLabel(), PROBE_TIMEOUT_MS)]),
   ]);
 
   return [k8s, prometheus, kafka, vst, s3, alertBridge, configStore];

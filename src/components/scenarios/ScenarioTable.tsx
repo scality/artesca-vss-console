@@ -280,7 +280,10 @@ export function ScenarioTable() {
                     <div className="mt-1 font-mono text-xs opacity-80">
                       {(data?.warnings ?? []).find((w) => /config store unavailable/i.test(w)) ?? "config store unavailable"}
                     </div>
-                    <div className="mt-1 text-xs">See Diagnostics → Config store (Firestore).</div>
+                    {/* Backend deliberately unnamed here — see the same hint in
+                        CameraTable: this is a client component, and the label helper
+                        sits beside the server-only store modules. */}
+                    <div className="mt-1 text-xs">See Diagnostics → Config store.</div>
                   </div>
                 </TableCell>
               </TableRow>
