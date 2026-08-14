@@ -8,11 +8,13 @@ intent of each page: [`docs/console-design.md`](../docs/console-design.md).
 
 ```text
 00-namespace.yaml                console namespace
-01-rbac.yaml                     ServiceAccount, cluster-wide read ClusterRole,
-                                 and a namespaced Role for the console's own secrets
-02-workload-rbac.yaml.example    console-writer — the per-workload-namespace
-                                 WRITE grant. Not in the kustomization; see below
-10-secrets.yaml.example          template — console password, S3 creds, SSH key
+01-rbac.yaml                     ServiceAccount, a read-only cluster-wide
+                                 ClusterRole, and a Role for the console's own
+                                 two Secrets, pinned by name
+02-workload-rbac.yaml.example    console-writer (per-workload-namespace WRITE
+                                 grant) + console-exec (pods/exec, VSS ns only).
+                                 Not in the kustomization; see below
+10-secrets.yaml.example          template — console password and SSH key
 11-configmap-env.yaml            non-secret config (Kafka, Redis, S3, NIM, …)
 12-pvc.yaml                      PVC console-data (5 Gi) — SQLite + audit log
 15-storage.yaml                  storage-related resources
@@ -112,17 +114,37 @@ What `01-rbac.yaml` and the workload example actually grant:
 | --- | --- | --- | --- |
 | `console-reader` | Cluster | get, list, watch | pods, pods/log, configmaps, services, events, namespaces, nodes |
 | `console-reader` | Cluster | get, list, watch | deployments, statefulsets (`apps`) |
-| `console-reader` | Cluster | get, create | pods/exec |
 | `console-reader` | Cluster | get, list | nodes (`metrics.k8s.io`) |
-| `console-secrets` | ns `console` | get, list, patch | secrets |
+| `console-secrets` | ns `console` | get, patch | secrets — **`console-auth`, `console-ssh` only** |
 | `console-writer` | each workload ns | create, patch | configmaps |
 | `console-writer` | each workload ns | patch | deployments, statefulsets (`apps`) |
+| `console-writer` | each workload ns | create, delete | jobs (`batch`) |
+| `console-writer` | each workload ns | get | secrets |
+| `console-writer` | each workload ns | patch | secrets — **the rotatable ones only** |
+| `console-exec` | **VSS ns only** | get, create | pods/exec |
 
-**`pods/exec` is the one to look at before copying this.** It is used for
-observability only — a `df` in the VST pod, `pg_isready` and two `psql` queries
-in Postgres, and `redis-cli ping` / `info` — but it grants arbitrary command
-execution in those pods. Narrowing it is tracked as ISVD-549, which also records
-which grants above have no consumer in the current code.
+The cluster-scoped Role is read-only: no exec, no write verb. Three things above
+are worth understanding before copying this into another cluster.
+
+**`console-exec` is the grant to think about.** Exec is arbitrary command
+execution in the target pod. Everything that needs it is observability, in one
+namespace: a `df` on the VST recording cache, `pg_isready` and two `psql` counts,
+and `redis-cli ping` / `info`. Skip the Role and the console still runs — the
+storage-cache figure, the Postgres row and the Redis row on `/topology` read
+unknown. GPU state is not a reason for it: `/api/gpu` reads Prometheus and the
+`/diagnostics` nvidia-smi test goes over SSH to the node.
+
+**Secret writes are pinned by name.** A bare `secrets: patch` lets the console
+rewrite every Secret in the namespace; `/secrets` rotates a known handful, so
+each grant names them. `get` in a workload namespace is deliberately *not*
+pinned — the LLM health probe follows whatever `secretKeyRef` a container
+declares and cannot know the name in advance. That read is fail-soft, so
+restricting it degrades the probe rather than breaking a page.
+
+**No `list` on secrets anywhere.** Nothing in the console enumerates them: the
+only API calls are `readNamespacedSecret` and `patchNamespacedSecret`, both by
+name. `list` also cannot be restricted by `resourceNames`, so granting it would
+hand back exactly the enumeration the pinned rules withhold.
 
 ## Password rotation
 
@@ -148,5 +170,5 @@ kubectl -n console rollout restart deploy/console
 | Pod stuck in `Pending` | PVC not bound | `kubectl -n console describe pvc console-data`; check the StorageClass |
 | A component reads as absent while it is running | Namespace or service name differs from `cluster-refs.ts` | Compare against your layout; `CONSOLE_LEGACY_NAMESPACES=1` for the pre-Helm one |
 | Cannot reach Kafka | Wrong broker service name | Check `KAFKA_BROKERS` in `11-configmap-env.yaml` |
-| `pods/exec` calls fail | ClusterRoleBinding missing | `kubectl auth can-i create pods/exec --as=system:serviceaccount:console:console-sa` |
+| `/topology` storage-cache, Postgres and Redis rows read unknown | `console-exec` Role not applied in the VSS namespace | `kubectl auth can-i create pods --subresource=exec --as=system:serviceaccount:console:console-sa -n <vss-ns>` — ⚠ use `--subresource`; `can-i create pods/exec` answers about `pods` and reports the opposite |
 | 401 on Kubernetes API calls | ServiceAccount token stale | The client re-reads the token file per request — check the binding with `kubectl auth can-i` |

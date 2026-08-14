@@ -27,9 +27,18 @@
 #     --as=system:serviceaccount:console:console-sa -n <WORKLOAD_NAMESPACE>
 #
 # Only the write verbs are here. Reads are already cluster-wide from
-# `console-reader`, and `pods/exec` is granted there too — this Role deliberately
-# does not repeat either, so there is one place to narrow when scoping the
-# console's permissions down (ISVD-549).
+# `console-reader`, so this Role deliberately does not repeat them — there is one
+# place to narrow.
+#
+# ⚠ This file is the same content `deploy-console.sh` in scality/isv-labs
+# generates inline, with the namespace substituted. The two must stay in step: a
+# verb present there and missing here means anyone deploying by hand from this
+# repository gets a console that reads correctly and 403s on a write it was told
+# it could make.
+#
+# `console-exec` below is a SEPARATE Role and applies to the VSS namespace only —
+# the other workload namespaces need no exec. See the note in 01-rbac.yaml for
+# what uses it and what breaks without it.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -48,6 +57,29 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments", "statefulsets"]
   verbs: ["patch"]
+# Camera registration runs as a Job per camera, created and later reaped by the
+# console. `delete` is the reap — without it, finished Jobs accumulate in the
+# namespace until someone clears them by hand.
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "delete"]
+# Rotating an NGC / HuggingFace / Slack credential from /secrets patches the
+# Secret that holds it. Pinned by name: a bare `secrets: patch` would let the
+# console rewrite every Secret in a namespace that also holds the workload's own
+# credentials. `get` is not pinned, and is not a mistake — the LLM health probe
+# follows whatever `secretKeyRef` a container declares, so it cannot know the
+# name in advance. That read is fail-soft: restrict it and the probe reports
+# unauthenticated rather than erroring.
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["secrets"]
+# These are the Helm-layout names. Under CONSOLE_LEGACY_NAMESPACES=1 the
+# rotatable Secrets are nvidia-api-secret, hf-secret and alert-worker-secrets
+# instead — substitute them, or /secrets rotates nothing and says 403.
+  resourceNames: ["ngc-api", "ngc-secret"]
+  verbs: ["patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -63,4 +95,51 @@ subjects:
   name: console-sa
   # The ServiceAccount stays in the console's own namespace; only the Role and
   # its binding are per-workload-namespace.
+  namespace: console
+
+---
+# console-exec — pods/exec, in the VSS namespace ONLY.
+#
+# Apply this one to CLUSTER.vst.namespace (the `vss-<profile>` namespace, or
+# `vst` under CONSOLE_LEGACY_NAMESPACES=1). The other workload namespaces do not
+# need it.
+#
+# Exec is arbitrary code execution in the target pod, so it is the narrowest
+# grant here on purpose. Four probes use it, all on /topology and the storage
+# panel: `df` on the VST recording cache, `pg_isready` and two `psql` counts, and
+# `redis-cli ping`/`info`. Skip this Role and the console still runs — those
+# figures read unknown.
+#
+# `get` as well as `create`: since k8s 1.31 dropped SPDY the client streams exec
+# over a WebSocket whose upgrade is an HTTP GET.
+#
+# ⚠ Verify with `--subresource`, not the slash form:
+#
+#   kubectl auth can-i create pods --subresource=exec \
+#     --as=system:serviceaccount:console:console-sa -n <WORKLOAD_NAMESPACE>
+#
+# `can-i create pods/exec` answers about `pods` instead and reports the opposite.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: console-exec
+  namespace: <WORKLOAD_NAMESPACE>
+rules:
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["get", "create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: console-exec-binding
+  namespace: <WORKLOAD_NAMESPACE>
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: console-exec
+subjects:
+- kind: ServiceAccount
+  name: console-sa
   namespace: console

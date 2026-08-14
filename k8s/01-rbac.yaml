@@ -7,9 +7,16 @@ metadata:
   namespace: console
 
 ---
-# ClusterRole — cluster-scoped, read-only.
-# Includes pods/exec for nvidia-smi + the VST cache `df` probe, and nodes/metrics
-# for GPU fallback.
+# ClusterRole — cluster-scoped and genuinely read-only. No exec, no write verb.
+#
+# The reads are cluster-wide because the topology and diagnostics pages describe
+# the whole node: they list namespaces to discover the layout, read events and
+# pod status across it, and read nodes for capacity. Nothing here can change
+# cluster state.
+#
+# `pods/exec` is deliberately NOT here — see the console-exec Role note at the
+# bottom of this file. Exec is the one capability in this manifest that a reader
+# copies without asking why, and it belongs in one namespace, not all of them.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -21,12 +28,8 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments", "statefulsets"]
   verbs: ["get", "list", "watch"]
-# `get` authorizes the WebSocket exec upgrade (an HTTP GET) — required since
-# k8s 1.31 dropped SPDY, so client-node streams exec over WebSocket. `create`
-# stays for the legacy SPDY/POST path and non-WS tooling.
-- apiGroups: [""]
-  resources: ["pods/exec"]
-  verbs: ["get", "create"]
+# GPU utilisation comes from Prometheus (the DCGM ServiceMonitor); this is the
+# node-capacity fallback for when Prometheus is unreachable.
 - apiGroups: ["metrics.k8s.io"]
   resources: ["nodes"]
   verbs: ["get", "list"]
@@ -46,10 +49,20 @@ subjects:
   namespace: console
 
 ---
-# Secrets access scoped to the console's OWN namespace — the /secrets page reads
-# status (get) and the Rotate action writes (patch) console-auth / console-ssh.
-# Namespaced (not cluster-wide) to keep the blast radius small;
-# workload-namespace secret access is granted by the dynamic console-writer Role.
+# Secrets in the console's OWN namespace, named one by one.
+#
+# The /secrets page reads rotation status (get) and the Rotate action writes
+# (patch). Both act on exactly the two Secrets below, so both are pinned with
+# resourceNames — a grant on `secrets` with no names lets the console read and
+# rewrite every Secret in its namespace, which is more than this page does.
+#
+# `list` is deliberately absent. Nothing in the console lists Secrets: the only
+# API calls are readNamespacedSecret and patchNamespacedSecret, both by name.
+# It matters beyond tidiness — `list` cannot be restricted by resourceNames, so
+# granting it would hand back the enumeration the two rules above withhold.
+#
+# Workload-namespace Secrets are a separate grant; see the console-writer note
+# at the bottom of this file.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -58,7 +71,8 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  verbs: ["get", "list", "patch"]
+  resourceNames: ["console-auth", "console-ssh"]
+  verbs: ["get", "patch"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -75,7 +89,34 @@ subjects:
   name: console-sa
   namespace: console
 
-# Per-namespace console-writer Role + RoleBinding are generated dynamically
-# by deploy-console.sh from the resolved workload-namespace list (Helm or
-# legacy layout). They are NOT declared here to avoid namespace-mismatch
-# errors when the active VSS_NAMESPACE differs from a hardcoded name.
+# ─────────────────────────────────────────────────────────────────────────────
+# Two more Roles are generated per namespace at deploy time, because the
+# namespace name is not known until then (Helm puts the workload in
+# vss-<profile>; the legacy layout splits it across four). Declaring them here
+# with a literal namespace would fail to apply whenever VSS_NAMESPACE differs.
+# Both are in k8s/02-workload-rbac.yaml.example, which is the same content with
+# the namespace left as a placeholder — apply that if you deploy by hand.
+#
+#   console-exec    — pods/exec, in the VSS namespace ONLY.
+#   console-writer  — the config writes, in each workload namespace.
+#
+# ⚠ console-exec is the grant to think about before copying this manifest.
+# Exec into a pod is arbitrary code execution in that pod, so it is scoped to
+# the one namespace that needs it rather than granted cluster-wide. What needs
+# it, exhaustively: `df` on the VST recording cache, `pg_isready` and two
+# `psql` counts against the bundled Postgres, and `redis-cli ping`/`info` —
+# every one of them in CLUSTER.vst.namespace. Remove the Role and the console
+# still runs; the storage-cache figure, the Postgres row and the Redis row on
+# /topology go unknown.
+#
+# GPU state is NOT a reason for exec: /api/gpu reads Prometheus, and the
+# /diagnostics nvidia-smi test runs over SSH to the node.
+#
+# `get` as well as `create` on pods/exec: since k8s 1.31 dropped SPDY the
+# client streams exec over a WebSocket, whose upgrade is an HTTP GET. `create`
+# remains for the legacy POST path.
+#
+# ⚠ Auditing this needs `kubectl auth can-i <verb> pods --subresource=exec`.
+# The `pods/exec` spelling silently answers about `pods` instead — measured on
+# kubectl 1.33 it reports `create` denied and `list` allowed, which is wrong
+# both ways and reads as authoritative.
