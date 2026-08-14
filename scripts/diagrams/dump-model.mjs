@@ -82,17 +82,15 @@ function parseConfigStore() {
 }
 
 // ── the API surface, walked from disk ────────────────────────────────────────
-// ⚠ `@/lib/aws` is deliberately absent. Despite the name it reaches no AWS
-// service — `s3Stats` / `s3SubstrateStats` speak S3 to `OBJECTSTORE_ENDPOINT`,
-// the ARTESCA connector — and it imports `@/lib/s3`, so a route using it is
-// already counted under `s3`, which is the accurate statement. Listing it as
-// "AWS API" put five S3-only routes on the sheet as AWS callers.
-//
-// `ec2-sg` is the one module that does call AWS, and the two routes reaching it
-// are the whole of the console's AWS surface.
+// ⚠ There is no AWS backend, and that is the point: nothing in this console
+// calls an AWS service (ISVD-610). `@/lib/aws` is deliberately absent from this
+// map — despite the name it speaks S3 to `OBJECTSTORE_ENDPOINT`, the ARTESCA
+// connector, and it imports `@/lib/s3`, so a route using it is already counted
+// under `s3`. Listing it as "AWS API" put five S3-only routes on the sheet as
+// AWS callers.
 const BACKENDS = {
   k8s: 'Kubernetes', ssh: 'SSH to nodes', s3: 'S3 / ARTESCA',
-  kafka: 'Kafka', redis: 'Redis', 'ec2-sg': 'AWS EC2',
+  kafka: 'Kafka', redis: 'Redis',
   'config-store': 'Config store', 'helpers/gcs-config': 'GCS config',
 };
 

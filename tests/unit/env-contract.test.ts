@@ -1,36 +1,36 @@
 /**
- * The environment variables the SG feature requires must be names a deploy
+ * Every environment variable the app refuses to run without must be one a deploy
  * actually provisions.
  *
- * This is the question four separate gates all failed to ask. The whitelist
- * routes read `CONSOLE_SG_ID`; the Secret, `.env.example`, the deployer in
- * scality/isv-labs and the smoke test all provision `VSS_INSTANCE_SG_ID`.
- * Nothing compared the two, so the write path answered
- * `500 CONSOLE_SG_ID env var not configured` on every deployment it ran on:
+ * This is the question four separate gates all failed to ask about the EC2
+ * security-group panel (ISVD-610). Its write paths read `CONSOLE_SG_ID` while the
+ * `console-aws` Secret, `.env.example`, `deploy-console.sh` in scality/isv-labs,
+ * `scripts/smoke-test-console.sh` and this console's own rotation route all
+ * carried `VSS_INSTANCE_SG_ID` — so the panel answered
+ * `500 CONSOLE_SG_ID env var not configured` on every deployment it ran on, for
+ * its whole life. The route unit tests set the variable themselves. The smoke
+ * test provisioned the real name and never called the route. The E2E spec
+ * intercepted the request in the browser. `docs/console-config-validation.md`
+ * listed the Secret's keys, which were correct — validating the Secret can never
+ * reveal that the code reads a different name.
  *
- *   - the route unit tests set `process.env.CONSOLE_SG_ID` themselves, proving
- *     the routes work against a name no deployment supplies;
- *   - the smoke test provisions `VSS_INSTANCE_SG_ID` and never calls the route;
- *   - the e2e spec intercepts `/api/settings/sg` in the browser, so nothing
- *     server-side runs;
- *   - docs/console-config-validation.md lists the Secret's keys, which were
- *     right — validating the Secret can never reveal that the code reads a
- *     different name.
+ * Each gate checked one side. This compares the two sides.
  *
- * Each gate checked one side. This compares the two sides (ISVD-610).
+ * ⚠ Scoped to the names `src/instrumentation.ts` declares required, which is the
+ * only place this console states that a variable is mandatory. It is not
+ * repo-wide because separating a *required* read from an optional override is not
+ * syntactic: measured 2026-08-14, 136 env names are read across `src/` and 76 are
+ * unprovisioned optional overrides, with absence handled in at least five shapes
+ * — `?? default`, `|| default`, a ternary on the name, `!!name` as a feature flag,
+ * and assign-then-`if`. In `(FIRESTORE_PROJECT_ID ?? GOOGLE_CLOUD_PROJECT)?.trim()`
+ * the fallback is the *left* operand, so it does not even follow the name it
+ * guards; a heuristic scan flagged 6 candidates and all 6 handled absence
+ * correctly. Widening this means routing required reads through one accessor so
+ * the list is a consequence of the code — ISVD-672.
  *
- * ⚠ Scoped to lib/ec2-sg.ts, and deliberately not repo-wide. A repo-wide
- * version needs to tell a *required* read from an optional override, and that
- * distinction is not syntactic: measured across src/, 136 env names are read and
- * 76 are unprovisioned optional overrides, with absence handled in at least five
- * shapes — `?? default`, `|| default`, a ternary on the name, `!!name` as a
- * feature flag, and assign-then-`if`. In `(FIRESTORE_PROJECT_ID ??
- * GOOGLE_CLOUD_PROJECT)?.trim()` the fallback is the *left* operand, so it does
- * not even follow the name it guards. A heuristic scan flagged 6 of those 6 as
- * required when all 6 handle absence correctly, and its misses would be false
- * negatives in the one direction that matters. Making this general means routing
- * required reads through one accessor so the list is a consequence of the code
- * rather than a second thing to remember — ISVD-672.
+ * tests/unit/e2e-workflow-env.test.ts reads the same declaration and holds the CI
+ * workflow to it. Together: what the app requires must be set both in CI and in
+ * something an operator applies.
  */
 
 import { describe, it, expect } from "vitest";
@@ -42,8 +42,6 @@ const PROVISIONERS = [
   "k8s/11-configmap-env.yaml",
   ".env.example",
 ];
-
-const SG_MODULE = "src/lib/ec2-sg.ts";
 
 function provisionedNames(): Set<string> {
   const names = new Set<string>();
@@ -60,56 +58,55 @@ function provisionedNames(): Set<string> {
 }
 
 /**
- * Every env name lib/ec2-sg.ts reads. Derived from the module rather than
- * listed here — a hand-kept list beside the code is the shape that drifts, and
- * drift is what this test exists to catch.
+ * The names the app declares mandatory. Parsed from `src/instrumentation.ts`
+ * rather than restated here — a second copy beside the code is the shape that
+ * drifts, and drift is the whole subject of this file.
  */
-function sgModuleEnvReads(): string[] {
-  const src = readFileSync(SG_MODULE, "utf8");
-  return [...new Set([...src.matchAll(/process\.env\.([A-Z_][A-Z0-9_]*)/g)].map((m) => m[1]))];
+function requiredNames(): string[] {
+  const src = readFileSync("src/instrumentation.ts", "utf8");
+  const declared = /const required = \[([^\]]*)\]/.exec(src);
+  expect(
+    declared,
+    "could not find the `required` list in src/instrumentation.ts — if it moved, this test is now checking nothing"
+  ).not.toBeNull();
+  return [...declared![1].matchAll(/"([A-Z_][A-Z0-9_]*)"/g)].map((m) => m[1]);
 }
 
-describe("the SG feature's env contract", () => {
-  it("reads at least one name, so the scan is not vacuously empty", () => {
-    // Without this, everything below passes just as well when the scan matches
-    // nothing — which is how a check comes to look like coverage while asking no
-    // question at all.
-    expect(sgModuleEnvReads().length).toBeGreaterThan(0);
+describe("the app's required env vars are provisioned", () => {
+  it("parses a non-empty required list, so the check is not vacuous", () => {
+    // Without this, the assertion below passes just as well when the parse
+    // matches nothing — which is how a check comes to look like coverage while
+    // asking no question at all.
+    expect(requiredNames().length).toBeGreaterThan(0);
   });
 
-  it("every name it reads is one a deploy provisions", () => {
+  it("every required name is one a deploy supplies", () => {
     const provisioned = provisionedNames();
-    const gaps = sgModuleEnvReads().filter((n) => !provisioned.has(n));
+    const gaps = requiredNames().filter((n) => !provisioned.has(n));
 
     expect(
       gaps,
-      `Read by ${SG_MODULE} and supplied by no manifest, so the feature behind ` +
-        `each is dead on every deployment. Add the name to one of ` +
-        `${PROVISIONERS.join(", ")} — or read the name that is already there.`
+      `Declared required in src/instrumentation.ts and supplied by none of ` +
+        `${PROVISIONERS.join(", ")}. An operator following those files gets a pod ` +
+        `that logs "missing env vars" and refuses requests. Add the name, or read ` +
+        `the name that is already there.`
     ).toEqual([]);
   });
 
-  it("requires both a group id and a region", () => {
-    // Both halves are load-bearing: a group id with no region resolves to
-    // whichever region the SDK defaults to, which is a live AWS account chosen
-    // by omission. If either read disappears from the module, this fails.
-    expect(sgModuleEnvReads()).toEqual(
-      expect.arrayContaining(["VSS_INSTANCE_SG_ID", "AWS_REGION"])
-    );
+  // The specific trap this caught when it was repointed here: `console-auth`
+  // carried only `NEXTAUTH_SECRET`, which Auth.js v5 reads nothing from, so the
+  // example manifest produced a pod that refused every request. k8s/README.md had
+  // it as a *troubleshooting row* rather than a fixed example.
+  it("provisions AUTH_SECRET, the name Auth.js actually reads", () => {
+    expect(provisionedNames().has("AUTH_SECRET")).toBe(true);
   });
 
-  it("does not read the region from the object store's setting", () => {
-    // OBJECTSTORE_REGION is the signing region of the S3 endpoint the storage
-    // panels use. It is set on an ARTESCA cluster and says nothing about where
-    // an EC2 instance lives, so reading it here would resolve an EC2 config out
-    // of an unrelated value.
-    expect(sgModuleEnvReads()).not.toContain("OBJECTSTORE_REGION");
-  });
-
-  it("no manifest provisions CONSOLE_SG_ID", () => {
-    // The name the routes used to read, and the reason this file exists. Should
-    // someone add it to a manifest to "fix" a symptom, this fails and points at
-    // the real question: which name does the code read?
-    expect(provisionedNames().has("CONSOLE_SG_ID")).toBe(false);
+  // The EC2 panel is gone (ISVD-610), and with it the last consumer of the
+  // `console-aws` Secret. Neither name should reappear in a manifest without the
+  // code that reads it coming back too.
+  it("provisions neither EC2 security-group name", () => {
+    const provisioned = provisionedNames();
+    expect(provisioned.has("CONSOLE_SG_ID")).toBe(false);
+    expect(provisioned.has("VSS_INSTANCE_SG_ID")).toBe(false);
   });
 });

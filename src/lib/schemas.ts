@@ -170,15 +170,6 @@ export const OverviewSnapshotSchema = z.object({
     .optional(),
 });
 
-export const SgWhitelistEntrySchema = z.object({
-  id: z.string().uuid(),
-  cidr: z.string().regex(/^[\d.:/]+$/),
-  label: z.string().min(1),
-  addedBy: z.string(),
-  addedAt: z.string().datetime(),
-  port: z.literal(8800),
-});
-
 export const ModelCardSchema = z.object({
   image: z.string().min(1),
   displayName: z.string().min(1),

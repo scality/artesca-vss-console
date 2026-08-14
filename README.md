@@ -66,7 +66,7 @@ kubectl apply -k k8s/
 Three things that kustomization will not do for you, and each stops the pod:
 
 - **`images.newTag` points at the private GHCR package.** Override it with the image you built (`kustomize edit set image`, or a patch).
-- **The Secrets must exist first.** `console-auth` carries `CONSOLE_PASSWORD` + `AUTH_SECRET` — Auth.js reads `AUTH_SECRET`, and a Secret carrying only the `NEXTAUTH_`-prefixed spelling leaves the pod refusing every request while `src/instrumentation.ts` logs `missing env vars: AUTH_SECRET`. `console-aws` carries the S3 credentials.
+- **The Secrets must exist first.** `console-auth` carries `CONSOLE_PASSWORD` + `AUTH_SECRET` — Auth.js reads `AUTH_SECRET`, and a Secret carrying only the `NEXTAUTH_`-prefixed spelling leaves the pod refusing every request while `src/instrumentation.ts` logs `missing env vars: AUTH_SECRET`. `console-ssh` carries the camera-sim PEM. Object-store credentials are **not** here — they come from the `objectstore-creds` Secret, remapped to `OBJECTSTORE_*` in `k8s/20-console.yaml`.
 - **`30-test-footage.yaml` is not optional**, despite being a feature: `20-console.yaml` mounts the PVC it declares, and Kubernetes has no optional PVC volume, so the pod does not schedule without it.
 
 The console also needs a `console-writer` Role and RoleBinding in each namespace it patches, since it reads pods and patches ConfigMaps outside its own namespace. `01-rbac.yaml` covers namespace `console`; grant the equivalent in each `vss-<profile>` namespace you point it at.

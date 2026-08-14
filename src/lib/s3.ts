@@ -9,12 +9,11 @@
 //   - bucket names come from CLUSTER.s3.buckets (cluster-refs.ts) —
 //     recordings defaults to "nvidia-vss-recordings" (OBJECTSTORE_RECORDINGS_BUCKET)
 //   - OBJECTSTORE_REGION    (preferred) → falls back to AWS_REGION → "us-west-2"
-//   - OBJECTSTORE_ACCESS_KEY_ID + OBJECTSTORE_SECRET_ACCESS_KEY (preferred,
-//     comes from the objectstore-creds Secret remapped via secretKeyRef)
-//     → falls back to AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (which on
-//     the console pod come from the console-aws Secret — those creds only
-//     have ec2:*SecurityGroupIngress perms in aws-s3 mode, so S3 calls will
-//     403. Always populate OBJECTSTORE_* to make S3 work in aws-s3 mode.)
+//   - OBJECTSTORE_ACCESS_KEY_ID + OBJECTSTORE_SECRET_ACCESS_KEY (comes from the
+//     objectstore-creds Secret, remapped via secretKeyRef) → falls back to the
+//     SDK's own credential chain, which on this pod finds nothing: no Secret
+//     supplies AWS_ACCESS_KEY_ID and there is no instance profile. So an unset
+//     OBJECTSTORE_* pair means unsigned requests, not wrong ones.
 //
 // forcePathStyle is auto-detected:
 //   - AWS-native endpoints (s3.amazonaws.com, s3.<region>.amazonaws.com,
@@ -170,9 +169,8 @@ export function makeS3Client(): S3Client {
     }),
   };
 
-  // Prefer explicit OBJECTSTORE_* creds (mounted from objectstore-creds
-  // Secret with renamed keys) so we don't collide with the console-aws
-  // Secret's AWS_ACCESS_KEY_ID (which is scoped to EC2 SG only).
+  // OBJECTSTORE_* comes from the objectstore-creds Secret, remapped so it cannot
+  // be confused with any ambient AWS_ACCESS_KEY_ID the SDK's chain might find.
   const ak = process.env.OBJECTSTORE_ACCESS_KEY_ID;
   const sk = process.env.OBJECTSTORE_SECRET_ACCESS_KEY;
   if (ak && sk) {

@@ -3,7 +3,6 @@
 # a cluster" section:
 #   - the console Secrets must already exist (copy 10-secrets.yaml.example to
 #     k8s/console-secrets.yaml, which is gitignored, fill it in, apply it first)
-#   - AWS/S3 credentials + EC2 SG ID for the console-aws Secret
 #   - a console-writer Role + RoleBinding in each vss-<profile> namespace the
 #     console patches; 01-rbac.yaml only covers namespace console
 #   - the image below has to be overridden with the one you built, and the node,

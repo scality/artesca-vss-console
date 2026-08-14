@@ -44,8 +44,6 @@ spec:
             name: console-env
         - secretRef:
             name: console-auth
-        - secretRef:
-            name: console-aws
         # Object-store credentials, contract from scripts/install-objectstore/.
         # Uses objectstore-creds — the recordings-account root key, which owns
         # the nvidia-vss-recordings bucket the storage probes (topology +
@@ -53,8 +51,8 @@ spec:
         # cross-account bucket policy, so a key can only read its own account's
         # bucket; the recordings key is same-account for the bucket the console
         # actually probes. Remapped to OBJECTSTORE_* names so they don't collide
-        # with AWS_ACCESS_KEY_ID from console-aws (scoped to
-        # ec2:*SecurityGroupIngress only — would 403 against S3). The S3 client
+        # with any ambient AWS_ACCESS_KEY_ID the SDK's default chain might find.
+        # The S3 client
         # in console/src/lib/s3.ts reads OBJECTSTORE_ACCESS_KEY_ID /
         # OBJECTSTORE_SECRET_ACCESS_KEY explicitly. Marked optional so the
         # console pod still starts in OBJECTSTORE=none / single-bucket modes

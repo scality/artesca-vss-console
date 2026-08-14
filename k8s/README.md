@@ -47,7 +47,6 @@ cp k8s/10-secrets.yaml.example k8s/10-secrets.yaml
 #                  Auth.js reads AUTH_SECRET. A Secret carrying only the
 #                  NEXTAUTH_-prefixed spelling leaves the pod refusing every
 #                  request while instrumentation logs "missing env vars".
-#   console-aws  : S3 credentials
 #   console-ssh  : id_ed25519 (raw PEM, trailing newline required)
 kubectl apply -f k8s/10-secrets.yaml
 ```
@@ -145,7 +144,7 @@ kubectl -n console rollout restart deploy/console
 | --- | --- | --- |
 | Save returns 403; reads all work | `console-writer` not applied, or applied to the wrong namespace | `kubectl auth can-i patch configmaps --as=system:serviceaccount:console:console-sa -n <ns>` |
 | Pod `ImagePullBackOff` | `kustomization.yaml` points at a package you cannot pull | `kustomize edit set image` with your own build |
-| Every request refused, logs say `missing env vars: AUTH_SECRET` | Secret carries only `NEXTAUTH_SECRET` | Add `AUTH_SECRET` to `console-auth` |
+| Every request refused, logs say `missing env vars: AUTH_SECRET` | Secret carries only `NEXTAUTH_SECRET` — Auth.js reads nothing from that spelling. `10-secrets.yaml.example` carries the right name; a Secret created before it did may not | Add `AUTH_SECRET` to `console-auth` |
 | Pod stuck in `Pending` | PVC not bound | `kubectl -n console describe pvc console-data`; check the StorageClass |
 | A component reads as absent while it is running | Namespace or service name differs from `cluster-refs.ts` | Compare against your layout; `CONSOLE_LEGACY_NAMESPACES=1` for the pre-Helm one |
 | Cannot reach Kafka | Wrong broker service name | Check `KAFKA_BROKERS` in `11-configmap-env.yaml` |

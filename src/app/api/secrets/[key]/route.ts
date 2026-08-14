@@ -130,19 +130,6 @@ const SECRET_REGISTRY: Record<string, SecretSpec> = {
       { kind: "Deployment", namespace: "console", name: "console" },
     ],
   },
-  "aws-creds": {
-    namespace: "console",
-    secretName: "console-aws",
-    fields: [
-      { dataKey: "AWS_ACCESS_KEY_ID", bodyField: "accessKeyId" },
-      { dataKey: "AWS_SECRET_ACCESS_KEY", bodyField: "secretAccessKey" },
-      { dataKey: "AWS_SESSION_TOKEN", bodyField: "sessionToken", optional: true },
-      { dataKey: "VSS_INSTANCE_SG_ID", bodyField: "securityGroupId", optional: true },
-    ],
-    restartTargets: [
-      { kind: "Deployment", namespace: "console", name: "console" },
-    ],
-  },
 };
 
 // ─── GET — status only, never leaks secret values ────────────────────────────

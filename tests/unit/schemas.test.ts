@@ -8,7 +8,6 @@ import {
   IncidentSchema,
   GpuStateSchema,
   OverviewSnapshotSchema,
-  SgWhitelistEntrySchema,
   ModelCardSchema,
   AuditLogEntrySchema,
 } from "@/lib/schemas";
@@ -142,33 +141,6 @@ describe("DemoProfileSchema", () => {
 
   it("rejects missing name", () => {
     expect(() => DemoProfileSchema.parse({ ...valid, name: "" })).toThrow();
-  });
-});
-
-describe("SgWhitelistEntrySchema", () => {
-  const valid = {
-    id: "550e8400-e29b-41d4-a716-446655440001",
-    cidr: "203.0.113.0/29",
-    label: "Head office",
-    addedBy: "console-operator",
-    addedAt: "2026-04-01T09:00:00.000Z",
-    port: 8800 as 8800,
-  };
-
-  it("parses valid entry", () => {
-    expect(SgWhitelistEntrySchema.parse(valid)).toEqual(valid);
-  });
-
-  it("roundtrips", () => {
-    roundtrip(SgWhitelistEntrySchema, valid);
-  });
-
-  it("rejects non-8800 port", () => {
-    expect(() => SgWhitelistEntrySchema.parse({ ...valid, port: 443 })).toThrow();
-  });
-
-  it("rejects malformed UUID", () => {
-    expect(() => SgWhitelistEntrySchema.parse({ ...valid, id: "not-a-uuid" })).toThrow();
   });
 });
 

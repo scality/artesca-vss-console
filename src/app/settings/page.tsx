@@ -6,13 +6,9 @@ import { useKiosk } from "@/components/KioskProvider";
 import { Shell } from "@/components/Shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { SgWhitelistTable } from "@/components/settings/SgWhitelistTable";
-import { AddCidrDialog } from "@/components/settings/AddCidrDialog";
 import { KioskToggle } from "@/components/settings/KioskToggle";
 import { RbacInspector } from "@/components/settings/RbacInspector";
 import { RotationNagBanner } from "@/components/secrets/RotationNagBanner";
-import { useToast } from "@/hooks/use-toast";
-import type { SgWhitelistEntry } from "@/lib/types";
 
 const NAG_THRESHOLD_MS = 90 * 24 * 60 * 60 * 1000;
 
@@ -20,25 +16,7 @@ export default function SettingsPage() {
   const { kiosk } = useKiosk();
   if (kiosk) redirect("/");
 
-  const [entries, setEntries] = useState<SgWhitelistEntry[]>([]);
-  // Whether this deployment manages a security group at all. Starts true so the
-  // panel does not flicker in on a deployment that has one; only an explicit
-  // `available: false` from the probe takes it away.
-  const [sgAvailable, setSgAvailable] = useState(true);
-  const [addOpen, setAddOpen] = useState(false);
   const [rotations, setRotations] = useState<Record<string, number | null>>({});
-  const { toast } = useToast();
-
-  async function fetchSg() {
-    const res = await fetch("/api/settings/sg");
-    if (!res.ok) return;
-    const data = await res.json();
-    // GET /api/settings/sg returns { available, entries: [...] }; tolerate a
-    // bare array too. Absence of `available` reads as available — the panel goes
-    // away only when the route says so, never because a field was missing.
-    if (data?.available === false) setSgAvailable(false);
-    setEntries(Array.isArray(data) ? data : Array.isArray(data?.entries) ? data.entries : []);
-  }
 
   async function fetchRotations() {
     const res = await fetch("/api/settings/rotations").catch(() => null);
@@ -48,32 +26,7 @@ export default function SettingsPage() {
   }
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void fetchSg(); void fetchRotations(); }, []);
-
-  async function handleAdd(cidr: string, label: string) {
-    const res = await fetch("/api/settings/sg", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cidr, label }),
-    });
-    if (!res.ok) {
-      toast({ title: "Failed to add CIDR", description: await res.text(), variant: "destructive" });
-      return;
-    }
-    toast({ title: `${cidr} added to SG allow-list` });
-    fetchSg();
-  }
-
-  async function handleDelete(id: string) {
-    if (!confirm("Remove this CIDR from the SG allow-list?")) return;
-    const res = await fetch(`/api/settings/sg/${id}`, { method: "DELETE" });
-    if (!res.ok) {
-      toast({ title: "Failed to remove CIDR", variant: "destructive" });
-      return;
-    }
-    toast({ title: "CIDR removed" });
-    fetchSg();
-  }
+  useEffect(() => { void fetchRotations(); }, []);
 
   const staleKeys = Object.entries(rotations)
     .filter(([, age]) => age !== null && age >= NAG_THRESHOLD_MS)
@@ -85,7 +38,7 @@ export default function SettingsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Console configuration — network access, kiosk mode, feature flags, RBAC.
+            Console configuration — kiosk mode, feature flags, RBAC.
           </p>
         </div>
 
@@ -100,25 +53,6 @@ export default function SettingsPage() {
               .
             </p>
           </div>
-        )}
-
-        {/* Network access — only where a security group is under management.
-            On a cluster with no EC2 in front of it there is nothing to allow,
-            so the panel is absent rather than present and unable to act. */}
-        {sgAvailable && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Network access — SG allow-list</CardTitle>
-                <Button size="sm" onClick={() => setAddOpen(true)}>
-                  Add CIDR
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <SgWhitelistTable entries={entries} onDelete={handleDelete} />
-            </CardContent>
-          </Card>
         )}
 
         {/* Kiosk mode */}
@@ -174,12 +108,6 @@ export default function SettingsPage() {
         {/* RBAC inspector */}
         <RbacInspector />
       </div>
-
-      <AddCidrDialog
-        open={addOpen}
-        onOpenChange={setAddOpen}
-        onAdd={handleAdd}
-      />
     </Shell>
   );
 }

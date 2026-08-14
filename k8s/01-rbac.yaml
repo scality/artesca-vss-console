@@ -47,8 +47,8 @@ subjects:
 
 ---
 # Secrets access scoped to the console's OWN namespace — the /secrets page reads
-# status (get) and the Rotate action writes (patch) console-auth / console-ssh /
-# console-aws. Namespaced (not cluster-wide) to keep the blast radius small;
+# status (get) and the Rotate action writes (patch) console-auth / console-ssh.
+# Namespaced (not cluster-wide) to keep the blast radius small;
 # workload-namespace secret access is granted by the dynamic console-writer Role.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

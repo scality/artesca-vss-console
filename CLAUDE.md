@@ -52,56 +52,56 @@ The exported `CLUSTER` object covers: kafka brokers + topic names, redis URL, VS
 
 `prometheus.url` defaults to **metalk8s-monitoring**'s `prometheus-operated` (not artesca-monitoring, whose Prometheus CR has `serviceMonitorSelector=null` and holds 0 GPU series — the DCGM ServiceMonitor is discovered by metalk8s-monitoring via the `metalk8s.scality.com/monitor: ""` label). `grafana.url` is derived per-instance from `OBJECTSTORE_ENDPOINT_IP` → `https://<ip>:8443/` (or explicit `GRAFANA_URL`); `grafana.password` comes from `GRAFANA_PASSWORD` (empty in-cluster; `dev-console.sh` auto-populates it laptop-side from the node's ARTESCA Keycloak admin secret). Grafana sits behind ARTESCA's `:8443` Keycloak SSO (realm `artesca`), so the login is the ARTESCA admin, **not** the Grafana local admin (its form is disabled).
 
-## AWS — one lab-only feature, and one filename that is not about AWS
+## AWS — the console has no AWS credentials
 
-Exactly one thing in this console talks to an AWS service: the `/settings` →
-**Network access** panel, which writes `:8800` ingress rules on the EC2 security
-group in front of a lab instance. It lives in
-[`src/lib/ec2-sg.ts`](src/lib/ec2-sg.ts) and is lab-only.
+**Nothing in this console calls an AWS service, and no Secret gives it the means
+to.** That is the property to preserve: it runs on a customer's ARTESCA cluster,
+where there is no AWS account to act in.
 
 [`src/lib/aws.ts`](src/lib/aws.ts) is **not** AWS despite the name — `s3Stats` /
 `s3SubstrateStats` speak the S3 protocol against `OBJECTSTORE_ENDPOINT`, which on
-a real deployment is the ARTESCA connector. Those back the storage panels and are
-part of the product. The two are separate files so that boundary is visible; the
-filename is misleading and renaming it is open on ISVD-610.
+a real deployment is the ARTESCA connector. They back the storage panels and are
+part of the product. Renaming that file is open on ISVD-610.
 
-**The feature is absent, not broken, where there is no EC2.**
-`sgManagementConfig()` returns the config or null, and null is the ordinary state
-on a customer cluster:
+Two consequences worth knowing before adding an AWS call:
 
-| Surface | With no security group under management |
-| --- | --- |
-| `GET /api/settings/sg` | `200 { available: false, entries: [] }` — the probe, so the page can tell "not part of this deployment" from "console is broken". The stored rows are withheld: they mirror AWS ingress rules, and there is nothing here for them to mirror |
-| `POST /api/settings/sg`, `DELETE /api/settings/sg/[id]` | **404**, resolved before the body is parsed. Not a 500 — this is a route that is not part of this console, not a misconfiguration for someone to fix |
-| `/settings` Network access card | not rendered. Only an explicit `available: false` removes it, so a missing field never hides a working panel |
+- **`@aws-sdk/client-ec2` is not a dependency.** `@aws-sdk/client-s3` is, for the
+  protocol, not the provider.
+- **`s3Region()` is a signing region, not a routing decision.** ARTESCA does not
+  route on it, but the SDK requires one. `k8s/11-configmap-env.yaml` sets
+  `OBJECTSTORE_REGION` explicitly so it is a choice rather than a default. ⚠ Two
+  fallbacks disagree when it is unset — [s3.ts](src/lib/s3.ts) yields `us-west-2`
+  and [cluster-refs.ts](src/lib/cluster-refs.ts) `us-east-1`.
 
-⚠ **The env-var names are a contract with the deployment, and it is the half
-nobody checks.** `ec2-sg.ts` reads `VSS_INSTANCE_SG_ID` + `AWS_REGION` — the keys
-the `console-aws` Secret carries. Both are required and neither is defaulted: a
-group id with no region resolves to whichever region the SDK picks, which is a
-live AWS account chosen by omission. `OBJECTSTORE_REGION` is deliberately **not**
-a region source here — it is the signing region of the S3 endpoint the storage
-panels use, and on an ARTESCA cluster it is set and unrelated to where any EC2
-instance lives.
+**Network access is the lab's job.**
+`scality/isv-labs/scripts/providers/aws/seed-sg-whitelist.sh` writes the EC2
+security-group ingress rules for every admin port, and describes itself as the
+source of truth. `/settings` held a panel over the same security group until
+ISVD-610, and it never worked on any deployment: it read `CONSOLE_SG_ID` while
+every provisioner supplied `VSS_INSTANCE_SG_ID`, so both write paths answered
+`500 CONSOLE_SG_ID env var not configured` for the panel's whole life. Four gates
+each checked one side of that and none compared them — the route unit tests set
+the variable themselves, the smoke test provisioned the real name and never
+called the route, the E2E spec intercepted the request in the browser, and
+`docs/console-config-validation.md` listed the Secret's keys, which were correct.
 
-[tests/unit/env-contract.test.ts](tests/unit/env-contract.test.ts) compares the
-names the module reads against the names the manifests supply. That test exists
-because four gates each checked one side and none compared them: the route unit
-tests set the variable themselves, the smoke test provisions it and never calls
-the route, the e2e spec intercepts the request in the browser so nothing
-server-side runs, and `docs/console-config-validation.md` lists the Secret's keys
-— which were correct, so validating the Secret could never reveal that the code
-read a different name. It is scoped to this module rather than repo-wide because
-telling a *required* read from an optional override is not syntactic: 136 env
+[tests/unit/env-contract.test.ts](tests/unit/env-contract.test.ts) is what
+survived that: it compares the names `src/instrumentation.ts` declares required
+against the names the manifests supply, which is the comparison none of the four
+made. Repointing it there immediately caught a second instance —
+`10-secrets.yaml.example` provisioned `NEXTAUTH_SECRET`, a spelling Auth.js reads
+nothing from, so an operator following the example got a pod that refused every
+request while `k8s/README.md` carried that outcome as a *troubleshooting row*
+rather than a fixed example. It is scoped to the declared-required list because
+separating a required read from an optional override is not syntactic: 136 env
 names are read across `src/`, 76 are unprovisioned optional overrides, and
-absence is handled in five different shapes. Generalising it means routing
-required reads through one accessor — ISVD-672.
+absence is handled in five shapes. Widening it means routing required reads
+through one accessor — ISVD-672.
 
-**The lab does not use this panel to write rules.**
-`scality/isv-labs/scripts/providers/aws/seed-sg-whitelist.sh` does, across six
-admin ports, and states the division: *"SG source of truth is AWS. The console
-SQLite whitelist is a display mirror."* That is the case for moving this out of
-the console altogether, which is the open half of ISVD-610.
+⚠ **An `sg_whitelist` table survives on the PVC of any console that already
+ran.** Nothing creates or reads it. It is left rather than dropped: those rows
+were only ever a mirror of AWS, which remains the source of truth, so a
+data-deleting migration buys nothing over an unused table.
 
 ## VSS 3.2 Helm compatibility
 
@@ -154,7 +154,7 @@ Three things from it that bite:
 | VLM system prompt | The config store (`promptSets` + `activePromptId`); reconcile loop converges ConfigMap `rtvi-runtime-env`. | ConfigMap `rtvi-runtime-env` (key `RTVI_VLM_SYSTEM_PROMPT`) + GCS canonical `prompt/<vss-instance>.json`. |
 | Alert scenarios | The config store (`scenarios`); reconcile loop converges ConfigMap `scenarios`. | ConfigMap `scenarios` (key `scenarios.yaml`) + GCS canonical `scenarios/<vss-instance>.json`. |
 | Per-camera overrides (`scenarioIds`, `recording`) | Fields on the config store's camera entry. | SQLite `camera_overrides` table on PVC `console-data`. |
-| K8s secrets | `console-auth`, `console-aws`, `console-ssh` (3 required before first apply) | `console-auth`, `console-aws`, `console-ssh` (3 required before first apply) |
+| K8s secrets | `console-auth`, `console-ssh` (2 required before first apply) | `console-auth`, `console-ssh` (2 required before first apply) |
 
 On the docker path, `bootstrap-compose-console.sh` auto-restores cameras + prompt + scenarios from GCS on every restart. Manual restore: `scripts/sync-cameras.sh --restore`, `scripts/sync-prompt.sh --restore`, `scripts/sync-scenarios.sh --restore` (each takes `--instance <name> --nvidia-vss-host <ip>`).
 

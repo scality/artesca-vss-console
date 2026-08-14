@@ -45,6 +45,14 @@ data:
   # (the --base-domain flag passed to artesca-installer deploy).
   S3_ENDPOINT: "https://s3.<base-domain>"
   S3_BUCKET: "nvidia-vss-video"
+  # OBJECTSTORE_REGION : the signing region the S3 client presents. ARTESCA does
+  #                      not route on it, but the SDK requires one and the value
+  #                      has to match what the endpoint accepts. Set explicitly
+  #                      rather than left to the fallback in src/lib/s3.ts, so
+  #                      the region is a choice someone made.
+  #                      ⚠ Two defaults disagree if this is unset: s3.ts falls
+  #                      back to "us-west-2" and cluster-refs.ts to "us-east-1".
+  OBJECTSTORE_REGION: "us-west-2"
   # STORAGE_CAPACITY_BYTES : total storage capacity in BYTES, shown in the
   #                          Overview "Total Size" KPI as "<used> / <capacity>".
   #                          Unset or 0 = unknown (KPI renders used-only).

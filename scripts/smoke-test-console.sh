@@ -214,14 +214,6 @@ kubectl --context "$CONTEXT" -n "$NS" create secret generic console-auth \
   --from-literal=AUTH_SECRET=smoke-test-secret-32-bytes-padding \
   --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f -
 
-kubectl --context "$CONTEXT" -n "$NS" create secret generic console-aws \
-  --from-literal=AWS_ACCESS_KEY_ID=AKIAFAKEFAKEFAKEFAKE \
-  --from-literal=AWS_SECRET_ACCESS_KEY=fake-secret \
-  --from-literal=AWS_SESSION_TOKEN= \
-  --from-literal=VSS_INSTANCE_SG_ID=sg-fake \
-  --from-literal=AWS_REGION=us-west-2 \
-  --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f -
-
 kubectl --context "$CONTEXT" -n "$NS" create secret generic console-ssh \
   --from-literal=id_ed25519="-----BEGIN OPENSSH PRIVATE KEY-----
 fake-key-body

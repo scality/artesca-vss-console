@@ -8,7 +8,6 @@ import {
   IncidentSchema,
   GpuStateSchema,
   OverviewSnapshotSchema,
-  SgWhitelistEntrySchema,
   PodSummarySchema,
   DemoProfileSchema,
 } from "@/lib/schemas";
@@ -20,7 +19,6 @@ import incidents from "../fixtures/incidents.json";
 import gpu from "../fixtures/gpu.json";
 import overview from "../fixtures/overview.json";
 import overviewDegraded from "../fixtures/overview-degraded.json";
-import sgWhitelist from "../fixtures/sg-whitelist.json";
 import pods from "../fixtures/pods.json";
 import podsFailingFixture from "../fixtures/pods-failing.json";
 import profiles from "../fixtures/profiles.json";
@@ -168,23 +166,6 @@ describe("fixtures/overview-degraded.json", () => {
   it("nim is not ready (degraded)", () => {
     const snap = overviewDegraded as { nim: { ready: boolean } };
     expect(snap.nim.ready).toBe(false);
-  });
-});
-
-// --- sg-whitelist.json ---
-describe("fixtures/sg-whitelist.json", () => {
-  it("parses all SG whitelist entries", () => {
-    parseAll(SgWhitelistEntrySchema, sgWhitelist as unknown[], "sg-whitelist.json");
-  });
-
-  it("has at least 2 entries", () => {
-    expect(sgWhitelist.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it("all ports are 8800", () => {
-    for (const e of sgWhitelist as Array<{ port: number }>) {
-      expect(e.port).toBe(8800);
-    }
   });
 });
 

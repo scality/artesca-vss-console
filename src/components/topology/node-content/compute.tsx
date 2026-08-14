@@ -674,8 +674,8 @@ function CameraSimStatus({ runtimeState }: { runtimeState?: NodeRuntimeState }) 
         <dd>{mtx ? `${mtx.pathsReady}/${mtx.pathsTotal} ready` : "—"}</dd>
       </dl>
       <p className="text-xs text-muted-foreground">
-        EC2 power state isn&apos;t queried (console-aws lacks ec2:DescribeInstances);
-        reachability is inferred from the mediamtx RTSP API.
+        EC2 power state isn&apos;t queried — the console holds no AWS credentials.
+        Reachability is inferred from the mediamtx RTSP API.
       </p>
     </div>
   );

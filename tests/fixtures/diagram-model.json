@@ -31,16 +31,15 @@
       "/kvcache",
       "/topology"
     ],
-    "apiRoutes": 69,
-    "mutatingCount": 35,
-    "guardedCount": 19,
+    "apiRoutes": 67,
+    "mutatingCount": 33,
+    "guardedCount": 17,
     "backendCounts": {
       "k8s": 29,
       "ssh": 2,
       "s3": 15,
       "kafka": 6,
       "redis": 1,
-      "ec2-sg": 2,
       "config-store": 11,
       "helpers/gcs-config": 15
     },

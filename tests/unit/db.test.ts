@@ -10,7 +10,7 @@ import * as os from "os";
 import * as fs from "fs";
 import * as path from "path";
 import { randomUUID } from "crypto";
-import type { DemoProfile, SgWhitelistEntry } from "@/lib/types";
+import type { DemoProfile } from "@/lib/types";
 import type {
   CameraOverrideRow,
   AuditLogRow,
@@ -37,9 +37,6 @@ let readLastAuditLog: (action: string) => AuditLogRow | null;
 let saveProfile: (p: DemoProfile, savedBy: string) => void;
 let listProfiles: () => Array<{ name: string; savedAt: string; savedBy: string }>;
 let loadProfile: (name: string) => DemoProfile | null;
-let upsertSgEntry: (e: SgWhitelistEntry) => void;
-let listSgEntries: () => SgWhitelistEntry[];
-let deleteSgEntry: (id: string) => void;
 let upsertCameraOverride: (r: CameraOverrideRow) => void;
 let getCameraOverride: (cameraId: string) => CameraOverrideRow | null;
 let listCameraOverrides: () => CameraOverrideRow[];
@@ -62,9 +59,6 @@ beforeEach(async () => {
   saveProfile = mod.saveProfile;
   listProfiles = mod.listProfiles;
   loadProfile = mod.loadProfile;
-  upsertSgEntry = mod.upsertSgEntry;
-  listSgEntries = mod.listSgEntries;
-  deleteSgEntry = mod.deleteSgEntry;
   upsertCameraOverride = mod.upsertCameraOverride;
   getCameraOverride = mod.getCameraOverride;
   listCameraOverrides = mod.listCameraOverrides;
@@ -109,7 +103,7 @@ describe("migrations + pragmas", () => {
     expect(fs.existsSync(dbFile)).toBe(true);
   });
 
-  it("all 5 tables exist after first call", () => {
+  it("all 4 tables exist after first call", () => {
     const db = getDb();
     const tables = (
       db
@@ -118,9 +112,23 @@ describe("migrations + pragmas", () => {
     ).map((r) => r.name);
     expect(tables).toContain("profiles");
     expect(tables).toContain("audit_log");
-    expect(tables).toContain("sg_whitelist");
     expect(tables).toContain("rotations");
     expect(tables).toContain("camera_overrides");
+  });
+
+  // A console that already ran carries an `sg_whitelist` table on its PVC from
+  // when it mirrored EC2 security-group rules. Nothing creates or reads it now.
+  // It is left in place rather than dropped: the rows were only ever a mirror of
+  // AWS, which remains the source of truth, so a migration that deletes data
+  // buys nothing over an unused table.
+  it("does not create sg_whitelist", () => {
+    const db = getDb();
+    const tables = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{
+        name: string;
+      }>
+    ).map((r) => r.name);
+    expect(tables).not.toContain("sg_whitelist");
   });
 
   it("journal_mode=WAL is applied", () => {
@@ -215,43 +223,6 @@ describe("profiles", () => {
 });
 
 // ─── SG whitelist ─────────────────────────────────────────────────────────────
-
-describe("sg whitelist", () => {
-  const base: SgWhitelistEntry = {
-    id: randomUUID(),
-    cidr: "203.0.113.0/29",
-    label: "Head office",
-    addedBy: "alice",
-    addedAt: new Date().toISOString(),
-    port: 8800,
-  };
-
-  it("upsertSgEntry + listSgEntries returns the inserted entry", () => {
-    upsertSgEntry(base);
-    const entries = listSgEntries();
-    expect(entries).toHaveLength(1);
-    expect(entries[0].cidr).toBe("203.0.113.0/29");
-    expect(entries[0].id).toBe(base.id);
-  });
-
-  it("upsertSgEntry with same id replaces the row (updated cidr visible)", () => {
-    upsertSgEntry(base);
-    const updated: SgWhitelistEntry = { ...base, cidr: "192.168.1.0/24" };
-    upsertSgEntry(updated);
-    const entries = listSgEntries();
-    expect(entries).toHaveLength(1);
-    expect(entries[0].cidr).toBe("192.168.1.0/24");
-  });
-
-  it("deleteSgEntry removes the row", () => {
-    upsertSgEntry(base);
-    deleteSgEntry(base.id);
-    const entries = listSgEntries();
-    expect(entries).toHaveLength(0);
-  });
-});
-
-// ─── Camera overrides ─────────────────────────────────────────────────────────
 
 describe("camera overrides", () => {
   function makeOverride(cameraId: string, scenarioIds: string[] | null = ["s1", "s2"]): CameraOverrideRow {

@@ -5,9 +5,8 @@ import * as fs from "fs";
 import { randomUUID } from "crypto";
 import {
   DemoProfileSchema,
-  SgWhitelistEntrySchema,
 } from "./schemas";
-import type { DemoProfile, SgWhitelistEntry, AuditLogEntry } from "./types";
+import type { DemoProfile, AuditLogEntry } from "./types";
 
 let _db: Database.Database | null = null;
 let _signalHandlersRegistered = false;
@@ -42,15 +41,6 @@ export function getDb(): Database.Database {
       action      TEXT NOT NULL,
       target      TEXT NOT NULL,
       details_json TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS sg_whitelist (
-      id        TEXT PRIMARY KEY,
-      cidr      TEXT NOT NULL,
-      label     TEXT NOT NULL,
-      added_by  TEXT NOT NULL,
-      added_at  TEXT NOT NULL,
-      port      INTEGER NOT NULL DEFAULT 8800
     );
 
     CREATE TABLE IF NOT EXISTS rotations (
@@ -180,54 +170,6 @@ export function loadProfile(name: string): DemoProfile | null {
     .get(name) as { payload_json: string } | undefined;
   if (!row) return null;
   return DemoProfileSchema.parse(JSON.parse(row.payload_json));
-}
-
-// ─── SG whitelist ─────────────────────────────────────────────────────────────
-
-export function listSgEntries(): SgWhitelistEntry[] {
-  const db = getDb();
-  const rows = db
-    .prepare(
-      "SELECT id, cidr, label, added_by, added_at, port FROM sg_whitelist ORDER BY added_at DESC"
-    )
-    .all() as Array<{
-      id: string;
-      cidr: string;
-      label: string;
-      added_by: string;
-      added_at: string;
-      port: number;
-    }>;
-  return rows.map((r) =>
-    SgWhitelistEntrySchema.parse({
-      id: r.id,
-      cidr: r.cidr,
-      label: r.label,
-      addedBy: r.added_by,
-      addedAt: r.added_at,
-      port: r.port as 8800,
-    })
-  );
-}
-
-export function upsertSgEntry(entry: SgWhitelistEntry): void {
-  const validated = SgWhitelistEntrySchema.parse(entry);
-  const db = getDb();
-  db.prepare(
-    "INSERT OR REPLACE INTO sg_whitelist (id, cidr, label, added_by, added_at, port) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run(
-    validated.id,
-    validated.cidr,
-    validated.label,
-    validated.addedBy,
-    validated.addedAt,
-    validated.port
-  );
-}
-
-export function deleteSgEntry(id: string): void {
-  const db = getDb();
-  db.prepare("DELETE FROM sg_whitelist WHERE id = ?").run(id);
 }
 
 // ─── Camera overrides ─────────────────────────────────────────────────────────

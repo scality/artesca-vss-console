@@ -159,15 +159,6 @@ export interface OverviewSnapshot {
   recording?: { recovering: number; degraded: number };
 }
 
-export interface SgWhitelistEntry {
-  id: string; // stable uuid for the row
-  cidr: string; // "203.0.113.0/29"
-  label: string; // "Head office"
-  addedBy: string; // operator login
-  addedAt: string; // ISO 8601
-  port: 8800; // future-proofing; today always 8800
-}
-
 export interface ModelCard {
   image: string; // nvcr.io/nim/... or nvcr.io/nvidia/vllm:... for vLLM-based NIMs
   displayName: string;
