@@ -20,6 +20,11 @@ export interface AdapterSensor {
   uuid?: string;
   name: string;
   rtspUrl?: string;
+  /** VST's lifecycle state, normalised by vstListSensors from the API's `state`
+   *  field. `"removed"` is a TOMBSTONE, not a sensor: VST keeps deleted sensors in
+   *  /sensor/list rather than dropping them, so a caller that ignores this counts
+   *  every camera ever deleted as still present. */
+  status?: string;
 }
 
 /**
@@ -66,6 +71,7 @@ export class VstClusterAdapter implements ClusterAdapter {
       uuid: typeof s.sensor_uuid === "string" ? s.sensor_uuid : undefined,
       name: typeof s.name === "string" ? s.name : s.sensor_id,
       rtspUrl: typeof s.rtsp_url === "string" ? s.rtsp_url : undefined,
+      status: s.status,
     }));
   }
 

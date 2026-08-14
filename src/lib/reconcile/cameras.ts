@@ -89,6 +89,18 @@ export async function reconcileCameras(
   // Handle extras (live sensors not in desired).
   for (const s of live) {
     if (desiredIds.has(s.name)) continue;
+    // A `removed` sensor is VST's tombstone for one already deleted, not a sensor.
+    // VST keeps them in /sensor/list forever, so without this every camera ever
+    // deleted is reported as an extra live sensor on every pass — and the report is
+    // the thing this drift list exists to make readable. Measured on
+    // pyramid-showroom 2026-08-14: 21 entries in /sensor/list, 5 online cameras
+    // matching the store, 15 tombstones and 1 offline stub, producing the same 16
+    // drift notes every 60s for over a week. A signal that is never empty cannot
+    // show you a real difference, which is the only reason anyone reads it.
+    //
+    // It also stops prune acting on them: with `opts.prune` on, the branch below
+    // would call removeSensor once per tombstone, per pass, forever.
+    if (s.status === "removed") continue;
     result.drift.push(`extra live sensor not in desired: ${s.name}`);
     if (opts.prune && adapter.removeSensor) {
       const res = await adapter.removeSensor(s.uuid ?? s.sensorId);

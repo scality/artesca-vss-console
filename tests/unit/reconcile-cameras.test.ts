@@ -107,6 +107,60 @@ describe("reconcileCameras", () => {
     expect(r.drift).toContain("extra live sensor not in desired: stale-cam");
   });
 
+  // ── VST tombstones (state:"removed") are not sensors ──
+  //
+  // VST keeps a deleted sensor in /sensor/list as status:"removed" rather than
+  // dropping it, so every camera ever deleted came back as an "extra live sensor"
+  // on every pass. Measured on pyramid-showroom 2026-08-14: 21 list entries, 5
+  // online cameras matching the store, 15 tombstones and 1 offline stub — the same
+  // 16 drift notes every 60s for over a week. The adapter was discarding the field
+  // that tells them apart, so the reconciler could not have known.
+
+  it("ignores removed tombstones when reporting extra sensors", async () => {
+    const { adapter } = fakeAdapter([
+      { sensorId: "uuid-gone", name: "deleted-cam", status: "removed" },
+      { sensorId: "uuid-1", name: "aisle-1", status: "online" },
+    ]);
+    const r = await reconcileCameras([cam("aisle-1")], adapter, { prune: false });
+    // The whole point: the drift list is EMPTY, so a real difference would stand out.
+    expect(r.drift).toEqual([]);
+    expect(r.alreadyPresent).toEqual(["aisle-1"]);
+  });
+
+  it("still reports a genuine extra sensor that is online", async () => {
+    // The guard must not silence the case the drift note exists for.
+    const { adapter } = fakeAdapter([
+      { sensorId: "uuid-gone", name: "deleted-cam", status: "removed" },
+      { sensorId: "uuid-x", name: "stale-cam", status: "online" },
+    ]);
+    const r = await reconcileCameras([cam("aisle-1")], adapter, { prune: false });
+    expect(r.drift).toEqual(["extra live sensor not in desired: stale-cam"]);
+  });
+
+  it("reports an extra sensor whose status is absent", async () => {
+    // Only "removed" is a tombstone. An unknown or missing status is a sensor we
+    // cannot rule out, and staying silent about it would trade one blind spot for
+    // another — every existing test above supplies no status at all.
+    const { adapter } = fakeAdapter([{ sensorId: "uuid-x", name: "stale-cam" }]);
+    const r = await reconcileCameras([cam("aisle-1")], adapter, { prune: false });
+    expect(r.drift).toContain("extra live sensor not in desired: stale-cam");
+  });
+
+  it("never prunes a tombstone", async () => {
+    // With prune on, each tombstone would otherwise be a removeSensor call per
+    // pass, forever, against a sensor VST has already deleted.
+    const { adapter, removed } = fakeAdapter(
+      [
+        { sensorId: "uuid-gone", name: "deleted-cam", status: "removed" },
+        { sensorId: "uuid-x", name: "stale-cam", status: "online" },
+      ],
+      { withRemove: true },
+    );
+    const r = await reconcileCameras([cam("aisle-1")], adapter, { prune: true });
+    expect(removed).toEqual(["uuid-x"]);
+    expect(r.pruned).toEqual(["stale-cam"]);
+  });
+
   // ── parking disabled cameras (recording.enabled === false) ──
 
   it("parks a disabled camera that is currently live (de-registers, independent of prune)", async () => {
