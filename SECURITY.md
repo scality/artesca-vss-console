@@ -54,9 +54,20 @@ risk:
   rotation is write-only. This bullet claimed otherwise until 2026-08-13; it was
   wrong, and it is called out rather than quietly edited because a policy that
   overstates is no more usable than one that understates.
-- **The Kubernetes RBAC is broad** ([#9](https://github.com/scality/artesca-vss-console/issues/9)). `k8s/01-rbac.yaml` requests `get` and
-  `create` on `pods/exec` and `get`, `list`, `patch` on secrets, in addition to
-  the read verbs. Scope it down to the features you actually deploy.
+- **The console can execute commands in the workload pods.** `k8s/01-rbac.yaml`
+  is read-only and cluster-scoped; the `console-exec` Role in
+  `k8s/02-workload-rbac.yaml.example` grants `pods/exec` in the VSS namespace
+  alone. Four observability probes need it — `df` on the recording cache,
+  `pg_isready` and two `psql` counts, `redis-cli ping`/`info` — but the grant is
+  arbitrary command execution in those pods, including a shell that can read
+  their environment. Omit the Role if you can live without those figures; the
+  console runs without it and reports them as unknown.
+- **Secret writes are pinned, secret reads in the workload namespace are not.**
+  Rotation is restricted by `resourceNames` to the Secrets the `/secrets` page
+  actually rotates. The `get` in a workload namespace is deliberately unpinned,
+  because the LLM health probe follows whatever `secretKeyRef` a container
+  declares and cannot know the name in advance — so the console can read any
+  Secret in that namespace. Drop the rule if that matters more than the probe.
 
 Do not expose the console to an untrusted network. It is built to run inside a
 cluster, reached by operators.
