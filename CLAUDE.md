@@ -95,7 +95,7 @@ read a different name. It is scoped to this module rather than repo-wide because
 telling a *required* read from an optional override is not syntactic: 136 env
 names are read across `src/`, 76 are unprovisioned optional overrides, and
 absence is handled in five different shapes. Generalising it means routing
-required reads through one accessor — ISVD-665.
+required reads through one accessor — ISVD-672.
 
 **The lab does not use this panel to write rules.**
 `scality/isv-labs/scripts/providers/aws/seed-sg-whitelist.sh` does, across six
