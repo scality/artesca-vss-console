@@ -23,16 +23,26 @@ metadata:
   name: console-reader
 rules:
 - apiGroups: [""]
-  resources: ["pods", "pods/log", "configmaps", "services", "events", "namespaces", "nodes"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["apps"]
-  resources: ["deployments", "statefulsets"]
-  verbs: ["get", "list", "watch"]
-# GPU utilisation comes from Prometheus (the DCGM ServiceMonitor); this is the
-# node-capacity fallback for when Prometheus is unreachable.
-- apiGroups: ["metrics.k8s.io"]
-  resources: ["nodes"]
+  resources: ["pods", "pods/log", "configmaps", "events", "namespaces", "nodes"]
   verbs: ["get", "list"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list"]
+# Four things are deliberately absent, each because nothing in src/ calls it:
+#
+#   services              no Service is ever read — no readNamespacedService,
+#                         no listNamespacedService, no V1Service reference.
+#   metrics.k8s.io nodes  no consumer. GPU utilisation comes from Prometheus
+#                         (the DCGM ServiceMonitor) and the /diagnostics
+#                         nvidia-smi test runs over SSH to the node.
+#   watch                 the console polls. No informer, no `new Watch(`.
+#   statefulsets          never read. The one statefulset call is a patch, which
+#                         belongs to console-writer, not here.
+#
+# A finer split is possible — `pods/log` and `configmaps` are only ever `get`,
+# and `events`/`namespaces` only ever `list` — but get-vs-list per resource buys
+# little against the risk of removing a read some page turns out to make, so
+# both verbs are kept on the group above.
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
