@@ -1,0 +1,22 @@
+# Keep GitHub Actions majors current, so a runtime deprecation arrives as a pull
+# request instead of as a warning in a job log.
+#
+# Added with ISVD-743, which moved 143 references off the Node 20 runtime by hand.
+# That migration was needed because every affected action shipped its Node 24
+# support in a NEW MAJOR: a floating major tag never reaches it and no patch
+# release closes the gap, so nothing short of a major bump moves the runtime.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    # One PR for all of them: these bumps are reviewed as a set, and a separate PR
+    # per action turns a quiet week into ten notifications nobody reads.
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
