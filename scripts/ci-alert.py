@@ -11,7 +11,7 @@ WIF allowlist and the repository has no Actions secrets, so a job here can reach
 neither Secret Manager nor the Gmail token. Until that changes, the alarm runs
 laptop-side, which is also where the sizer's board report runs.
 
-Mail goes through isv-backend/scripts/notify.py — the fleet's one subject
+Mail goes through isv-portal backend/scripts/notify.py — the fleet's one subject
 grammar and X-ISV-Alert routing header, sent on the workspace-mcp OAuth token
 rather than anything touching gcloud (a gcloud-dependent alert path goes silent
 exactly when the Workspace reauthentication policy is the thing to report).
@@ -50,7 +50,7 @@ from pathlib import Path
 REPO = "scality/artesca-vss-console"
 WORKFLOW = "build-console.yml"
 BRANCH = "main"
-NOTIFY = Path.home() / "Developer/scality/isv-backend/scripts/notify.py"
+NOTIFY = Path.home() / "Developer/scality/isv-portal/backend/scripts/notify.py"
 
 STATE_DIR = Path.home() / "Library/Application Support/Scality/state"
 STATE_FILE = STATE_DIR / "console-ci.json"
