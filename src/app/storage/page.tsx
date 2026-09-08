@@ -15,6 +15,11 @@ interface BucketSubstrate {
   bytesLast24h: number;
   truncated?: boolean;
   available?: boolean;
+  retention?: {
+    configured: boolean;
+    expiresDays: number | null;
+    objectLock: boolean;
+  };
 }
 interface RecentObject {
   key: string;
@@ -231,6 +236,30 @@ export default function StoragePage() {
                     )}
                     {b.truncated && (
                       <p className="mt-1 text-[10px] text-amber-600">count capped (very large bucket)</p>
+                    )}
+                    {b.retention && (
+                      <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
+                        {b.retention.objectLock && (
+                          <span className="inline-flex items-center gap-1 rounded bg-brand-teal/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-teal">
+                            <Lock className="h-3 w-3" /> Object Lock
+                          </span>
+                        )}
+                        {b.retention.configured ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            deletes after {b.retention.expiresDays}d
+                          </span>
+                        ) : b.retention.objectLock ? (
+                          <span className="text-[10px] text-muted-foreground">kept indefinitely</span>
+                        ) : (
+                          <span
+                            className="text-[10px] font-medium text-amber-600"
+                            title="No lifecycle expiry: nothing is ever reclaimed from this bucket, so it grows until ARTESCA refuses writes."
+                          >
+                            no expiry rule — never reclaimed
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 );

@@ -17,6 +17,11 @@ import "server-only";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { s3SubstrateStats, type S3RecentObject } from "@/lib/aws";
 import {
+  GetBucketLifecycleConfigurationCommand,
+  GetObjectLockConfigurationCommand,
+} from "@aws-sdk/client-s3";
+import { makeS3Client } from "@/lib/s3";
+import {
   s3BucketForRecordings,
   s3BucketForAlertClips,
   s3Endpoint,
@@ -94,6 +99,64 @@ export function bucketStatsCached(bucket: string): {
   return statsSWR(bucket);
 }
 
+/**
+ * Bucket retention, read from the bucket itself rather than assumed.
+ *
+ * This is on the page because an absent lifecycle rule is otherwise invisible
+ * until the cluster stops accepting writes. On pyramid-showroom the recordings
+ * bucket reached 394,815 objects and 6.99 TiB carrying no rule at all, ARTESCA
+ * crossed hyperdrive's 95% write-protection guard, and every VST upload began
+ * failing 503 with nothing naming the cause.
+ *
+ * `expiresDays: null` with `configured: false` means NOTHING is ever reclaimed
+ * from this bucket — render it as a warning, not as "unlimited retention".
+ */
+export interface BucketRetention {
+  configured: boolean;
+  expiresDays: number | null;
+  objectLock: boolean;
+}
+
+// Retention changes on operator action, not on traffic, so it is cached far
+// longer than the object stats and refreshed lazily.
+const RETENTION_TTL_MS = 300_000;
+const retentionCache = new Map<string, { ts: number; value: BucketRetention }>();
+
+export async function readRetention(bucket: string): Promise<BucketRetention> {
+  const hit = retentionCache.get(bucket);
+  if (hit && Date.now() - hit.ts < RETENTION_TTL_MS) return hit.value;
+
+  const s3 = makeS3Client();
+  let expiresDays: number | null = null;
+  let configured = false;
+  try {
+    const lc = await s3.send(new GetBucketLifecycleConfigurationCommand({ Bucket: bucket }));
+    const days = (lc.Rules ?? [])
+      .filter((r) => r.Status === "Enabled" && r.Expiration?.Days != null)
+      .map((r) => r.Expiration!.Days as number);
+    if (days.length > 0) {
+      // Shortest enabled expiry is the one that actually governs a given object.
+      expiresDays = Math.min(...days);
+      configured = true;
+    }
+  } catch {
+    // NoSuchLifecycleConfiguration and access errors alike mean "we cannot show
+    // a rule". Both must read as not-configured rather than as unlimited.
+  }
+
+  let objectLock = false;
+  try {
+    const ol = await s3.send(new GetObjectLockConfigurationCommand({ Bucket: bucket }));
+    objectLock = ol.ObjectLockConfiguration?.ObjectLockEnabled === "Enabled";
+  } catch {
+    /* no object lock on this bucket */
+  }
+
+  const value: BucketRetention = { configured, expiresDays, objectLock };
+  retentionCache.set(bucket, { ts: Date.now(), value });
+  return value;
+}
+
 export interface BucketSubstrate {
   key: string;
   label: string;
@@ -104,6 +167,8 @@ export interface BucketSubstrate {
   truncated?: boolean;
   /** false when the bucket couldn't be listed (not provisioned / no access) — hidden in the UI. */
   available: boolean;
+  /** Lifecycle expiry + Object Lock, read from the bucket. */
+  retention?: BucketRetention;
 }
 
 export interface RecentObject extends S3RecentObject {
@@ -175,11 +240,36 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
   });
   const refreshing = results.some((r) => r.refreshing);
 
+  // Retention is a cheap, long-cached pair of HEAD-ish calls per bucket, so it
+  // is resolved for every bucket even when the object scan is still warming.
+  const retentions = new Map<string, BucketRetention>();
+  await Promise.all(
+    defs.map(async (d) => {
+      try {
+        retentions.set(d.bucket, await readRetention(d.bucket));
+      } catch {
+        /* fail-soft: the card just omits retention */
+      }
+    }),
+  );
+
+  // An unretained recordings bucket is the one storage condition that takes the
+  // whole stack down on a timer, so it is surfaced as a warning and not left for
+  // the operator to notice on a card.
+  const recDef = defs.find((d) => d.key === "recordings");
+  const recRet = recDef ? retentions.get(recDef.bucket) : undefined;
+  if (recRet && !recRet.configured) {
+    warnings.push(
+      `${recDef!.bucket}: no lifecycle expiry — recordings are never reclaimed and will fill ARTESCA until writes are refused`,
+    );
+  }
+
   const buckets: BucketSubstrate[] = results
     .map(({ d, s }) => ({
       key: d.key,
       label: d.label,
       bucket: d.bucket,
+      retention: retentions.get(d.bucket),
       objectCount: s?.objectCount ?? 0,
       bytesTotal: s?.bytesTotal ?? 0,
       bytesLast24h: s?.bytesLast24h ?? 0,

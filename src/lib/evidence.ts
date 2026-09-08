@@ -5,7 +5,7 @@ import "server-only";
  *
  * Seals an incident's clip into a dedicated Object-Lock-enabled bucket with a
  * retention period, so it cannot be deleted or altered until it expires — even
- * by an admin (COMPLIANCE) — the loss-prevention / legal-hold story. The
+ * by an admin when sealed COMPLIANCE — the loss-prevention / legal-hold story. The
  * console can then *prove* immutability by attempting a version delete and
  * showing ARTESCA denies it (AccessDenied).
  *
@@ -27,7 +27,21 @@ import { resolveStreamId, buildVstClipUrl } from "@/lib/streams/vst-clip";
 export const EVIDENCE_BUCKET = process.env.OBJECTSTORE_EVIDENCE_BUCKET ?? "nvidia-vss-evidence";
 export const DEFAULT_RETENTION_DAYS = Number(process.env.EVIDENCE_RETENTION_DAYS ?? 365);
 export type LockMode = "GOVERNANCE" | "COMPLIANCE";
-const DEFAULT_MODE: LockMode = (process.env.EVIDENCE_LOCK_MODE as LockMode) ?? "COMPLIANCE";
+/**
+ * GOVERNANCE by default, deliberately.
+ *
+ * COMPLIANCE cannot be lifted by anyone — not the account root, not an admin —
+ * until the retention date passes, so a mis-click while rehearsing writes
+ * undeletable storage for the full retention period, and tearing the instance
+ * down does not help because the bucket lives in ARTESCA. On a demo and lab
+ * platform that is a footgun, not a safety feature. GOVERNANCE gives the same
+ * protection against ordinary deletes, including the recordings bucket's
+ * lifecycle expiry, while remaining liftable by a privileged caller.
+ *
+ * Set EVIDENCE_LOCK_MODE=COMPLIANCE explicitly for a real chain-of-custody
+ * demo, where being unable to lift the lock is the point being demonstrated.
+ */
+const DEFAULT_MODE: LockMode = (process.env.EVIDENCE_LOCK_MODE as LockMode) ?? "GOVERNANCE";
 
 let _client: S3Client | null = null;
 function client(): S3Client {
