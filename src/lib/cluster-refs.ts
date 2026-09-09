@@ -441,6 +441,20 @@ const CAMERAS = {
   registerJobPrefix: "register-cameras",
 } as const;
 
+// ─── ARTESCA cluster capacity (hyperdrive) ───────────────────────────────────
+// The ONLY number that says whether ARTESCA will accept a write. Everything
+// else on the storage pages is S3 logical object bytes, which excludes
+// erasure-coding overhead and is therefore a systematic undercount, measured
+// against an operator-typed STORAGE_CAPACITY_BYTES. On pyramid-showroom that
+// pair read "60.1% used" while hyperdrive was write-protected at 95.01% and
+// every upload had been failing 503 for weeks.
+//
+// hdproxyd exposes the hdcontroller gauges on :18888/metrics. Service naming is
+// <storage-service>-hdservice-proxy in namespace xcore.
+const ARTESCA_HD_PROXY_URL =
+  process.env.ARTESCA_HD_PROXY_URL ??
+  "http://artesca-storage-service-hdservice-proxy.xcore.svc.cluster.local:18888";
+
 // ─── S3 ──────────────────────────────────────────────────────────────────────
 // Three-bucket model: recordings (VST writes), alert-clips (materializer
 // writes + console replay reads), agent-corpus (optional forensic Q&A).
@@ -678,6 +692,9 @@ export const CLUSTER = {
   postgres: {
     podLabel: POSTGRES_POD_LABEL,
     user: POSTGRES_USER,
+  },
+  artesca: {
+    hdProxyUrl: ARTESCA_HD_PROXY_URL,
   },
   vst: {
     sensorUrl: VST_SENSOR_URL,

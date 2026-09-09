@@ -21,6 +21,7 @@ import {
   GetObjectLockConfigurationCommand,
 } from "@aws-sdk/client-s3";
 import { makeS3Client } from "@/lib/s3";
+import { readArtescaCapacity, type ArtescaCapacity } from "@/lib/helpers/artesca-capacity";
 import {
   s3BucketForRecordings,
   s3BucketForAlertClips,
@@ -177,6 +178,12 @@ export interface RecentObject extends S3RecentObject {
 }
 
 export interface StorageSubstrate {
+  /**
+   * ARTESCA's own capacity, from hyperdrive. null = hdproxyd unreachable,
+   * which renders as unknown and never as healthy. Distinct from the bucket
+   * byte totals below, which are S3 logical bytes and undercount physical fill.
+   */
+  artesca?: ArtescaCapacity | null;
   configured: boolean;
   endpoint: string;
   region: string;
@@ -256,6 +263,23 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
   // An unretained recordings bucket is the one storage condition that takes the
   // whole stack down on a timer, so it is surfaced as a warning and not left for
   // the operator to notice on a card.
+  // ARTESCA cluster fill — the figure that actually predicts a write refusal.
+  let artesca: ArtescaCapacity | null = null;
+  try {
+    artesca = await readArtescaCapacity();
+  } catch {
+    /* fail-soft: renders as unknown */
+  }
+  if (artesca?.writesRefused) {
+    warnings.push(
+      `ARTESCA is refusing writes: cluster fill ${artesca.fillPercent.toFixed(2)}% has reached the ${artesca.criticalPercent}% guard. Free space or expand capacity — deletes take effect only after a relocation pass.`,
+    );
+  } else if (artesca?.warning) {
+    warnings.push(
+      `ARTESCA cluster fill is ${artesca.fillPercent.toFixed(2)}%, above the ${artesca.earlyPercent}% early-warning line and heading for the ${artesca.criticalPercent}% write guard.`,
+    );
+  }
+
   const recDef = defs.find((d) => d.key === "recordings");
   const recRet = recDef ? retentions.get(recDef.bucket) : undefined;
   if (recRet && !recRet.configured) {
@@ -296,5 +320,5 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
     { objectCount: 0, bytesTotal: 0, bytesLast24h: 0 },
   );
 
-  return { configured: true, endpoint, region, capacityBytes, buckets, recent, totals, warnings, refreshing, ts: new Date().toISOString() };
+  return { artesca, configured: true, endpoint, region, capacityBytes, buckets, recent, totals, warnings, refreshing, ts: new Date().toISOString() };
 }

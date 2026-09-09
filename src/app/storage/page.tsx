@@ -28,7 +28,17 @@ interface RecentObject {
   bucket: string;
   bucketLabel: string;
 }
+interface ArtescaCapacity {
+  fillPercent: number;
+  writeProtectionArmed: boolean;
+  criticalPercent: number;
+  earlyPercent: number;
+  writesRefused: boolean;
+  warning: boolean;
+  checkedAt: string;
+}
 interface StorageSubstrate {
+  artesca?: ArtescaCapacity | null;
   configured: boolean;
   endpoint: string;
   region: string;
@@ -185,16 +195,41 @@ export default function StoragePage() {
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Stored on ARTESCA</p>
                 <p className="mt-1 text-2xl font-bold tabular-nums">{formatBytes(data.totals.bytesTotal)}</p>
                 {data.capacityBytes > 0 && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {capPct.toFixed(1)}% of {formatBytes(data.capacityBytes)} logical
+                    {deltaBytes > 0 ? ` · +${formatBytes(deltaBytes)} live` : ""}
+                  </p>
+                )}
+                {/* Cluster fill from hyperdrive. This is the number that decides
+                    whether ARTESCA accepts a write; the logical figure above
+                    excludes erasure-coding overhead and undercounts it badly. */}
+                {data.artesca === null ? (
+                  <p className="mt-2 text-[11px] text-amber-600">cluster fill unknown — hyperdrive unreachable</p>
+                ) : data.artesca ? (
                   <>
                     <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                      <div className="h-full rounded-full bg-brand-teal" style={{ width: `${capPct}%` }} />
+                      <div
+                        className={`h-full rounded-full ${
+                          data.artesca.writesRefused
+                            ? "bg-red-600"
+                            : data.artesca.warning
+                              ? "bg-amber-500"
+                              : "bg-brand-teal"
+                        }`}
+                        style={{ width: `${Math.min(100, data.artesca.fillPercent)}%` }}
+                      />
                     </div>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      {capPct.toFixed(1)}% of {formatBytes(data.capacityBytes)}
-                      {deltaBytes > 0 ? ` · +${formatBytes(deltaBytes)} live` : ""}
+                      ARTESCA cluster fill {data.artesca.fillPercent.toFixed(2)}% · write guard at{" "}
+                      {data.artesca.criticalPercent}%
                     </p>
+                    {data.artesca.writesRefused && (
+                      <p className="mt-1 text-[11px] font-medium text-red-600">
+                        writes refused — free space or expand capacity
+                      </p>
+                    )}
                   </>
-                )}
+                ) : null}
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Written in last 24h</p>
