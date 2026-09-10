@@ -15,7 +15,12 @@ import "server-only";
  * than throwing, so the page degrades gracefully.
  */
 import { CLUSTER } from "@/lib/cluster-refs";
-import { s3SubstrateStats, type S3RecentObject } from "@/lib/aws";
+import {
+  s3SubstrateStats,
+  s3IncompleteMultipartUploads,
+  type S3RecentObject,
+  type S3MultipartUploadsStats,
+} from "@/lib/aws";
 import {
   GetBucketLifecycleConfigurationCommand,
   GetObjectLockConfigurationCommand,
@@ -111,11 +116,19 @@ export function bucketStatsCached(bucket: string): {
  *
  * `expiresDays: null` with `configured: false` means NOTHING is ever reclaimed
  * from this bucket — render it as a warning, not as "unlimited retention".
+ *
+ * `abortIncompleteMultipartDays` is the companion rule that reclaims stale
+ * multipart uploads rather than completed objects — on 2026-09-10 the
+ * recordings bucket on pyramid-showroom carried 5,664 incomplete multipart
+ * uploads with no rule to clear them, aborted by hand. `null` means no such
+ * rule is enabled, and — like `expiresDays: null` — must render as a warning,
+ * never as "nothing to worry about".
  */
 export interface BucketRetention {
   configured: boolean;
   expiresDays: number | null;
   objectLock: boolean;
+  abortIncompleteMultipartDays: number | null;
 }
 
 // Retention changes on operator action, not on traffic, so it is cached far
@@ -130,6 +143,7 @@ export async function readRetention(bucket: string): Promise<BucketRetention> {
   const s3 = makeS3Client();
   let expiresDays: number | null = null;
   let configured = false;
+  let abortIncompleteMultipartDays: number | null = null;
   try {
     const lc = await s3.send(new GetBucketLifecycleConfigurationCommand({ Bucket: bucket }));
     const days = (lc.Rules ?? [])
@@ -139,6 +153,14 @@ export async function readRetention(bucket: string): Promise<BucketRetention> {
       // Shortest enabled expiry is the one that actually governs a given object.
       expiresDays = Math.min(...days);
       configured = true;
+    }
+    const abortDays = (lc.Rules ?? [])
+      .filter((r) => r.Status === "Enabled" && r.AbortIncompleteMultipartUpload?.DaysAfterInitiation != null)
+      .map((r) => r.AbortIncompleteMultipartUpload!.DaysAfterInitiation as number);
+    if (abortDays.length > 0) {
+      // Same shortest-wins reasoning as expiry: the rule that fires first is
+      // the one that actually governs a given stale upload.
+      abortIncompleteMultipartDays = Math.min(...abortDays);
     }
   } catch {
     // NoSuchLifecycleConfiguration and access errors alike mean "we cannot show
@@ -153,9 +175,35 @@ export async function readRetention(bucket: string): Promise<BucketRetention> {
     /* no object lock on this bucket */
   }
 
-  const value: BucketRetention = { configured, expiresDays, objectLock };
+  const value: BucketRetention = { configured, expiresDays, objectLock, abortIncompleteMultipartDays };
   retentionCache.set(bucket, { ts: Date.now(), value });
   return value;
+}
+
+// Multipart-upload counts change on operator/client behavior, not on the object
+// churn the bucket-stats cache tracks, and a full ListMultipartUploads walk
+// costs the same order of round-trips as the object listing it does not
+// substitute for — so it gets its own cache, on the same cadence as retention.
+const MULTIPART_TTL_MS = 300_000;
+const multipartCache = new Map<string, { ts: number; value: S3MultipartUploadsStats }>();
+
+/**
+ * Incomplete multipart uploads on a bucket, for regression detection against
+ * the 2026-09-10 pyramid-showroom incident (5,664 stale uploads, aborted by
+ * hand). Fail-soft: a listing error yields `null`, which the caller must treat
+ * as "unknown", never as zero.
+ */
+export async function readMultipartUploads(bucket: string): Promise<S3MultipartUploadsStats | null> {
+  const hit = multipartCache.get(bucket);
+  if (hit && Date.now() - hit.ts < MULTIPART_TTL_MS) return hit.value;
+
+  try {
+    const value = await s3IncompleteMultipartUploads(bucket);
+    multipartCache.set(bucket, { ts: Date.now(), value });
+    return value;
+  } catch {
+    return null;
+  }
 }
 
 export interface BucketSubstrate {
@@ -170,6 +218,8 @@ export interface BucketSubstrate {
   available: boolean;
   /** Lifecycle expiry + Object Lock, read from the bucket. */
   retention?: BucketRetention;
+  /** Incomplete multipart uploads, read from the bucket. Absent when the listing failed. */
+  multipartUploads?: S3MultipartUploadsStats;
 }
 
 export interface RecentObject extends S3RecentObject {
@@ -260,6 +310,17 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
     }),
   );
 
+  // Incomplete multipart uploads, same cadence and same fail-soft treatment as
+  // retention — see readMultipartUploads for why this is a regression check,
+  // not routine housekeeping.
+  const multipartUploads = new Map<string, S3MultipartUploadsStats>();
+  await Promise.all(
+    defs.map(async (d) => {
+      const stats = await readMultipartUploads(d.bucket);
+      if (stats) multipartUploads.set(d.bucket, stats);
+    }),
+  );
+
   // An unretained recordings bucket is the one storage condition that takes the
   // whole stack down on a timer, so it is surfaced as a warning and not left for
   // the operator to notice on a card.
@@ -287,6 +348,11 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
       `${recDef!.bucket}: no lifecycle expiry — recordings are never reclaimed and will fill ARTESCA until writes are refused`,
     );
   }
+  if (recRet && recRet.abortIncompleteMultipartDays === null) {
+    warnings.push(
+      `${recDef!.bucket}: no AbortIncompleteMultipartUpload lifecycle rule — stale multipart uploads accumulate silently and are never reclaimed`,
+    );
+  }
 
   const buckets: BucketSubstrate[] = results
     .map(({ d, s }) => ({
@@ -294,6 +360,7 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
       label: d.label,
       bucket: d.bucket,
       retention: retentions.get(d.bucket),
+      multipartUploads: multipartUploads.get(d.bucket),
       objectCount: s?.objectCount ?? 0,
       bytesTotal: s?.bytesTotal ?? 0,
       bytesLast24h: s?.bytesLast24h ?? 0,

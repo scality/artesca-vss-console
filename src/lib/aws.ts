@@ -9,7 +9,7 @@
  * to AWS — lives in lib/ec2-sg.ts and is lab-only.
  */
 
-import { ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { ListObjectsV2Command, ListMultipartUploadsCommand } from "@aws-sdk/client-s3";
 import { makeS3Client, s3Region } from "@/lib/s3";
 
 const _s3Clients = new Map<string, ReturnType<typeof makeS3Client>>();
@@ -134,4 +134,55 @@ export async function s3SubstrateStats(bucket: string, recentLimit = 8): Promise
     ...(truncated ? { truncated } : {}),
     recent,
   };
+}
+
+export interface S3MultipartUploadsStats {
+  /** In-progress multipart uploads that were never completed or aborted. */
+  count: number;
+  /** Page cap hit before exhausting the bucket — `count` is a lower bound. */
+  truncated: boolean;
+}
+
+// 10 pages × up to 1,000 uploads/page = 10,000 uploads. On pyramid-showroom the
+// recordings bucket carried 5,664 stale multipart uploads on 2026-09-10 — this
+// cap is sized to still return an exact count against that kind of backlog,
+// while a genuinely runaway bucket reports truncated rather than walking forever.
+const MULTIPART_PAGE_LIMIT = 10;
+
+/**
+ * Count incomplete (in-progress, never completed or aborted) multipart uploads
+ * on a bucket. These are invisible to ListObjectsV2 — the upload has no object
+ * key yet — so s3Stats/s3SubstrateStats above cannot see them, and they still
+ * consume capacity until an AbortIncompleteMultipartUpload lifecycle rule (or a
+ * manual abort) clears them out.
+ */
+export async function s3IncompleteMultipartUploads(bucket: string): Promise<S3MultipartUploadsStats> {
+  const client = s3Client();
+  let count = 0;
+  let keyMarker: string | undefined;
+  let uploadIdMarker: string | undefined;
+  let isTruncated = true;
+  let pages = 0;
+  let truncated = false;
+
+  while (isTruncated) {
+    const resp = await client.send(
+      new ListMultipartUploadsCommand({
+        Bucket: bucket,
+        KeyMarker: keyMarker,
+        UploadIdMarker: uploadIdMarker,
+      }),
+    );
+    count += (resp.Uploads ?? []).length;
+    isTruncated = Boolean(resp.IsTruncated);
+    keyMarker = resp.NextKeyMarker;
+    uploadIdMarker = resp.NextUploadIdMarker;
+    pages++;
+    if (isTruncated && pages >= MULTIPART_PAGE_LIMIT) {
+      truncated = true;
+      break;
+    }
+  }
+
+  return { count, truncated };
 }

@@ -19,7 +19,9 @@ interface BucketSubstrate {
     configured: boolean;
     expiresDays: number | null;
     objectLock: boolean;
+    abortIncompleteMultipartDays: number | null;
   };
+  multipartUploads?: { count: number; truncated: boolean };
 }
 interface RecentObject {
   key: string;
@@ -294,7 +296,27 @@ export default function StoragePage() {
                             no expiry rule — never reclaimed
                           </span>
                         )}
+                        {b.retention.abortIncompleteMultipartDays != null ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            aborts stale uploads after {b.retention.abortIncompleteMultipartDays}d
+                          </span>
+                        ) : (
+                          <span
+                            className="text-[10px] font-medium text-amber-600"
+                            title="No AbortIncompleteMultipartUpload rule: incomplete multipart uploads are never reclaimed from this bucket — on pyramid-showroom the recordings bucket carried 5,664 of them before they were aborted by hand."
+                          >
+                            no multipart-abort rule — never reclaimed
+                          </span>
+                        )}
                       </div>
+                    )}
+                    {b.multipartUploads && (
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        {b.multipartUploads.count.toLocaleString()} incomplete multipart upload
+                        {b.multipartUploads.count === 1 ? "" : "s"}
+                        {b.multipartUploads.truncated ? " (capped — actual count is higher)" : ""}
+                      </p>
                     )}
                   </div>
                 );

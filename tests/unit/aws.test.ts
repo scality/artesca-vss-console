@@ -28,11 +28,11 @@ vi.mock("@/lib/s3", () => ({
 // We still use the real command classes (only the clients are mocked) so we
 // can assert `expect(cmd).toBeInstanceOf(...)`.
 
-import { ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { ListObjectsV2Command, ListMultipartUploadsCommand } from "@aws-sdk/client-s3";
 
 // ─── Module under test ─────────────────────────────────────────────────────────
 
-import { s3Stats } from "@/lib/aws";
+import { s3Stats, s3IncompleteMultipartUploads } from "@/lib/aws";
 
 // ─── Lifecycle ─────────────────────────────────────────────────────────────────
 
@@ -143,6 +143,80 @@ describe("s3Stats", () => {
 
     const cmd = mockS3Send.mock.calls[0][0];
     expect(cmd).toBeInstanceOf(ListObjectsV2Command);
+    expect(cmd.input.Bucket).toBe("specific-bucket");
+  });
+});
+
+// ─── s3IncompleteMultipartUploads ───────────────────────────────────────────────
+//
+// Regression guard for the 2026-09-10 pyramid-showroom incident: the recordings
+// bucket carried 5,664 incomplete multipart uploads, invisible to ListObjectsV2
+// (s3Stats above), aborted by hand.
+
+describe("s3IncompleteMultipartUploads", () => {
+  it("single page: counts the uploads and reports not truncated", async () => {
+    mockS3Send.mockResolvedValueOnce({
+      Uploads: [{ Key: "a", UploadId: "1" }, { Key: "b", UploadId: "2" }],
+      IsTruncated: false,
+    });
+
+    const result = await s3IncompleteMultipartUploads("recordings-bucket");
+
+    expect(result).toEqual({ count: 2, truncated: false });
+    expect(mockS3Send).toHaveBeenCalledTimes(1);
+  });
+
+  it("multi-page: walks KeyMarker/UploadIdMarker until IsTruncated is false", async () => {
+    mockS3Send
+      .mockResolvedValueOnce({
+        Uploads: [{ Key: "k1", UploadId: "1" }, { Key: "k2", UploadId: "2" }],
+        IsTruncated: true,
+        NextKeyMarker: "k2",
+        NextUploadIdMarker: "2",
+      })
+      .mockResolvedValueOnce({
+        Uploads: [{ Key: "k3", UploadId: "3" }],
+        IsTruncated: false,
+      });
+
+    const result = await s3IncompleteMultipartUploads("paged-bucket");
+
+    expect(result).toEqual({ count: 3, truncated: false });
+    const secondCall = mockS3Send.mock.calls[1][0];
+    expect(secondCall).toBeInstanceOf(ListMultipartUploadsCommand);
+    expect(secondCall.input.KeyMarker).toBe("k2");
+    expect(secondCall.input.UploadIdMarker).toBe("2");
+  });
+
+  it("caps the walk at 10 pages and reports truncated rather than looping forever", async () => {
+    mockS3Send.mockImplementation(async () => ({
+      Uploads: [{ Key: "k", UploadId: "u" }],
+      IsTruncated: true,
+      NextKeyMarker: "k",
+      NextUploadIdMarker: "u",
+    }));
+
+    const result = await s3IncompleteMultipartUploads("runaway-bucket");
+
+    expect(mockS3Send).toHaveBeenCalledTimes(10);
+    expect(result).toEqual({ count: 10, truncated: true });
+  });
+
+  it("empty bucket: count 0, not truncated", async () => {
+    mockS3Send.mockResolvedValueOnce({ Uploads: [], IsTruncated: false });
+
+    const result = await s3IncompleteMultipartUploads("empty-bucket");
+
+    expect(result).toEqual({ count: 0, truncated: false });
+  });
+
+  it("passes the Bucket name into ListMultipartUploadsCommand", async () => {
+    mockS3Send.mockResolvedValueOnce({ Uploads: [], IsTruncated: false });
+
+    await s3IncompleteMultipartUploads("specific-bucket");
+
+    const cmd = mockS3Send.mock.calls[0][0];
+    expect(cmd).toBeInstanceOf(ListMultipartUploadsCommand);
     expect(cmd.input.Bucket).toBe("specific-bucket");
   });
 });

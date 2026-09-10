@@ -9,6 +9,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  *   configured: true   → an enabled expiry exists; objects are reclaimed
  *   configured: false  → NO rule; nothing is EVER reclaimed (must not read as "unlimited")
  *   objectLock: true   → deletes refused regardless of any lifecycle rule
+ *
+ * abortIncompleteMultipartDays carries the same true/false-as-null distinction
+ * for the AbortIncompleteMultipartUpload rule: null means no such rule is
+ * enabled, and must read as a warning rather than as "nothing to worry about" —
+ * on pyramid-showroom the recordings bucket carried 5,664 incomplete multipart
+ * uploads with no rule to clear them, aborted by hand.
  */
 
 const send = vi.fn();
@@ -39,7 +45,12 @@ describe("readRetention", () => {
       );
     });
     const r = await readRetention("nvidia-vss-recordings");
-    expect(r).toEqual({ configured: false, expiresDays: null, objectLock: false });
+    expect(r).toEqual({
+      configured: false,
+      expiresDays: null,
+      objectLock: false,
+      abortIncompleteMultipartDays: null,
+    });
   });
 
   it("reports the shortest ENABLED expiry, ignoring disabled rules", async () => {
@@ -66,7 +77,43 @@ describe("readRetention", () => {
       return Promise.resolve({ ObjectLockConfiguration: { ObjectLockEnabled: "Enabled" } });
     });
     const r = await readRetention("nvidia-vss-evidence");
-    expect(r).toEqual({ configured: false, expiresDays: null, objectLock: true });
+    expect(r).toEqual({
+      configured: false,
+      expiresDays: null,
+      objectLock: true,
+      abortIncompleteMultipartDays: null,
+    });
+  });
+
+  it("reads the shortest ENABLED AbortIncompleteMultipartUpload rule off the same lifecycle call", async () => {
+    send.mockImplementation((cmd: unknown) => {
+      if (isLifecycle(cmd)) {
+        return Promise.resolve({
+          Rules: [
+            { Status: "Enabled", AbortIncompleteMultipartUpload: { DaysAfterInitiation: 14 } },
+            { Status: "Enabled", AbortIncompleteMultipartUpload: { DaysAfterInitiation: 3 } },
+            { Status: "Disabled", AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } },
+          ],
+        });
+      }
+      throw new Error("ObjectLockConfigurationNotFoundError");
+    });
+    const r = await readRetention("nvidia-vss-recordings");
+    expect(r.abortIncompleteMultipartDays).toBe(3);
+    // One lifecycle read serves both the expiry and the abort rule.
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports abortIncompleteMultipartDays: null when only an expiry rule is enabled", async () => {
+    send.mockImplementation((cmd: unknown) => {
+      if (isLifecycle(cmd)) {
+        return Promise.resolve({ Rules: [{ Status: "Enabled", Expiration: { Days: 30 } }] });
+      }
+      throw new Error("ObjectLockConfigurationNotFoundError");
+    });
+    const r = await readRetention("nvidia-vss-recordings");
+    expect(r.expiresDays).toBe(30);
+    expect(r.abortIncompleteMultipartDays).toBeNull();
   });
 
   it("a rule with no Expiration.Days does not count as configured", async () => {
