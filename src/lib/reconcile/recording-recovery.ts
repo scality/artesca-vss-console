@@ -114,7 +114,13 @@ const everRecorded = new Set<string>();
 const escalationState: { lastEscalationAt?: number; restarts: number } = { restarts: 0 };
 
 export interface RecoverStalledRecordingDeps {
-  /** Live VST sensors this cycle (any status — only ONLINE ones are acted on). */
+  /**
+   * Live VST sensors this cycle. ONLINE ones are probed for recording. OFFLINE
+   * ones are eligible too, when `sourceAnswers` is provided and their desired
+   * RTSP source answers: VST marks a sensor offline when the source does not
+   * answer at add time, and never retries it — pyramid-18-cam0 stayed dark
+   * after the 2026-09-10 reboot with its camera reachable the whole time.
+   */
   sensors: VstSensor[];
   /** Desired camera definitions, for rtspUrl resolution on re-arm. */
   desired: CameraEntry[];
@@ -122,6 +128,12 @@ export interface RecoverStalledRecordingDeps {
   probe: (streamId: string) => Promise<RecordingStatus>;
   /** Re-arm action (injected for testability). */
   rearm: (name: string, rtspUrl: string, streamId: string) => Promise<{ ok: boolean; warnings: string[] }>;
+  /**
+   * Does the RTSP source behind `rtspUrl` answer? Gates the re-arm of OFFLINE
+   * sensors: an unreachable source is a camera problem a re-arm cannot fix, and
+   * re-adding it would only churn VST. Absent = offline sensors are left alone.
+   */
+  sourceAnswers?: (rtspUrl: string) => Promise<boolean>;
   /**
    * Escalation action (injected for testability): rollout-restart the VST
    * streamprocessing workload. Fired when enough previously-recording sensors
@@ -154,6 +166,23 @@ export async function recoverStalledRecording(
   const cfg: RecoveryConfig = { ...DEFAULT_RECOVERY_CONFIG, ...deps.config };
   const desiredByName = new Map(deps.desired.map((c) => [c.id, c.rtspUrl]));
   const online = deps.sensors.filter((s) => s.status === "online" && s.name);
+  // Offline sensors whose source answers are treated as "not-recording" and
+  // walk the same threshold / cooldown / attempt gates as a stalled online one.
+  const offlineReachable: VstSensor[] = [];
+  if (deps.sourceAnswers) {
+    for (const s of deps.sensors) {
+      if (s.status !== "offline" || !s.name) continue;
+      const rtspUrl = desiredByName.get(s.name as string);
+      if (!rtspUrl) continue;
+      let answers = false;
+      try {
+        answers = await deps.sourceAnswers(rtspUrl);
+      } catch (err) {
+        deps.log?.warn(`recording-recovery: source probe threw for ${s.name}`, { err });
+      }
+      if (answers) offlineReachable.push(s);
+    }
+  }
 
   const outcomes: SensorRecoveryOutcome[] = [];
   const reArmed: string[] = [];
@@ -161,16 +190,20 @@ export async function recoverStalledRecording(
   const stalledRecoverable: string[] = [];
   let rearmsThisCycle = 0;
 
-  for (const sensor of online) {
+  for (const sensor of [...online, ...offlineReachable]) {
     const name = sensor.name as string;
     const streamId = streamIdOf(sensor);
 
     let status: RecordingStatus;
-    try {
-      status = await deps.probe(streamId);
-    } catch (err) {
-      status = "unknown";
-      deps.log?.warn(`recording-recovery: probe threw for ${name}`, { err });
+    if (sensor.status === "offline") {
+      status = "not-recording";
+    } else {
+      try {
+        status = await deps.probe(streamId);
+      } catch (err) {
+        status = "unknown";
+        deps.log?.warn(`recording-recovery: probe threw for ${name}`, { err });
+      }
     }
 
     if (status === "recording") {

@@ -54,6 +54,7 @@ export async function runReconcileAgentOnce(deps: RunReconcileAgentDeps): Promis
       const { rearmRecording } = await import("@/lib/helpers/rearm-recording");
       const { recoverStalledRecording } = await import("@/lib/reconcile/recording-recovery");
       const { VstClusterAdapter } = await import("@/lib/reconcile/cluster-adapter");
+      const { rtspSourceAnswers } = await import("@/lib/helpers/rtsp-probe");
       const recoveryAdapter = new VstClusterAdapter();
 
       const [{ sensors }, desired] = await Promise.all([
@@ -65,6 +66,7 @@ export async function runReconcileAgentOnce(deps: RunReconcileAgentDeps): Promis
         desired,
         probe: probeRecording,
         rearm: rearmRecording,
+        sourceAnswers: rtspSourceAnswers,
         restartStreamProcessing: () => recoveryAdapter.restartStreamProcessing!(),
         config: CLUSTER.recording,
         log: deps.log,

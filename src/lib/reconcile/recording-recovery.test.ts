@@ -528,3 +528,59 @@ describe("escalation", () => {
     expect(restart).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("recoverStalledRecording — offline sensors whose source answers", () => {
+  beforeEach(() => _resetRecoveryStateForTests());
+
+  const cfg = { stallThresholdMs: 1_000, rearmCooldownMs: 0, rearmMaxAttempts: 3, rearmMaxPerCycle: 4, escalateEnabled: false };
+
+  it("re-arms an offline sensor once past the stall threshold when its RTSP source answers", async () => {
+    const fns = mkFns();
+    const sensors = [mkSensor("cam-a", "offline")];
+    const desired = [mkCamera("cam-a")];
+    const sourceAnswers = vi.fn(async () => true);
+    const first = await recoverStalledRecording({
+      sensors, desired, probe: allProbe([], "unknown"), rearm: fns.rearm, sourceAnswers, now: () => 0, config: cfg,
+    });
+    expect(first.outcomes).toEqual([expect.objectContaining({ name: "cam-a", probe: "not-recording", outcome: "waiting" })]);
+    expect(fns.rearm).not.toHaveBeenCalled();
+
+    const second = await recoverStalledRecording({
+      sensors, desired, probe: allProbe([], "unknown"), rearm: fns.rearm, sourceAnswers, now: () => 2_000, config: cfg,
+    });
+    expect(second.reArmed).toEqual(["cam-a"]);
+    expect(fns.rearm).toHaveBeenCalledWith("cam-a", "rtsp://cam/cam-a", expect.any(String));
+    expect(sourceAnswers).toHaveBeenCalledWith("rtsp://cam/cam-a");
+  });
+
+  it("leaves an offline sensor alone when its source does not answer", async () => {
+    const fns = mkFns();
+    const summary = await recoverStalledRecording({
+      sensors: [mkSensor("cam-b", "offline")], desired: [mkCamera("cam-b")],
+      probe: allProbe([], "unknown"), rearm: fns.rearm, sourceAnswers: async () => false, now: () => 5_000, config: cfg,
+    });
+    expect(summary.outcomes).toEqual([]);
+    expect(fns.rearm).not.toHaveBeenCalled();
+  });
+
+  it("leaves offline sensors alone when no source probe is provided", async () => {
+    const fns = mkFns();
+    const summary = await recoverStalledRecording({
+      sensors: [mkSensor("cam-c", "offline")], desired: [mkCamera("cam-c")],
+      probe: allProbe([], "unknown"), rearm: fns.rearm, now: () => 5_000, config: cfg,
+    });
+    expect(summary.outcomes).toEqual([]);
+    expect(fns.rearm).not.toHaveBeenCalled();
+  });
+
+  it("does not probe recording for an offline sensor, and a throwing source probe is a no", async () => {
+    const fns = mkFns();
+    const probe = vi.fn(async () => "recording" as RecordingStatus);
+    const summary = await recoverStalledRecording({
+      sensors: [mkSensor("cam-d", "offline")], desired: [mkCamera("cam-d")],
+      probe, rearm: fns.rearm, sourceAnswers: async () => { throw new Error("boom"); }, now: () => 5_000, config: cfg,
+    });
+    expect(probe).not.toHaveBeenCalled();
+    expect(summary.outcomes).toEqual([]);
+  });
+});
