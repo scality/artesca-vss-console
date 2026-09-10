@@ -3,6 +3,7 @@ import { appsV1, resolveEnvValue } from "@/lib/k8s";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { AGENT_DEPLOYMENT_NAME, collectAgentBehavior } from "@/lib/agent-config";
 import { loadIncidentReport, saveIncidentReport } from "@/lib/db";
+import { isHostedClaudeBaseUrl } from "@/lib/agent-presets";
 
 /**
  * incident-report.ts — synthesizes a structured markdown incident report
@@ -141,9 +142,9 @@ async function resolveAgentApiKey(baseUrl: string): Promise<string | undefined> 
     });
     const env = deployment.spec?.template?.spec?.containers?.[0]?.env ?? [];
     const ns = CLUSTER.vssNamespace;
-    const anthropic = baseUrl.includes("anthropic.com");
-    const primary = anthropic ? "OPENAI_API_KEY" : "NVIDIA_API_KEY";
-    const secondary = anthropic ? "NVIDIA_API_KEY" : "OPENAI_API_KEY";
+    const hostedClaude = isHostedClaudeBaseUrl(baseUrl);
+    const primary = hostedClaude ? "OPENAI_API_KEY" : "NVIDIA_API_KEY";
+    const secondary = hostedClaude ? "NVIDIA_API_KEY" : "OPENAI_API_KEY";
     return (
       (await resolveEnvValue(env, primary, ns)) ??
       (await resolveEnvValue(env, secondary, ns))
@@ -167,9 +168,10 @@ async function callReportLlm(
   const apiKey = await resolveAgentApiKey(baseUrl);
   const url = `${baseUrl.replace(/\/+$/, "")}/v1/chat/completions`;
 
-  // Anthropic's OpenAI-compatible endpoint (4.6+) rejects `temperature` on
-  // this surface — same gotcha as the /agent page's Claude preset.
-  const isAnthropic = modelType === "openai" && baseUrl.includes("anthropic.com");
+  // Claude 4.6+ rejects `temperature` on the OpenAI-compatible chat surface,
+  // and OpenRouter forwards the body to Anthropic unchanged — same gotcha as
+  // the /agent page's Claude preset.
+  const hostedClaude = modelType === "openai" && isHostedClaudeBaseUrl(baseUrl);
 
   const body: Record<string, unknown> = {
     model: modelName || "default",
@@ -178,11 +180,11 @@ async function callReportLlm(
       { role: "user", content: buildUserPrompt(sensorId, ts, info) },
     ],
   };
-  if (!isAnthropic) body.temperature = 0.2;
+  if (!hostedClaude) body.temperature = 0.2;
 
   // The OpenAI-compatible /v1/chat/completions surface (unlike the native
   // /v1/models probe in gpu-allocation.ts) authenticates the same way for
-  // both NIM and Anthropic — a plain Bearer token.
+  // both NIM and OpenRouter — a plain Bearer token.
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (apiKey) headers.authorization = `Bearer ${apiKey}`;
 

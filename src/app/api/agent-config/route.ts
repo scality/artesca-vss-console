@@ -15,6 +15,7 @@ import {
 } from "@/lib/agent-config-write";
 import { probeRemoteLlmEndpoint } from "@/lib/gpu-allocation";
 import { collectAgentReachability } from "@/lib/agent-health";
+import { isHostedClaudeBaseUrl } from "@/lib/agent-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -44,13 +45,13 @@ async function readAgentApiKey(baseUrl: string): Promise<string | undefined> {
     });
     const env = deployment.spec?.template?.spec?.containers?.[0]?.env ?? [];
     const ns = CLUSTER.vssNamespace;
-    // Anthropic's compat endpoint authenticates with OPENAI_API_KEY (wired here
-    // as a secretKeyRef); NVIDIA/NIM endpoints use NVIDIA_API_KEY. Resolve the
-    // right one — following a secretKeyRef — so the probe doesn't send an
-    // unrelated plaintext key to Anthropic and report a false auth failure.
-    const anthropic = baseUrl.includes("anthropic.com");
-    const primary = anthropic ? "OPENAI_API_KEY" : "NVIDIA_API_KEY";
-    const secondary = anthropic ? "NVIDIA_API_KEY" : "OPENAI_API_KEY";
+    // The hosted-Claude compat endpoint authenticates with OPENAI_API_KEY (wired
+    // here as a secretKeyRef); NVIDIA/NIM endpoints use NVIDIA_API_KEY. Resolve
+    // the right one — following a secretKeyRef — so the probe doesn't send an
+    // unrelated plaintext key to OpenRouter and report a false auth failure.
+    const hostedClaude = isHostedClaudeBaseUrl(baseUrl);
+    const primary = hostedClaude ? "OPENAI_API_KEY" : "NVIDIA_API_KEY";
+    const secondary = hostedClaude ? "NVIDIA_API_KEY" : "OPENAI_API_KEY";
     return (
       (await resolveEnvValue(env, primary, ns)) ??
       (await resolveEnvValue(env, secondary, ns))
@@ -127,11 +128,12 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
   // Warn but don't block the save; the operator may be mid-edit.
   const trailingV1 = llmBaseUrl !== undefined && /\/v1\/?$/.test(llmBaseUrl);
 
-  // Anthropic's 4.6+ models reject `temperature` on the OpenAI-compatible
-  // endpoint; the agent's openai_llm profile hardcodes it, so strip it from
-  // config.yml when routing to an Anthropic endpoint or the chat 400s at runtime.
+  // Claude 4.6+ models reject `temperature` on the OpenAI-compatible endpoint
+  // (OpenRouter forwards the body to Anthropic unchanged); the agent's
+  // openai_llm profile hardcodes it, so strip it from config.yml when routing
+  // to a hosted-Claude endpoint or the chat 400s at runtime.
   const stripOpenaiLlmTemperature =
-    llmModelType === "openai" && (llmBaseUrl ?? "").includes("anthropic.com");
+    llmModelType === "openai" && isHostedClaudeBaseUrl(llmBaseUrl ?? "");
 
   try {
     await patchAgentWorkflowConfig({ maxIterations, prompt, stripOpenaiLlmTemperature });

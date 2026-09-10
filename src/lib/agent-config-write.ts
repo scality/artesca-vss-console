@@ -6,9 +6,10 @@ import { appsV1, rolloutRestart, JSON_PATCH_OPTS } from "@/lib/k8s";
 import { extractK8sError } from "@/lib/errors";
 import { AGENT_DEPLOYMENT_NAME } from "@/lib/agent-config";
 
-/** K8s secret (ns = CLUSTER.vssNamespace) holding the Anthropic API key,
- *  seeded out-of-band from Secret Manager. Referenced via secretKeyRef so the
- *  key is never a plaintext env value or exposed to the browser. */
+/** K8s secret (ns = CLUSTER.vssNamespace) holding the OpenRouter API key the
+ *  agent uses on the Claude path, seeded out-of-band from Secret Manager. Its
+ *  name is a fixed cluster reference. Referenced via secretKeyRef so the key is
+ *  never a plaintext env value or exposed to the browser. */
 export const ANTHROPIC_KEY_SECRET = { name: "vss-agent-anthropic", key: "OPENAI_API_KEY" } as const;
 
 /**
@@ -39,9 +40,10 @@ export interface AgentConfigPatch {
   maxIterations?: number;
   prompt?: string;
   /** Remove `temperature` from the openai LLM profile(s) in config.yml.
-   *  Anthropic's 4.6+ models reject `temperature` on the OpenAI-compatible
-   *  endpoint (HTTP 400 "temperature is deprecated for this model"), so it must
-   *  be absent for the agent to route to Claude. Targets `openai_llm` / `llm`
+   *  Claude 4.6+ models reject `temperature` on the OpenAI-compatible endpoint
+   *  (HTTP 400 "temperature is deprecated for this model") and OpenRouter
+   *  forwards the body unchanged, so it must be absent for the agent to route
+   *  to Claude. Targets `openai_llm` / `llm`
    *  only — the `*_vlm` profiles point at the local VLM NIM and keep theirs. */
   stripOpenaiLlmTemperature?: boolean;
 }

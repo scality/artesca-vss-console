@@ -4,6 +4,11 @@ import { redirect } from "next/navigation";
 import * as React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import {
+  MODEL_PRESETS,
+  findMatchingPreset,
+  providerLabel,
+} from "@/lib/agent-presets";
 import { useKiosk } from "@/components/KioskProvider";
 import { Shell } from "@/components/Shell";
 import { Button } from "@/components/ui/button";
@@ -82,77 +87,9 @@ const RECOMMENDED_MODELS = [
   },
 ] as const;
 
-/** Model presets — switch the reasoning LLM (including to Claude) without
- *  hand-typing base URLs. Picking a Claude preset sends llmModelType:
- *  "openai"; the server wires the Anthropic API key itself via a K8s
- *  secretKeyRef — the UI never asks for or sends a key. */
-const MODEL_PRESETS = [
-  {
-    id: "nemotron-super-49b",
-    label: "Nemotron Super 49B",
-    provider: "NVIDIA",
-    modelType: "nim",
-    baseUrl: "https://integrate.api.nvidia.com",
-    name: "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-  },
-  {
-    id: "claude-opus-4-8",
-    label: "Claude Opus 4.8",
-    provider: "Anthropic",
-    modelType: "openai",
-    baseUrl: "https://api.anthropic.com",
-    name: "claude-opus-4-8",
-  },
-  {
-    id: "claude-sonnet-5",
-    label: "Claude Sonnet 5",
-    provider: "Anthropic",
-    modelType: "openai",
-    baseUrl: "https://api.anthropic.com",
-    name: "claude-sonnet-5",
-  },
-] as const;
-
-function normalizeBaseUrl(url: string): string {
-  return url.trim().toLowerCase().replace(/\/+$/, "");
-}
-
-/** Preselect the preset whose modelType+baseUrl+name match the live config
- *  (case-insensitive, trailing-slash-insensitive on baseUrl). Returns
- *  undefined when nothing matches — the caller falls back to "custom". */
-function findMatchingPreset(
-  modelType: string,
-  baseUrl: string,
-  name: string,
-): (typeof MODEL_PRESETS)[number] | undefined {
-  const normBase = normalizeBaseUrl(baseUrl);
-  const normName = name.trim().toLowerCase();
-  return MODEL_PRESETS.find(
-    (p) =>
-      p.modelType === modelType &&
-      normalizeBaseUrl(p.baseUrl) === normBase &&
-      p.name.toLowerCase() === normName,
-  );
-}
-
-/** Provider label for the active model, derived from modelType (+ baseUrl
- *  host for "openai" — api.anthropic.com reads as "Anthropic", anything
- *  else as "OpenAI-compatible"). */
-function providerLabel(modelType: string, baseUrl: string): string {
-  if (modelType === "openai") {
-    try {
-      if (new URL(baseUrl).host === "api.anthropic.com") return "Anthropic";
-    } catch {
-      // not a parseable URL — fall through to the generic label
-    }
-    return "OpenAI-compatible";
-  }
-  return "NVIDIA";
-}
-
 const PROVIDER_STYLES: Record<string, string> = {
   NVIDIA: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  Anthropic: "bg-violet-50 text-violet-700 border-violet-200",
+  OpenRouter: "bg-violet-50 text-violet-700 border-violet-200",
   "OpenAI-compatible": "bg-sky-50 text-sky-700 border-sky-200",
 };
 
@@ -443,7 +380,7 @@ export default function AgentConfigPage() {
                       </CardTitle>
                       <CardDescription>
                         Pick a preset to switch the reasoning LLM — including to Claude, where
-                        the server wires the Anthropic API key itself. Choose{" "}
+                        the server wires the OpenRouter API key itself. Choose{" "}
                         <strong>Custom</strong> to point at any NIM or OpenAI-compatible
                         endpoint by hand.
                       </CardDescription>

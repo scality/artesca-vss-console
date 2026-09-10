@@ -17,7 +17,7 @@ export interface AgentLlm {
   modelName: string;
   /** LLM_MODEL_TYPE on the vss-agent Deployment env — flips the agent's
    *  single `llm` profile between `_type: nim` and `_type: openai`
-   *  (the latter is how a Claude-via-Anthropic's-OpenAI-compatible-endpoint
+   *  (the latter is how a Claude-via-OpenRouter's-OpenAI-compatible-endpoint
    *  switch is wired). Defaults to "nim" when the env var is unset. */
   modelType: "nim" | "openai";
 }

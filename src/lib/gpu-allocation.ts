@@ -3,6 +3,7 @@ import type { CoreV1Api } from "@kubernetes/client-node";
 import { promQuery, type PromResult } from "@/lib/helpers/prometheus";
 import { coreV1, listAllPodsInNs, watchedNamespaces, resolveEnvValue } from "@/lib/k8s";
 import { createLogger } from "@/lib/logger";
+import { isHostedClaudeBaseUrl } from "@/lib/agent-presets";
 
 const log = createLogger("gpu-allocation");
 
@@ -379,14 +380,14 @@ async function resolveRemoteModels(
       ];
       for (const [role, url, model] of roles) {
         if (url && isRemoteUrl(url)) {
-          // Anthropic endpoints authenticate with OPENAI_API_KEY (a secretKeyRef
-          // here); others use NVIDIA_API_KEY. Resolve the right one — following
-          // the secretKeyRef — so a Claude endpoint isn't probed with an
+          // Hosted-Claude endpoints authenticate with OPENAI_API_KEY (a
+          // secretKeyRef here); others use NVIDIA_API_KEY. Resolve the right one —
+          // following the secretKeyRef — so a Claude endpoint isn't probed with an
           // unrelated plaintext key (which reads a false auth failure).
-          const anthropic = url.includes("anthropic.com");
+          const hostedClaude = isHostedClaudeBaseUrl(url);
           const apiKey =
-            (await resolveEnvValue(rawEnv, anthropic ? "OPENAI_API_KEY" : "NVIDIA_API_KEY", ns)) ??
-            (await resolveEnvValue(rawEnv, anthropic ? "NVIDIA_API_KEY" : "OPENAI_API_KEY", ns));
+            (await resolveEnvValue(rawEnv, hostedClaude ? "OPENAI_API_KEY" : "NVIDIA_API_KEY", ns)) ??
+            (await resolveEnvValue(rawEnv, hostedClaude ? "NVIDIA_API_KEY" : "OPENAI_API_KEY", ns));
           const { health, detail } = await probeRemoteLlmEndpoint(url, apiKey);
           const apiBase = `${url.replace(/\/+$/, "")}/v1`;
           out.push({ role, name: model || "(model)", endpoint: urlHost(url), baseUrl: url, apiBase, health, detail });

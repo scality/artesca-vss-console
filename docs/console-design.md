@@ -236,7 +236,7 @@ All under `src/app/api/*`. JSON in + out except SSE streams.
 | POST | `/api/evidence` | Seal an incident clip into the Object-Lock bucket with retention (GOVERNANCE/COMPLIANCE) |
 | POST | `/api/evidence/verify` | Prove immutability — attempt a version-delete, expect ARTESCA `AccessDenied` |
 | POST | `/api/tts` | Synthesize speech via the on-box Magpie TTS NIM (multipart → `audio/wav`); fail-soft so the client falls back to the browser voice |
-| PATCH | `/api/agent-config` | Patch the `vss-agent-config` ConfigMap + `vss-agent` Deployment env (prompt, LLM name/base URL/provider, `OPENAI_API_KEY` via secretKeyRef for Anthropic) + rollout-restart |
+| PATCH | `/api/agent-config` | Patch the `vss-agent-config` ConfigMap + `vss-agent` Deployment env (prompt, LLM name/base URL/provider, `OPENAI_API_KEY` via secretKeyRef for OpenRouter) + rollout-restart |
 
 ### Live streams (SSE)
 
