@@ -5,8 +5,9 @@ import { CLUSTER } from "@/lib/cluster-refs";
 import { promQuery } from "@/lib/helpers/prometheus";
 import { getKafka } from "@/lib/kafka";
 import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
-import { ListObjectsV2Command } from "@aws-sdk/client-s3";
-import { makeS3Client, s3Endpoint } from "@/lib/s3";
+import { s3Endpoint } from "@/lib/s3";
+import { bucketStatsCached } from "@/lib/storage-substrate";
+import { computeS3State, type BucketSample } from "@/lib/pipeline/s3-state";
 import type {
   PipelineSnapshot,
   NodeRuntimeState,
@@ -25,10 +26,6 @@ import type {
 } from "@/lib/types/pipeline";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-// Hard-coded for the demo profile (sparseLoopDevice, 10×10 GiB).
-// TODO: read from config after Phase 0 validation
-const S3_CEILING_GIB = 100;
 
 // Timeout for all individual external calls (ms)
 const CALL_TIMEOUT_MS = 2_000;
@@ -248,62 +245,29 @@ async function collectGpus(warnings: string[]): Promise<GpuEntry[]> {
 // ─── S3 ───────────────────────────────────────────────────────────────────────
 
 // Simple in-memory put-rate sample (mirrors storage/vst logic; no Redis dep here)
-interface BucketSample {
-  ts: number;
-  count: number;
-  bytes: number;
-}
 const _putRateSample = new Map<string, BucketSample>();
 
 async function collectS3(warnings: string[]): Promise<S3State | null> {
   const bucket = CLUSTER.s3.buckets.recordings;
-  const s3 = makeS3Client();
-  const nowMs = Date.now();
-
+  // The shared full-bucket cache: one paginating scan serves this node, the
+  // overview and the storage page. A single 1000-key page here read 6.99 TiB
+  // as a fraction of a fixed 100 GiB on pyramid-showroom.
   try {
-    // Bounded scan (1 page = 1000 keys max) — fast, keeps under 2 s
-    const resp = await withTimeout(
-      s3.send(new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 1000 })),
-      CALL_TIMEOUT_MS
-    );
-
-    const objects = resp.Contents ?? [];
-    const objectCount = objects.length;
-    const bytesTotal = objects.reduce((s, o) => s + (o.Size ?? 0), 0);
-    const truncated = !!resp.IsTruncated;
-
-    // PUT rate from in-memory delta
-    const prev = _putRateSample.get(bucket);
-    let putRateMBps = 0;
-    let putRateObjPerMin = 0;
-
-    if (prev) {
-      const deltaS = (nowMs - prev.ts) / 1000;
-      if (deltaS > 0) {
-        const deltaBytes = Math.max(0, bytesTotal - prev.bytes);
-        const deltaObjs = Math.max(0, objectCount - prev.count);
-        putRateMBps = deltaBytes / 1024 / 1024 / deltaS;
-        putRateObjPerMin = (deltaObjs / deltaS) * 60;
-      }
+    const { stats, refreshing } = bucketStatsCached(bucket);
+    if (!stats) {
+      warnings.push(refreshing ? "S3 stats still loading (first bucket scan in flight)" : "S3 stats unavailable");
+      return null;
     }
-
-    _putRateSample.set(bucket, { ts: nowMs, count: objectCount, bytes: bytesTotal });
-
-    const ceilingBytes = S3_CEILING_GIB * 1024 * 1024 * 1024;
-    const ceilingPct = (bytesTotal / ceilingBytes) * 100;
-
-    return {
+    const { state, sample } = computeS3State({
       bucket,
       endpoint: s3Endpoint() ?? null,
-      objectCount,
-      bytesTotal,
-      putRateMBps,
-      putRateObjPerMin,
-      ceilingGiB: S3_CEILING_GIB,
-      ceilingPct,
-      bucketScanTruncated: truncated,
-      bucketScanStaleSecs: 0,
-    };
+      totals: stats,
+      capacityBytes: CLUSTER.s3.capacityBytes,
+      prev: _putRateSample.get(bucket),
+      nowMs: Date.now(),
+    });
+    _putRateSample.set(bucket, sample);
+    return state;
   } catch (err) {
     warnings.push(`S3 scan failed: ${errText(err)}`);
     return null;
@@ -1012,12 +976,12 @@ export async function collectSnapshot(): Promise<PipelineSnapshot> {
   // ── S3 node ───────────────────────────────────────────────────────────────
 
   if (s3State) {
+    // Fill against configured capacity. hyperdrive write-protects at 95 %
+    // (pyramid-showroom, 2026-09-10), so that is the failure line. With no
+    // capacity configured there is nothing to judge fill against.
+    const pct = s3State.capacityPct;
     const s3Health: PipelineHealth =
-      s3State.ceilingPct > 95
-        ? "fail"
-        : s3State.ceilingPct > 80
-        ? "warn"
-        : "ok";
+      pct === null ? "ok" : pct > 95 ? "fail" : pct > 80 ? "warn" : "ok";
     nodeMap["artesca-s3"] = { health: s3Health, s3: s3State };
   } else {
     nodeMap["artesca-s3"] = { health: "unknown" };

@@ -45,8 +45,20 @@ function TierNote({ children }: { children: React.ReactNode }) {
 // ─── Ceiling gauge ─────────────────────────────────────────────────────────────
 
 function CeilingGauge({ s3 }: { s3: S3State }) {
-  const pct = s3.ceilingPct;
-  const ceilingGiB = s3.ceilingGiB;
+  const pct = s3.capacityPct;
+  if (pct === null || s3.capacityBytes === null) {
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>Storage fill</span>
+          <span>{formatBytes(s3.bytesTotal)}</span>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Capacity not configured (STORAGE_CAPACITY_BYTES) — fill cannot be shown as a percentage.
+        </p>
+      </div>
+    );
+  }
   const colorClass =
     pct > 90
       ? "[&>div]:bg-red-600"
@@ -57,14 +69,15 @@ function CeilingGauge({ s3 }: { s3: S3State }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>Storage ceiling</span>
+        <span>Storage fill</span>
         <span className={pct > 90 ? "text-red-700 font-medium" : pct > 70 ? "text-amber-700 font-medium" : "text-emerald-700"}>
           {pct.toFixed(1)}%
         </span>
       </div>
       <Progress value={Math.min(100, pct)} className={`h-2 ${colorClass}`} />
       <p className="text-[11px] text-muted-foreground">
-        {pct.toFixed(1)}% of {ceilingGiB} GiB ceiling (demo profile)
+        {formatBytes(s3.bytesTotal)} of {formatBytes(s3.capacityBytes)} configured capacity
+        {s3.bucketScanTruncated ? " (scan truncated — used is a floor)" : ""}
       </p>
     </div>
   );
@@ -279,7 +292,7 @@ function ArtescaS3Status({ runtimeState }: TabRendererProps) {
       <TierNote>
         <span className="font-medium text-foreground">Durable tier.</span> VST
         offloads recorded segments here from the local cache; this bucket is the
-        long-term store, retained up to the {s3.ceilingGiB} GiB ceiling.
+        long-term store, reclaimed by the bucket&apos;s lifecycle rule rather than by a size cap.
       </TierNote>
 
       {/* Primary: PUT rate headline */}

@@ -44,8 +44,10 @@ export interface S3State {
   bytesTotal: number;
   putRateMBps: number;
   putRateObjPerMin: number;
-  ceilingGiB: number;          // hard ceiling (100 for demo profile)
-  ceilingPct: number;          // (bytesTotal / ceilingGiB-in-bytes) * 100
+  /** Operator-configured cluster capacity (STORAGE_CAPACITY_BYTES); null when unset. */
+  capacityBytes: number | null;
+  /** bytesTotal as a percentage of capacityBytes; null when capacity is unknown. */
+  capacityPct: number | null;
   bucketScanTruncated: boolean;
   bucketScanStaleSecs: number;
 }
