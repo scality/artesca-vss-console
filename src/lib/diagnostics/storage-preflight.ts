@@ -3,6 +3,7 @@ import { HeadBucketCommand, S3Client } from "@aws-sdk/client-s3";
 import { CLUSTER } from "../cluster-refs";
 import { readConfigMapKey } from "@/lib/helpers/configmaps";
 import { createLogger } from "@/lib/logger";
+import { readArtescaCapacity } from "@/lib/helpers/artesca-capacity";
 
 const log = createLogger("storage-preflight");
 
@@ -23,6 +24,13 @@ const log = createLogger("storage-preflight");
 //
 // This probe reads the recorder's effective config and actually exercises it,
 // so the failure is reported as a sentence instead of a missing badge.
+//
+// Second observed failure (Pyramid, 2026-09-08): the config was correct and the
+// bucket was readable, but ARTESCA had crossed hyperdrive's 95% guard and was
+// refusing every write with 503. HeadBucket is a READ, so this probe reported
+// green for weeks while not a single segment was stored. Reachability is not
+// writability on a cluster that write-protects itself, so the capacity guard is
+// now checked explicitly.
 
 export type StorageState = "ok" | "fail" | "unknown";
 
@@ -237,6 +245,35 @@ export async function collectStoragePreflight(): Promise<StoragePreflight> {
   } catch (err) {
     const { reason, fix } = classify(err, cfg);
     return { state: "fail", reason, fix, ...base };
+  }
+
+  // The bucket answers reads. That says nothing about whether ARTESCA will
+  // accept a write: hyperdrive refuses writes at its fill guard while serving
+  // reads normally, which is exactly how this probe passed green through a
+  // multi-week outage. Ask the cluster.
+  const capacity = await readArtescaCapacity();
+  if (capacity?.writesRefused) {
+    return {
+      state: "fail",
+      reason: `ARTESCA is refusing writes — cluster fill ${capacity.fillPercent.toFixed(2)}% has reached the ${capacity.criticalPercent}% guard`,
+      fix: "Free space or expand capacity. Deleting objects only frees disk once a relocation pass completes, so allow time before re-checking.",
+      ...base,
+    };
+  }
+  if (capacity?.warning) {
+    return {
+      state: "fail",
+      reason: `ARTESCA cluster fill is ${capacity.fillPercent.toFixed(2)}%, past the ${capacity.earlyPercent}% early-warning line and heading for the ${capacity.criticalPercent}% write guard`,
+      fix: "Reduce retention or expand capacity before writes start being refused.",
+      ...base,
+    };
+  }
+  // capacity === null means hyperdrive was unreachable. Do NOT fail on that —
+  // the recorder's own credentials just succeeded against the bucket, so the
+  // storage path is demonstrably working and an unreachable metrics endpoint is
+  // a monitoring gap rather than a storage fault.
+  if (capacity === null) {
+    log.warn("ARTESCA capacity unreadable — reporting storage ok on the HeadBucket result alone");
   }
 
   return { state: "ok", ...base };
