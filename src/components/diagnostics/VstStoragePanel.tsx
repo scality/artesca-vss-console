@@ -38,11 +38,7 @@ import { formatBytes } from "@/lib/format-bytes";
 // ──────────────────────────────────────────────
 
 function formatSizeBucket(minKB: number, maxKB: number | null): string {
-  const fmt = (kb: number): string => {
-    if (kb >= 1024 * 1024) return `${kb / (1024 * 1024)} TB`;
-    if (kb >= 1024) return `${kb / 1024} MB`;
-    return `${kb} KB`;
-  };
+  const fmt = (kb: number): string => (kb === 0 ? "0 KB" : formatBytes(kb * 1024, 0));
   if (maxKB === null) return `${fmt(minKB)}+`;
   return `${fmt(minKB)}–${fmt(maxKB)}`;
 }
