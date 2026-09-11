@@ -8,6 +8,30 @@ The **console** is the in-cluster post-install operator UI for the ARTESCA+ VSS 
 
 For the platform substrate, see the top-level [`CLAUDE.md`](isv-labs:CLAUDE.md). Design rationale + page spec (the operator-facing intent of each page): [`docs/console-design.md`](docs/console-design.md).
 
+## Working with Claude Code: the main session orchestrates, subagents do the work
+
+Keep the session the human types in lean. It holds requests, decisions and short
+conclusions; reading, searching, implementing, testing and reviewing happen in
+subagents (Agent tool), which return a summary rather than file dumps.
+
+- **Delegate by default** whenever a task means reading several files, sweeping the
+  codebase, implementing, running long gates, or reviewing. Work directly only for a
+  single-fact lookup or a one-line edit where the file and change are already known.
+- **Pick the model by complexity — Sonnet is the floor, never Haiku:**
+  - **Sonnet** — mechanical work whose target is already stated: searches, enumeration,
+    edits the tests pin, running gates, doc updates.
+  - **Opus** — judgement: design, debugging, reviews, anything that moves a figure or
+    classifies.
+  - **Fable** — sparingly, it is the most expensive: only the hardest calls, where
+    Opus is genuinely not enough — adversarial verification of a change that matters,
+    synthesis across many results, security-sensitive or schema/production-affecting
+    changes. One Fable pass at the end beats Fable on every step.
+- **Brief each subagent fully** — it starts with no context: goal, paths, constraints,
+  what "done" means, and what to report back. Ask for the conclusion and evidence, not
+  transcripts. Run independent agents in parallel.
+- **Relay only what matters** to the human: outcome, decisions needed, verification
+  evidence. A subagent's "tests pass" is a claim until the evidence is seen.
+
 ## Page tree
 
 23 pages (22 in the nav plus `/cameras/bindings`), all server components by default; client components are scoped to interactive bits (forms, auto-refresh). The sidebar ([`Nav.tsx`](src/components/Nav.tsx)) groups them into four labeled sections — **Live** (Overview / Topology / Incidents / Cameras), **AI & Storage** (Search / Ask the Store / VSS Chat / Evidence / Storage / KV Cache), **Configure** (Scenarios / VLM Prompt / Tuning / Agent / Test Footage / Profiles), **System** (Secrets / Logs / Diagnostics / Sizing Studio / Settings / About); section headers are hidden in kiosk mode.
