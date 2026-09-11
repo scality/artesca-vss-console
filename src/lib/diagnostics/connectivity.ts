@@ -10,7 +10,7 @@ import { vstListSensors } from "@/lib/helpers/vst";
 import { configStoreLabel } from "@/lib/config-store";
 
 export interface BackendStatus {
-  id: "k8s" | "prometheus" | "kafka" | "vst" | "s3" | "alert-bridge" | "config-store";
+  id: "k8s" | "prometheus" | "kafka" | "vst" | "vst-playback" | "s3" | "alert-bridge" | "config-store";
   label: string;
   ok: boolean;
   /** Optional finer grade. Absent → derived as ok?"ok":"error". "warn" = healthy
@@ -148,6 +148,20 @@ async function probeVst(): Promise<BackendStatus> {
   };
 }
 
+async function probeVstPlayback(): Promise<BackendStatus> {
+  const id: BackendStatus["id"] = "vst-playback";
+  const label = "Playback (VST storage)";
+  const t0 = Date.now();
+  try {
+    const { probePlayback } = await import("@/lib/diagnostics/playback-health");
+    const v = await probePlayback();
+    return { id, label, ok: v.ok, severity: v.severity, detail: v.detail, latencyMs: Date.now() - t0 };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { id, label, ok: false, severity: "error", detail: `probe failed: ${msg}`, latencyMs: Date.now() - t0 };
+  }
+}
+
 async function probeAlertBridge(): Promise<BackendStatus> {
   const id: BackendStatus["id"] = "alert-bridge";
   const label = "Alert bridge (incidents)";
@@ -216,15 +230,17 @@ export async function probeConfigStore(): Promise<BackendStatus> {
  * Never throws.
  */
 export async function collectConnectivity(): Promise<BackendStatus[]> {
-  const [k8s, prometheus, kafka, vst, s3, alertBridge, configStore] = await Promise.all([
+  const [k8s, prometheus, kafka, vst, vstPlayback, s3, alertBridge, configStore] = await Promise.all([
     Promise.race([probeK8s(), timeoutStatus("k8s", "K8s API", PROBE_TIMEOUT_MS)]),
     Promise.race([probePrometheus(), timeoutStatus("prometheus", "Prometheus", PROBE_TIMEOUT_MS)]),
     Promise.race([probeKafka(), timeoutStatus("kafka", "Kafka", PROBE_TIMEOUT_MS)]),
     Promise.race([probeVst(), timeoutStatus("vst", "Cameras (VST)", PROBE_TIMEOUT_MS)]),
+    // A clip fetch transcodes on the node; it gets its own, longer budget.
+    Promise.race([probeVstPlayback(), timeoutStatus("vst-playback", "Playback (VST storage)", 15_000)]),
     Promise.race([probeS3(), timeoutStatus("s3", "S3", PROBE_TIMEOUT_MS)]),
     Promise.race([probeAlertBridge(), timeoutStatus("alert-bridge", "Alert bridge (incidents)", PROBE_TIMEOUT_MS)]),
     Promise.race([probeConfigStore(), timeoutStatus("config-store", configStoreLabel(), PROBE_TIMEOUT_MS)]),
   ]);
 
-  return [k8s, prometheus, kafka, vst, s3, alertBridge, configStore];
+  return [k8s, prometheus, kafka, vst, vstPlayback, s3, alertBridge, configStore];
 }
