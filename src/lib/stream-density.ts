@@ -17,8 +17,14 @@ export interface GpuDensity {
 export interface StreamDensitySnapshot {
   /** VLM requests/sec across all streams (rate of the VLM latency-histogram count). */
   reqPerSec: number | null;
-  /** Fraction 0–1 of VLM requests slower than 1s — NVIDIA's scale signal. */
+  /** Fraction 0–1 of VLM requests slower than 1 s. NVIDIA's HPA trigger, which
+   *  reads "behind real time" only when a chunk is itself about a second long;
+   *  at a 30 s chunk every request is over 1 s while the VLM idles two thirds
+   *  of the time. Displayed, not judged. */
   pctOver1s: number | null;
+  /** P95 latency as a fraction of the chunk duration — the real-time budget a
+   *  chunk's analysis consumes. 0.29 at P95 8.75 s / 30 s chunk. */
+  chunkBudgetUsed: number | null;
   /** P95 VLM request latency, ms. */
   latencyP95Ms: number | null;
   /** VLM output throughput, tokens/sec. */
@@ -41,7 +47,11 @@ export interface StreamDensitySnapshot {
 }
 
 const DEFAULT_CHUNK_S = Number(process.env.VLM_CHUNK_DURATION ?? "30");
-const SATURATION_THRESHOLD = 0.4; // NVIDIA HPA trigger: scale at >= 40% over 1s
+// Real time holds while a chunk is analysed well inside its own duration. Past
+// 80 % of the budget the next chunk queues behind the last; past 50 % a burst
+// (a scene change lengthening reasoning) does the same.
+const BUDGET_SATURATED = 0.8;
+const BUDGET_WARN = 0.5;
 
 function parseSingle(r: { results: Array<{ value: [number, string] }> }): number | null {
   const raw = r.results[0]?.value?.[1];
@@ -116,16 +126,26 @@ export async function collectStreamDensity(
   const estimatedActiveStreams =
     reqPerSec !== null ? Math.round(reqPerSec * chunkDurationSecs) : null;
 
+  const chunkBudgetUsed =
+    p95Secs !== null && chunkDurationSecs > 0 ? p95Secs / chunkDurationSecs : null;
+  // Streams the VLM holds but is not producing one request per chunk for: the
+  // direct sign that chunks are being dropped or queued.
+  const shortfall =
+    activeStreams !== null && estimatedActiveStreams !== null
+      ? activeStreams - estimatedActiveStreams
+      : null;
+
   let verdict: StreamDensitySnapshot["verdict"] = "unknown";
-  if (pctOver1s !== null) {
-    if (pctOver1s >= SATURATION_THRESHOLD) verdict = "saturated";
-    else if (pctOver1s >= SATURATION_THRESHOLD / 2) verdict = "warn";
+  if (chunkBudgetUsed !== null) {
+    if (chunkBudgetUsed >= BUDGET_SATURATED || (shortfall !== null && shortfall >= 2)) verdict = "saturated";
+    else if (chunkBudgetUsed >= BUDGET_WARN || shortfall === 1) verdict = "warn";
     else verdict = "ok";
   }
 
   return {
     reqPerSec,
     pctOver1s,
+    chunkBudgetUsed,
     latencyP95Ms: p95Secs !== null ? p95Secs * 1000 : null,
     tokensPerSec,
     activeStreams,

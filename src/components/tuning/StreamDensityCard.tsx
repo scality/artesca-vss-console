@@ -16,6 +16,7 @@ interface GpuDensity {
 interface StreamDensitySnapshot {
   reqPerSec: number | null;
   pctOver1s: number | null;
+  chunkBudgetUsed: number | null;
   latencyP95Ms: number | null;
   tokensPerSec: number | null;
   activeStreams: number | null;
@@ -54,10 +55,10 @@ function Metric({
 }
 
 const VERDICTS = {
-  ok: { label: "Headroom available", cls: "text-emerald-700 bg-emerald-50 border-emerald-200", Icon: CheckCircle2 },
-  warn: { label: "Approaching saturation", cls: "text-amber-700 bg-amber-50 border-amber-200", Icon: AlertTriangle },
+  ok: { label: "Keeping real time — each chunk is analysed well inside its own duration", cls: "text-emerald-700 bg-emerald-50 border-emerald-200", Icon: CheckCircle2 },
+  warn: { label: "Tight — a chunk's analysis uses over half its duration; a burst queues the next one", cls: "text-amber-700 bg-amber-50 border-amber-200", Icon: AlertTriangle },
   saturated: {
-    label: "Saturated — cut per-chunk cost (reasoning off / fewer tokens / smaller vision / longer chunk) or add a VLM replica",
+    label: "Behind real time — chunks queue or drop. Cut per-chunk cost (reasoning off / fewer tokens / smaller vision / longer chunk) or route streams to a second VLM replica",
     cls: "text-red-700 bg-red-50 border-red-200",
     Icon: AlertTriangle,
   },
@@ -93,9 +94,9 @@ export function StreamDensityCard() {
       <div>
         <h3 className="text-base font-semibold">Stream Density / Headroom</h3>
         <p className="text-sm text-muted-foreground">
-          Live VLM saturation. The scale signal is the fraction of requests over 1s — at ≥40% the VLM
-          can&apos;t keep real time and you need fewer per-chunk tokens or another replica. Implied streams ≈
-          requests/sec × chunk duration.
+          Live VLM headroom. Real time holds while a chunk is analysed inside its own duration: the verdict
+          is P95 latency over chunk length (tight past 50&nbsp;%, behind past 80&nbsp;%), and streams the VLM holds
+          without serving one request per chunk. Implied streams ≈ requests/sec × chunk duration.
         </p>
       </div>
 
@@ -105,7 +106,8 @@ export function StreamDensityCard() {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <Metric icon={AlertTriangle} label="Requests > 1s" value={data?.pctOver1s != null ? `${Math.round(data.pctOver1s * 100)}%` : "—"} sub="scale at ≥ 40%" />
+        <Metric icon={Gauge} label="Chunk budget used" value={data?.chunkBudgetUsed != null ? `${Math.round(data.chunkBudgetUsed * 100)}%` : "—"} sub="P95 ÷ chunk · tight ≥ 50%, behind ≥ 80%" />
+        <Metric icon={AlertTriangle} label="Requests > 1s" value={data?.pctOver1s != null ? `${Math.round(data.pctOver1s * 100)}%` : "—"} sub="NVIDIA HPA signal — meaningful for ~1 s chunks" />
         <Metric icon={Timer} label="P95 latency" value={fmt(data?.latencyP95Ms ?? null, 0, " ms")} sub={`chunk ${data?.chunkDurationSecs ?? "?"}s`} />
         <Metric icon={Activity} label="Est. active streams" value={data?.estimatedActiveStreams != null ? String(data.estimatedActiveStreams) : "—"} sub={`${fmt(data?.reqPerSec ?? null, 2)} req/s × chunk`} />
         <Metric icon={Video} label="Streams the VLM sees" value={data?.activeStreams != null ? String(data.activeStreams) : "—"} sub="active_live_streams" />
@@ -117,7 +119,8 @@ export function StreamDensityCard() {
       {gpus.length > 1 && (
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">
-            Per card — an idle GPU beside a saturated one is a placement problem, not headroom.
+            Per card. The VLM runs on one card and the recorder on the other; a second VLM replica on the idle
+            card becomes headroom only once streams are routed to it.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {gpus.map((g) => (

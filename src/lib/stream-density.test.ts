@@ -101,18 +101,66 @@ describe("collectStreamDensity", () => {
     expect(snap.gpu?.memTotalMiB).toBe(0);
   });
 
-  it("flags saturated when >= 40% of requests exceed 1s", async () => {
+  it("is ok at a 30 s chunk when every request is over 1 s but P95 uses 29 % of the chunk", async () => {
     mockPromQuery
-      .mockResolvedValueOnce(vec(2))
-      .mockResolvedValueOnce(vec(0.55))
-      .mockResolvedValueOnce(vec(2.3))
+      .mockResolvedValueOnce(vec(0.167))  // reqPerSec: 5 streams / 30 s
+      .mockResolvedValueOnce(vec(1))      // 100 % over 1 s
+      .mockResolvedValueOnce(vec(8.75))   // p95 secs
+      .mockResolvedValueOnce(vec(48))
+      .mockResolvedValueOnce(vec(5))      // active_live_streams
+      .mockResolvedValueOnce(perGpu({ "0": 92 }))
+      .mockResolvedValueOnce(perGpu({ "0": 71568 }))
+      .mockResolvedValueOnce(perGpu({ "0": 97249 }))
+      .mockResolvedValueOnce(empty);
+    const snap = await collectStreamDensity(30);
+    expect(snap.pctOver1s).toBe(1);
+    expect(snap.chunkBudgetUsed).toBeCloseTo(0.2917, 3);
+    expect(snap.verdict).toBe("ok");
+  });
+
+  it("flags saturated when P95 reaches 80 % of the chunk", async () => {
+    mockPromQuery
+      .mockResolvedValueOnce(vec(0.5))
+      .mockResolvedValueOnce(vec(1))
+      .mockResolvedValueOnce(vec(25))     // 25 s of a 30 s chunk
       .mockResolvedValueOnce(vec(150))
-      .mockResolvedValueOnce(vec(12))
+      .mockResolvedValueOnce(vec(15))
       .mockResolvedValueOnce(perGpu({ "0": 99 }))
       .mockResolvedValueOnce(perGpu({ "0": 95000 }))
       .mockResolvedValueOnce(perGpu({ "0": 98304 }))
       .mockResolvedValueOnce(empty);
     const snap = await collectStreamDensity(30);
+    expect(snap.verdict).toBe("saturated");
+  });
+
+  it("warns between 50 % and 80 % of the chunk", async () => {
+    mockPromQuery
+      .mockResolvedValueOnce(vec(0.5))
+      .mockResolvedValueOnce(vec(1))
+      .mockResolvedValueOnce(vec(18))     // 60 %
+      .mockResolvedValueOnce(vec(150))
+      .mockResolvedValueOnce(vec(15))
+      .mockResolvedValueOnce(perGpu({ "0": 99 }))
+      .mockResolvedValueOnce(perGpu({ "0": 95000 }))
+      .mockResolvedValueOnce(perGpu({ "0": 98304 }))
+      .mockResolvedValueOnce(empty);
+    const snap = await collectStreamDensity(30);
+    expect(snap.verdict).toBe("warn");
+  });
+
+  it("flags saturated when the VLM holds two more streams than it serves requests for", async () => {
+    mockPromQuery
+      .mockResolvedValueOnce(vec(0.1))    // 3 implied streams
+      .mockResolvedValueOnce(vec(1))
+      .mockResolvedValueOnce(vec(5))      // 17 % of the chunk — latency alone looks fine
+      .mockResolvedValueOnce(vec(150))
+      .mockResolvedValueOnce(vec(5))      // but 5 streams are attached
+      .mockResolvedValueOnce(perGpu({ "0": 99 }))
+      .mockResolvedValueOnce(perGpu({ "0": 95000 }))
+      .mockResolvedValueOnce(perGpu({ "0": 98304 }))
+      .mockResolvedValueOnce(empty);
+    const snap = await collectStreamDensity(30);
+    expect(snap.estimatedActiveStreams).toBe(3);
     expect(snap.verdict).toBe("saturated");
   });
 
