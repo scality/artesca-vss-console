@@ -17,6 +17,9 @@ const mockAdmin = {
   disconnect: vi.fn().mockResolvedValue(undefined),
 };
 
+vi.mock("@/lib/diagnostics/playback-health", () => ({
+  probePlayback: vi.fn(async () => ({ ok: true, severity: "ok", detail: "a timeline window fetches back as a clip" })),
+}));
 vi.mock("@/lib/kafka", () => ({
   getKafka: vi.fn().mockReturnValue({
     status: "connected",
@@ -113,12 +116,12 @@ beforeEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("collectConnectivity()", () => {
-  it("returns all seven backends in stable order: k8s, prometheus, kafka, vst, s3, alert-bridge, config-store", async () => {
+  it("returns all eight backends in stable order: k8s, prometheus, kafka, vst, vst-playback, s3, alert-bridge, config-store", async () => {
     const result = await collectConnectivity();
 
-    expect(result).toHaveLength(7);
+    expect(result).toHaveLength(8);
     const ids = result.map((b) => b.id);
-    expect(ids).toEqual(["k8s", "prometheus", "kafka", "vst", "s3", "alert-bridge", "config-store"]);
+    expect(ids).toEqual(["k8s", "prometheus", "kafka", "vst", "vst-playback", "s3", "alert-bridge", "config-store"]);
   });
 
   it("does not include a mediamtx / camera-sim probe", async () => {
