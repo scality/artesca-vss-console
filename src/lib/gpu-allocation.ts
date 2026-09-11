@@ -1,6 +1,6 @@
 import "server-only";
 import type { CoreV1Api } from "@kubernetes/client-node";
-import { promQuery, type PromResult } from "@/lib/helpers/prometheus";
+import { promQuery, gpuIndexOf, deviceValue } from "@/lib/helpers/prometheus";
 import { coreV1, listAllPodsInNs, watchedNamespaces, resolveEnvValue } from "@/lib/k8s";
 import { createLogger } from "@/lib/logger";
 import { isHostedClaudeBaseUrl } from "@/lib/agent-presets";
@@ -325,16 +325,6 @@ function podOf(m: Record<string, string>): string | undefined {
 function nsOf(m: Record<string, string>): string | undefined {
   return m["namespace"] || m["exported_namespace"] || undefined;
 }
-function gpuOf(m: Record<string, string>): string {
-  return m["gpu"] ?? m["GPU"] ?? "0";
-}
-
-/** Device-level value for a GPU (util/temp/power are per-device, not per-pod). */
-function deviceVal(results: PromResult[], gpuIdx: string): number {
-  const found = results.find((r) => gpuOf(r.metric) === gpuIdx);
-  return found ? parseFloat(found.value[1]) || 0 : 0;
-}
-
 /** Host of an http(s) URL, or the raw string when it doesn't parse. */
 function urlHost(url: string): string {
   const m = /^https?:\/\/([^/:]+)/.exec(url.trim());
@@ -433,7 +423,7 @@ export async function collectGpuAllocation(): Promise<GpuAllocationSnapshot> {
   const nameByGpu = new Map<string, string>();
   for (const r of [fbUsed, fbTotal, util, temp, power, fbFree]) {
     for (const item of r.results) {
-      const g = gpuOf(item.metric);
+      const g = gpuIndexOf(item.metric);
       gpuIndices.add(g);
       if (item.metric["modelName"] && !nameByGpu.has(g)) {
         nameByGpu.set(g, item.metric["modelName"]);
@@ -448,7 +438,7 @@ export async function collectGpuAllocation(): Promise<GpuAllocationSnapshot> {
     // Per-pod framebuffer series for this GPU → workloads sharing it.
     const workloads: GpuWorkload[] = [];
     for (const item of fbUsed.results) {
-      if (gpuOf(item.metric) !== gpuIdx) continue;
+      if (gpuIndexOf(item.metric) !== gpuIdx) continue;
       const pod = podOf(item.metric);
       const namespace = nsOf(item.metric);
       if (!pod || !namespace) continue;
@@ -463,7 +453,7 @@ export async function collectGpuAllocation(): Promise<GpuAllocationSnapshot> {
 
     // Prefer the device-total FB_USED (a series may carry no pod label); fall
     // back to summing the per-pod series.
-    const deviceUsed = deviceVal(fbUsed.results, gpuIdx);
+    const deviceUsed = deviceValue(fbUsed.results, gpuIdx);
     const memUsedMiB =
       deviceUsed || workloads.reduce((s, w) => s + w.memUsedMiB, 0);
 
@@ -472,18 +462,18 @@ export async function collectGpuAllocation(): Promise<GpuAllocationSnapshot> {
     // Defaulting to 0 (not 1) here matters: a bogus "1 MiB" total previously
     // slipped past the UI's `memTotalMiB > 0` guard and produced percentages
     // like 7356100% instead of a legible "total unknown".
-    const deviceFree = deviceVal(fbFree.results, gpuIdx);
+    const deviceFree = deviceValue(fbFree.results, gpuIdx);
     const memTotalMiB =
-      deviceVal(fbTotal.results, gpuIdx) || (deviceUsed + deviceFree) || 0;
+      deviceValue(fbTotal.results, gpuIdx) || (deviceUsed + deviceFree) || 0;
 
     gpus.push({
       index: parseInt(gpuIdx, 10) || 0,
       name: nameByGpu.get(gpuIdx) ?? `GPU ${gpuIdx}`,
       memTotalMiB,
       memUsedMiB,
-      utilGpu: deviceVal(util.results, gpuIdx),
-      tempC: deviceVal(temp.results, gpuIdx),
-      powerW: deviceVal(power.results, gpuIdx),
+      utilGpu: deviceValue(util.results, gpuIdx),
+      tempC: deviceValue(temp.results, gpuIdx),
+      powerW: deviceValue(power.results, gpuIdx),
       workloads,
     });
   }

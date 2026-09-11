@@ -2,15 +2,25 @@
 
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Gauge, Timer, Zap, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Activity, Gauge, Timer, Video, Zap, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+interface GpuDensity {
+  index: number;
+  name: string;
+  utilPct: number;
+  memUsedMiB: number;
+  memTotalMiB: number;
+}
 
 interface StreamDensitySnapshot {
   reqPerSec: number | null;
   pctOver1s: number | null;
   latencyP95Ms: number | null;
   tokensPerSec: number | null;
-  gpu: { utilPct: number; memUsedMiB: number; memTotalMiB: number } | null;
+  activeStreams: number | null;
+  gpus: GpuDensity[];
+  gpu: GpuDensity | null;
   chunkDurationSecs: number;
   estimatedActiveStreams: number | null;
   verdict: "ok" | "warn" | "saturated" | "unknown";
@@ -68,7 +78,15 @@ export function StreamDensityCard() {
 
   const meta = VERDICTS[data?.verdict ?? "unknown"];
   const VerdictIcon = meta.Icon;
-  const vramPct = data?.gpu ? Math.round((data.gpu.memUsedMiB / data.gpu.memTotalMiB) * 100) : null;
+  // The headline card is the busiest one. A node whose workloads are unevenly
+  // placed has an idle card and a saturated one, and reporting whichever GPU
+  // DCGM listed first answers the wrong question.
+  const busiest = data?.gpu ?? null;
+  const vramPct =
+    busiest && busiest.memTotalMiB > 0
+      ? Math.round((busiest.memUsedMiB / busiest.memTotalMiB) * 100)
+      : null;
+  const gpus = data?.gpus ?? [];
 
   return (
     <div className="rounded-lg border border-border p-5 space-y-4">
@@ -90,10 +108,35 @@ export function StreamDensityCard() {
         <Metric icon={AlertTriangle} label="Requests > 1s" value={data?.pctOver1s != null ? `${Math.round(data.pctOver1s * 100)}%` : "—"} sub="scale at ≥ 40%" />
         <Metric icon={Timer} label="P95 latency" value={fmt(data?.latencyP95Ms ?? null, 0, " ms")} sub={`chunk ${data?.chunkDurationSecs ?? "?"}s`} />
         <Metric icon={Activity} label="Est. active streams" value={data?.estimatedActiveStreams != null ? String(data.estimatedActiveStreams) : "—"} sub={`${fmt(data?.reqPerSec ?? null, 2)} req/s × chunk`} />
+        <Metric icon={Video} label="Streams the VLM sees" value={data?.activeStreams != null ? String(data.activeStreams) : "—"} sub="active_live_streams" />
         <Metric icon={Zap} label="Tokens/sec" value={fmt(data?.tokensPerSec ?? null, 0)} />
-        <Metric icon={Gauge} label="GPU util" value={data?.gpu ? `${Math.round(data.gpu.utilPct)}%` : "—"} />
-        <Metric icon={Gauge} label="GPU VRAM" value={vramPct != null ? `${vramPct}%` : "—"} sub={data?.gpu ? `${Math.round(data.gpu.memUsedMiB / 1024)}/${Math.round(data.gpu.memTotalMiB / 1024)} GiB` : undefined} />
+        <Metric icon={Gauge} label="GPU util (busiest)" value={busiest ? `${Math.round(busiest.utilPct)}%` : "—"} sub={busiest ? `GPU ${busiest.index}` : undefined} />
+        <Metric icon={Gauge} label="GPU VRAM (busiest)" value={vramPct != null ? `${vramPct}%` : "—"} sub={busiest && busiest.memTotalMiB > 0 ? `GPU ${busiest.index} · ${Math.round(busiest.memUsedMiB / 1024)}/${Math.round(busiest.memTotalMiB / 1024)} GiB` : undefined} />
       </div>
+
+      {gpus.length > 1 && (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">
+            Per card — an idle GPU beside a saturated one is a placement problem, not headroom.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {gpus.map((g) => (
+              <div
+                key={g.index}
+                className="flex items-baseline justify-between rounded-md border border-border bg-card px-3 py-2 text-xs"
+              >
+                <span className="font-medium">GPU {g.index}</span>
+                <span className="text-muted-foreground truncate px-2">{g.name}</span>
+                <span className="tabular-nums">
+                  {Math.round(g.utilPct)}%
+                  {g.memTotalMiB > 0 &&
+                    ` · ${Math.round(g.memUsedMiB / 1024)}/${Math.round(g.memTotalMiB / 1024)} GiB`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

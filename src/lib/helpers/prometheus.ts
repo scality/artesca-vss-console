@@ -59,3 +59,39 @@ export async function promQuery(
     return { results: [], warning: `Prometheus unreachable: ${msg}` };
   }
 }
+
+/** DCGM's GPU index for a series. The exporter emits `gpu`; some builds emit
+ *  `GPU`. Defaults to "0" so a single-card exporter with neither still keys. */
+export function gpuIndexOf(metric: Record<string, string>): string {
+  return metric["gpu"] ?? metric["GPU"] ?? "0";
+}
+
+/** Device-level value for one GPU index. Util, temp, power and the framebuffer
+ *  totals are per-device, so the right sample is the one whose `gpu` label
+ *  matches — NOT `results[0]`, which on a multi-card node is whichever index
+ *  the exporter happened to list first (GPU 0 here, the idle card). Returns 0
+ *  when no series carries that index. */
+export function deviceValue(results: PromResult[], gpuIdx: string): number {
+  const found = results.find((r) => gpuIndexOf(r.metric) === gpuIdx);
+  return found ? parseFloat(found.value[1]) || 0 : 0;
+}
+
+/** Every GPU index any of these result sets mentions, plus each index's
+ *  `modelName` where DCGM supplied one. */
+export function gpuIndices(
+  resultSets: Array<{ results: PromResult[] }>,
+): { indices: string[]; nameByGpu: Map<string, string> } {
+  const seen = new Set<string>();
+  const nameByGpu = new Map<string, string>();
+  for (const r of resultSets) {
+    for (const item of r.results) {
+      const g = gpuIndexOf(item.metric);
+      seen.add(g);
+      if (item.metric["modelName"] && !nameByGpu.has(g)) {
+        nameByGpu.set(g, item.metric["modelName"]);
+      }
+    }
+  }
+  const indices = [...seen].sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0));
+  return { indices, nameByGpu };
+}
