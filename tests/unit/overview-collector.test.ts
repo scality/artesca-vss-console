@@ -81,7 +81,8 @@ vi.mock("@/lib/kafka", () => ({
   getKafka: mockGetKafka,
 }));
 
-vi.mock("@/lib/helpers/prometheus", () => ({
+vi.mock("@/lib/helpers/prometheus", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/helpers/prometheus")>()),
   promQuery: mockPromQuery,
 }));
 

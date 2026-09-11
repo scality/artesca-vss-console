@@ -172,6 +172,7 @@ export default async function OverviewPage() {
                 url={CLUSTER.grafana.url}
                 user={CLUSTER.grafana.user}
                 hasPassword={Boolean(CLUSTER.grafana.password)}
+                blankPasswordReason={CLUSTER.grafana.blankPasswordReason}
                 loginHint={CLUSTER.grafana.loginHint}
               />
             )}

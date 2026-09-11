@@ -254,6 +254,15 @@ const GRAFANA_PASSWORD = process.env.GRAFANA_PASSWORD ?? "";
 const GRAFANA_LOGIN_HINT =
   process.env.GRAFANA_LOGIN_HINT ??
   "ARTESCA admin (same login as the :8443 UI) → Monitoring → Grafana → \"ARTESCA+ VSS — GPU Metrics\"";
+// Surfaced by the Overview card in place of a bare "—" so a blank password
+// reads as a known, named gap rather than an unexplained dash. The console
+// never reads the ARTESCA Keycloak admin secret itself — `console-reader`
+// carries no `secrets` verb (by design, see SECURITY.md) — so on a cluster
+// that hasn't had GRAFANA_PASSWORD set at deploy time this is always the
+// reason, not a probe result.
+const GRAFANA_PASSWORD_MISSING_REASON = GRAFANA_PASSWORD
+  ? undefined
+  : "GRAFANA_PASSWORD unset";
 
 // ─── Alert bridge ────────────────────────────────────────────────────────────
 // Helm:   vss-video-analytics-api Deployment in vss-<profile>, port 8081.
@@ -736,6 +745,8 @@ export const CLUSTER = {
     user: GRAFANA_USER,
     password: GRAFANA_PASSWORD,
     loginHint: GRAFANA_LOGIN_HINT,
+    /** Why `password` is empty. Undefined when it isn't. */
+    blankPasswordReason: GRAFANA_PASSWORD_MISSING_REASON,
   },
   alertWorker: {
     url: ALERT_WORKER_URL,

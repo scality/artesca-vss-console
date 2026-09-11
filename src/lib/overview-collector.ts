@@ -11,7 +11,7 @@ const log = createLogger("overview-collector");
 import { getKafka } from "@/lib/kafka";
 import { bucketStatsCached } from "@/lib/storage-substrate";
 import { s3BucketForRecordings, describeS3Error } from "@/lib/s3";
-import { promQuery } from "@/lib/helpers/prometheus";
+import { promQuery, deviceValue, gpuIndices } from "@/lib/helpers/prometheus";
 import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
 import { vstListSensors } from "@/lib/helpers/vst";
 import type { OverviewSnapshot, GpuState, PodSummary } from "@/lib/types";
@@ -148,43 +148,33 @@ async function collectK8sOverview(
 
   const [utilRes, fbUsedRes, fbTotalRes, tempRes, powerRes, fbFreeRes] = gpuResults;
 
-  const gpuIndexMap = new Map<
-    string,
-    { index: string; gpu: string; name?: string }
-  >();
+  // Per GPU index, never results[0] — same helpers stream-density.ts uses, so
+  // the two collectors can't drift on how a multi-card node is keyed.
+  const { indices, nameByGpu } = gpuIndices([
+    utilRes,
+    fbUsedRes,
+    fbTotalRes,
+    tempRes,
+    powerRes,
+    fbFreeRes,
+  ]);
 
-  for (const r of [utilRes, fbUsedRes, fbTotalRes, tempRes, powerRes, fbFreeRes]) {
-    for (const item of r.results) {
-      const gpuIdx = item.metric["gpu"] ?? item.metric["GPU"] ?? "0";
-      if (!gpuIndexMap.has(gpuIdx)) {
-        gpuIndexMap.set(gpuIdx, { index: gpuIdx, gpu: gpuIdx, name: item.metric["modelName"] });
-      }
-    }
-  }
-
-  for (const [gpuIdx, meta] of gpuIndexMap) {
-    const getVal = (res: (typeof gpuResults)[number]) => {
-      const found = res.results.find(
-        (r) => (r.metric["gpu"] ?? r.metric["GPU"]) === gpuIdx
-      );
-      return found ? parseFloat(found.value[1]) : 0;
-    };
-
-    const fbUsed = getVal(fbUsedRes);
-    const fbTotal = getVal(fbTotalRes);
-    const fbFree = getVal(fbFreeRes);
+  for (const gpuIdx of indices) {
+    const fbUsed = deviceValue(fbUsedRes.results, gpuIdx);
+    const fbTotal = deviceValue(fbTotalRes.results, gpuIdx);
+    const fbFree = deviceValue(fbFreeRes.results, gpuIdx);
     // Prefer FB_TOTAL; fall back to used+free when the exporter omits TOTAL.
     const memTotal = fbTotal || (fbUsed + fbFree) || 1;
 
     gpus.push({
-      index: parseInt(meta.index, 10),
-      name: meta.name ?? `GPU ${gpuIdx}`,
+      index: parseInt(gpuIdx, 10) || 0,
+      name: nameByGpu.get(gpuIdx) ?? `GPU ${gpuIdx}`,
       memoryUsedMiB: fbUsed,
       memoryTotalMiB: memTotal,
-      utilGpu: getVal(utilRes),
+      utilGpu: deviceValue(utilRes.results, gpuIdx),
       utilMem: fbTotal > 0 ? (fbUsed / fbTotal) * 100 : 0,
-      tempC: getVal(tempRes),
-      powerW: getVal(powerRes),
+      tempC: deviceValue(tempRes.results, gpuIdx),
+      powerW: deviceValue(powerRes.results, gpuIdx),
       processes: [],
     });
   }

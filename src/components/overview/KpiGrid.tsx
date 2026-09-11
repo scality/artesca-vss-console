@@ -4,6 +4,7 @@ import { KpiCard } from "@/components/KpiCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { OverviewSnapshot } from "@/lib/types";
 import { formatBytes } from "@/lib/format-bytes";
+import { busiestGpuHeadline } from "@/lib/gpu-kpi";
 
 interface KpiGridProps {
   data: OverviewSnapshot;
@@ -16,13 +17,10 @@ export function KpiGrid({ data }: KpiGridProps) {
     { total: 0, ready: 0 }
   );
 
-  // GPU average utilization
-  const gpuAvg =
-    data.gpus.length > 0
-      ? Math.round(
-          data.gpus.reduce((s, g) => s + g.utilGpu, 0) / data.gpus.length
-        )
-      : 0;
+  // GPU headline is the busiest card, named by index — not an average across
+  // cards, which reads a saturated card as comfortable headroom when it sits
+  // next to one idle by design. See src/lib/gpu-kpi.ts.
+  const gpuHeadline = busiestGpuHeadline(data.gpus);
 
   // Kafka topic depth (messages retained) — null means "unreachable", not 0.
   // Informational: depth is not consumer lag, so a non-zero value isn't "bad".
@@ -100,9 +98,19 @@ export function KpiGrid({ data }: KpiGridProps) {
 
       <KpiCard
         label="GPU Util (2m avg)"
-        value={`${gpuAvg}%`}
-        sub={`${data.gpus.length} GPU${data.gpus.length !== 1 ? "s" : ""} · rolling avg`}
-        trend={gpuAvg > 80 ? "up" : gpuAvg < 20 ? "down" : "flat"}
+        value={
+          gpuHeadline.label ? `${gpuHeadline.label} · ${gpuHeadline.value}%` : "—"
+        }
+        sub={gpuHeadline.perCard || "no GPUs reporting"}
+        trend={
+          gpuHeadline.value === null
+            ? "flat"
+            : gpuHeadline.value > 80
+              ? "up"
+              : gpuHeadline.value < 20
+                ? "down"
+                : "flat"
+        }
       />
 
       <KpiCard

@@ -18,11 +18,15 @@ export function GrafanaAccessCard({
   url,
   user,
   hasPassword,
+  blankPasswordReason,
   loginHint,
 }: {
   url: string;
   user: string;
   hasPassword: boolean;
+  /** Why the password is blank — shown in place of a bare "—" so the gap is
+   *  named rather than unexplained. Ignored when `hasPassword` is true. */
+  blankPasswordReason?: string;
   loginHint: string;
 }) {
   const [password, setPassword] = useState<string | null>(null);
@@ -86,7 +90,9 @@ export function GrafanaAccessCard({
           <dt className="text-xs text-muted-foreground uppercase tracking-wider">Password</dt>
           <dd className="font-mono text-xs break-all">
             {!hasPassword ? (
-              <span className="text-muted-foreground">—</span>
+              <span className="text-muted-foreground" title={blankPasswordReason}>
+                {blankPasswordReason ?? "—"}
+              </span>
             ) : password !== null ? (
               <span className="inline-flex items-center gap-2">
                 <span className="select-all">{password}</span>

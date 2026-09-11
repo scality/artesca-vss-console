@@ -151,6 +151,27 @@ describe("GrafanaAccessCard", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // A bare "—" reads as "there is no password" when the real story is "nobody
+  // wired one in" — indistinguishable from a deliberately unconfigured
+  // instance. The card must name the reason instead.
+  function passwordCellText(): string {
+    const dt = [...container.querySelectorAll("dt")].find((d) => d.textContent === "Password");
+    expect(dt, "Password <dt> should be present").toBeTruthy();
+    const dd = dt!.nextElementSibling;
+    expect(dd?.tagName).toBe("DD");
+    return dd!.textContent ?? "";
+  }
+
+  it("names why the password is blank instead of a bare dash", () => {
+    render({ hasPassword: false, blankPasswordReason: "GRAFANA_PASSWORD unset" });
+    expect(passwordCellText()).toBe("GRAFANA_PASSWORD unset");
+  });
+
+  it("falls back to a dash when no reason is given", () => {
+    render({ hasPassword: false, blankPasswordReason: undefined });
+    expect(passwordCellText()).toBe("—");
+  });
+
   it("tells the operator the reveal is recorded", () => {
     render();
     expect(container.textContent).toContain("recorded in the audit log");
