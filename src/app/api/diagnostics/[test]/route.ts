@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { coreV1, watchedNamespaces } from "@/lib/k8s";
 import { sshExec } from "@/lib/ssh";
+import { collectGpuAllocation } from "@/lib/gpu-allocation";
 import { auditLog } from "@/lib/helpers/audit";
 import { withRequestContext } from "@/lib/with-request-context";
 
@@ -12,7 +13,8 @@ type DiagnosticSpec =
   | { via: "k8s-api-events" }
   | { via: "k8s-api-nodes" }
   | { via: "ssh"; command: string }
-  | { via: "ssh-nvidia-smi" };
+  | { via: "dcgm-gpu-state" }
+  | { via: "camera-sim-nvidia-smi" };
 
 const DIAGNOSTICS: Record<string, DiagnosticSpec> = {
   "validate-manifests": {
@@ -40,7 +42,13 @@ const DIAGNOSTICS: Record<string, DiagnosticSpec> = {
     command: "bash /opt/console/scripts/phase-5-smoke-test.sh 2>&1",
   },
   "get-events": { via: "k8s-api-events" },
-  "nvidia-smi": { via: "ssh-nvidia-smi" },
+  // GPU state on the cluster's actual GPU node(s) — DCGM via Prometheus, not
+  // the camera-sim host. See collectGpuAllocation in @/lib/gpu-allocation.
+  "gpu-state": { via: "dcgm-gpu-state" },
+  // nvidia-smi on the camera-sim host (CAMERA_SIM_HOST) — a diagnostic of
+  // that host, not of the cluster GPU node. On the showroom deployment the
+  // two happen to be the same physical box, but that is not true generally.
+  "camera-sim-nvidia-smi": { via: "camera-sim-nvidia-smi" },
   "kubectl-top": { via: "k8s-api-nodes" },
 };
 
@@ -74,12 +82,39 @@ export const POST = withRequestContext(async function (
       stdout = result.stdout;
       stderr = result.stderr;
       exitCode = result.code;
-    } else if (spec.via === "ssh-nvidia-smi") {
-      // Run nvidia-smi on the ARTESCA node via SSH
-      const result = await sshExec("nvidia-smi 2>&1");
-      stdout = result.stdout;
-      stderr = result.stderr;
-      exitCode = result.code;
+    } else if (spec.via === "dcgm-gpu-state") {
+      const snapshot = await collectGpuAllocation();
+      if (snapshot.gpus.length === 0) {
+        stdout = snapshot.warnings.length > 0
+          ? `No GPU metrics available: ${snapshot.warnings.join("; ")}`
+          : "No GPUs reported by DCGM.";
+      } else {
+        const lines = snapshot.gpus.map((g) =>
+          `GPU ${g.index} (${g.name || "unknown"})  ` +
+          `mem=${g.memUsedMiB}/${g.memTotalMiB} MiB  ` +
+          `util=${g.utilGpu}%  temp=${g.tempC}C  power=${g.powerW}W  ` +
+          `workloads=${g.workloads.length}`
+        );
+        stdout = lines.join("\n");
+        if (snapshot.warnings.length > 0) {
+          stdout += `\n\nWarnings: ${snapshot.warnings.join("; ")}`;
+        }
+      }
+      exitCode = 0;
+    } else if (spec.via === "camera-sim-nvidia-smi") {
+      // Run nvidia-smi on the camera-sim host (CAMERA_SIM_HOST) — this is a
+      // diagnostic of that host, never of the cluster's actual GPU node.
+      // Skip cleanly rather than SSHing to an empty/undefined host when the
+      // camera-sim integration isn't configured.
+      if (!process.env.CAMERA_SIM_HOST) {
+        stdout = "CAMERA_SIM_HOST is not set — skipping (no camera-sim host configured).";
+        exitCode = 0;
+      } else {
+        const result = await sshExec("nvidia-smi 2>&1");
+        stdout = result.stdout;
+        stderr = result.stderr;
+        exitCode = result.code;
+      }
     } else if (spec.via === "k8s-api-events") {
       const namespaces = [...watchedNamespaces(), "console"];
       const eventLines: string[] = [];

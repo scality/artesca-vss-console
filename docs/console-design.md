@@ -74,7 +74,7 @@ browser (showroom laptop or iPad on the SG-whitelisted network)
 │ │  • S3 (@aws-sdk/client-s3) — ARTESCA bucket object stats  │  │
 │ │  • SSH (ssh2) — camera-sim config updates + journal tail  │  │
 │ │  • mediamtx HTTP API — camera-sim path status             │  │
-│ │  • kubectl exec → nvidia-smi — GPU state                  │  │
+│ │  • DCGM exporter → Prometheus — GPU state (cluster node)  │  │
 │ └───────────────────────────────────────────────────────────┘  │
 │ ┌── Client Components (React 19, Tailwind, shadcn/ui) ──────┐  │
 │ │  • React Query 5 min staleTime, SSE for real-time         │  │
@@ -188,7 +188,7 @@ others are hidden in kiosk mode.
 | `/profiles` | — | **Save / load named demo profiles** — a profile bundles scenarios + VLM prompt + cameras + rtvi tuning + alert tuning + NIM model into one object stored in a `console-profiles` ConfigMap. Use cases: "pyramid-jun-8" config snapshotted after rehearsal; "aarco-oct" variant; roll back to a known-good before a new demo. Load applies every component atomically. |
 | `/secrets` | — | **Secret rotation UI** — NGC key, NVIDIA API key, HuggingFace token, Slack webhook, console auth password. Paste a new value, confirm, and the console patches the target K8s Secret + rolls the consuming Deployment. |
 | `/logs` | — | Log streamer — pick a pod + container → live tail via SSE. Filter regex, pause/resume, download last N lines. Camera-sim `journalctl -fu camera-sim` available via an SSH tail. |
-| `/diagnostics` | — | On-demand runs of `scripts/validate-manifests.sh`, smoke tests per phase, `kubectl get events -A`, `nvidia-smi`, `kubectl top`. **VST Storage panel**: live S3 PUT rate + bytes/sec to `nvidia-vss-video`, local `vst-video` emptyDir fill % against its 500 GiB limit, segment size distribution (last 200 objects), recorder frame-drop counter, last 20 objects in the bucket with sensor_id / timestamp / size. Results rendered inline. |
+| `/diagnostics` | — | On-demand runs of `scripts/validate-manifests.sh`, smoke tests per phase, `kubectl get events -A`, GPU state on the cluster's actual GPU node(s) (DCGM via Prometheus — `collectGpuAllocation()` in [`src/lib/gpu-allocation.ts`](../src/lib/gpu-allocation.ts)), `nvidia-smi` on the camera-sim host (`CAMERA_SIM_HOST`, over SSH — skipped when unset; this is a diagnostic of that host, not of the GPU node), `kubectl top`. **VST Storage panel**: live S3 PUT rate + bytes/sec to `nvidia-vss-video`, local `vst-video` emptyDir fill % against its 500 GiB limit, segment size distribution (last 200 objects), recorder frame-drop counter, last 20 objects in the bucket with sensor_id / timestamp / size. Results rendered inline. |
 | `/sizing-studio` | — | Embeds the standalone `sizing-studio.html` static tool (served from `public/`) in an iframe — sizes cameras, light-rails, AKHET® servers, GPUs/AI systems, and ARTESCA storage for a store by surface area and use case. "Open full screen" opens the same page directly, outside the iframe. |
 | `/settings` | — | Console-level config: kiosk-mode toggle persistence, feature flags, SSH key rotation for camera-sim, inspect current ServiceAccount permissions. Network access is **not** here — see decision F. |
 | `/about` | — | Build info (git SHA, Next.js / Node versions), links to all docs, list of underlying service URLs, cross-link to the pre-install ``web/`` dashboard at `:5002`. |

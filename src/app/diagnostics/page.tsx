@@ -47,9 +47,16 @@ const AVAILABLE_TESTS: Array<{ id: string; label: string; description: string }>
     description: "Cluster-wide events — surfaces recent warnings or errors.",
   },
   {
-    id: "nvidia-smi",
-    label: "nvidia-smi",
-    description: "GPU state via kubectl exec — memory, utilization, temperature.",
+    id: "gpu-state",
+    label: "GPU state (DCGM)",
+    description:
+      "GPU memory, utilization, temperature and power on the cluster's actual GPU node(s) — read from DCGM via Prometheus.",
+  },
+  {
+    id: "camera-sim-nvidia-smi",
+    label: "nvidia-smi (camera-sim host)",
+    description:
+      "Raw nvidia-smi output from the camera-sim host (CAMERA_SIM_HOST) — a diagnostic of that host, not of the cluster GPU node. Skipped when CAMERA_SIM_HOST is unset.",
   },
   {
     id: "kubectl-top",

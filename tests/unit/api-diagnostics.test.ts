@@ -16,9 +16,22 @@ vi.mock("@/lib/k8s", () => ({
   listAllPodsInNs: vi.fn().mockResolvedValue([]),
 }));
 
-// sshExec is used by every "via: ssh" and "via: ssh-nvidia-smi" diagnostic.
+// sshExec is used by every "via: ssh" and "via: camera-sim-nvidia-smi" diagnostic.
 vi.mock("@/lib/ssh", () => ({
   sshExec: vi.fn().mockResolvedValue({ stdout: "ok", stderr: "", code: 0 }),
+}));
+
+// collectGpuAllocation backs the "gpu-state" (DCGM) diagnostic.
+vi.mock("@/lib/gpu-allocation", () => ({
+  collectGpuAllocation: vi.fn().mockResolvedValue({
+    gpus: [],
+    pending: [],
+    remoteModels: [],
+    perWorkload: false,
+    sharing: { strategy: "unknown" },
+    scheduler: { totalGpu: null, allocatedGpu: 0, workloads: [] },
+    warnings: [],
+  }),
 }));
 
 // auditLog is called at the end of every successful POST.
@@ -31,6 +44,7 @@ vi.mock("@/lib/helpers/audit", () => ({
 
 import { auth } from "@/lib/auth";
 import { sshExec } from "@/lib/ssh";
+import { collectGpuAllocation } from "@/lib/gpu-allocation";
 import { auditLog } from "@/lib/helpers/audit";
 import { coreV1 } from "@/lib/k8s";
 import { POST } from "@/app/api/diagnostics/[test]/route";
@@ -50,6 +64,16 @@ beforeEach(() => {
   vi.mocked(auth).mockReset().mockResolvedValue({ user: { name: "operator" } } as never);
   vi.mocked(sshExec).mockReset().mockResolvedValue({ stdout: "ok", stderr: "", code: 0 });
   vi.mocked(auditLog).mockReset().mockResolvedValue(undefined);
+  vi.mocked(collectGpuAllocation).mockReset().mockResolvedValue({
+    gpus: [],
+    pending: [],
+    remoteModels: [],
+    perWorkload: false,
+    sharing: { strategy: "unknown" },
+    scheduler: { totalGpu: null, allocatedGpu: 0, workloads: [] },
+    warnings: [],
+  } as never);
+  delete process.env.CAMERA_SIM_HOST;
 
   // Reset coreV1 factory to return fresh mocks each test
   const freshCoreApi = {
@@ -163,20 +187,92 @@ describe("POST /api/diagnostics/[test]", () => {
     );
   });
 
-  it("nvidia-smi diagnostic: delegates to sshExec with 'nvidia-smi 2>&1'", async () => {
+  it("gpu-state diagnostic: reads DCGM-backed GPU facts via collectGpuAllocation, never sshExec", async () => {
+    vi.mocked(collectGpuAllocation).mockResolvedValue({
+      gpus: [
+        {
+          index: 0,
+          name: "NVIDIA L40S",
+          memTotalMiB: 49152,
+          memUsedMiB: 12000,
+          utilGpu: 42,
+          tempC: 61,
+          powerW: 210,
+          workloads: [],
+        },
+      ],
+      pending: [],
+      remoteModels: [],
+      perWorkload: false,
+      sharing: { strategy: "unknown" },
+      scheduler: { totalGpu: 1, allocatedGpu: 1, workloads: [] },
+      warnings: [],
+    } as never);
+
+    const { request, ctx } = makePostRequest("gpu-state");
+    const res = await POST(request, ctx);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.test).toBe("gpu-state");
+    expect(body.exitCode).toBe(0);
+    expect(body.stdout).toContain("GPU 0 (NVIDIA L40S)");
+    expect(body.stdout).toContain("mem=12000/49152 MiB");
+    expect(collectGpuAllocation).toHaveBeenCalledOnce();
+    expect(sshExec).not.toHaveBeenCalled();
+  });
+
+  it("gpu-state diagnostic: surfaces DCGM warnings when no GPUs are reported", async () => {
+    vi.mocked(collectGpuAllocation).mockResolvedValue({
+      gpus: [],
+      pending: [],
+      remoteModels: [],
+      perWorkload: false,
+      sharing: { strategy: "unknown" },
+      scheduler: { totalGpu: null, allocatedGpu: 0, workloads: [] },
+      warnings: ["Prometheus unreachable: network error / DNS"],
+    } as never);
+
+    const { request, ctx } = makePostRequest("gpu-state");
+    const res = await POST(request, ctx);
+
+    const body = await res.json();
+    expect(body.exitCode).toBe(0);
+    expect(body.stdout).toContain("No GPU metrics available");
+    expect(body.stdout).toContain("Prometheus unreachable");
+  });
+
+  it("camera-sim-nvidia-smi diagnostic: skips cleanly (no sshExec call) when CAMERA_SIM_HOST is unset", async () => {
+    delete process.env.CAMERA_SIM_HOST;
+
+    const { request, ctx } = makePostRequest("camera-sim-nvidia-smi");
+    const res = await POST(request, ctx);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.test).toBe("camera-sim-nvidia-smi");
+    expect(body.exitCode).toBe(0);
+    expect(body.stdout).toMatch(/CAMERA_SIM_HOST is not set/i);
+    expect(sshExec).not.toHaveBeenCalled();
+  });
+
+  it("camera-sim-nvidia-smi diagnostic: delegates to sshExec with 'nvidia-smi 2>&1' when CAMERA_SIM_HOST is set", async () => {
+    process.env.CAMERA_SIM_HOST = "camera-sim.example.internal";
     vi.mocked(sshExec).mockResolvedValue({
       stdout: "GPU 0: NVIDIA L40S",
       stderr: "",
       code: 0,
     });
 
-    const { request, ctx } = makePostRequest("nvidia-smi");
+    const { request, ctx } = makePostRequest("camera-sim-nvidia-smi");
     const res = await POST(request, ctx);
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.test).toBe("nvidia-smi");
+    expect(body.test).toBe("camera-sim-nvidia-smi");
     expect(body.stdout).toBe("GPU 0: NVIDIA L40S");
     expect(sshExec).toHaveBeenCalledWith("nvidia-smi 2>&1");
+
+    delete process.env.CAMERA_SIM_HOST;
   });
 });
