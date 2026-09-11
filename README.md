@@ -16,7 +16,7 @@ Design rationale and the operator-facing intent of each page: [`docs/console-des
 | Object store | ARTESCA (or any S3-compatible endpoint) for recordings, evidence and KV-cache offload. |
 | Node | 24 — what the image and CI both build with (`node:24.18.0-alpine`). |
 
-Parts of the tree still assume the Scality lab: namespaces and service names are resolved in [`src/lib/cluster-refs.ts`](src/lib/cluster-refs.ts), and some code paths exist to drive an EC2 lab instance. A report that the console does not come up against a differently-named deployment is useful, not a duplicate of something obvious.
+Every namespace and service name the console addresses is resolved in [`src/lib/cluster-refs.ts`](src/lib/cluster-refs.ts) from `process.env` with a default; the defaults are the Scality lab's (`VSS_NAMESPACE`, `CAMERAS_NAMESPACE`, `PROMETHEUS_URL`, `ARTESCA_HD_PROXY_URL`, `KVCACHE_VLLM_URL` are the ones most likely to differ on another cluster). What is genuinely lab-only rather than renamable: the camera-sim control plane and its SSH paths (`CAMERA_SIM_HOST`, `/api/camera-sim/*`, the `phase-smoke-*` and `nvidia-smi` diagnostics, which run over SSH on that host), the GCS sync routes (`/api/*/sync-gcs`), and the Grafana derivation from `OBJECTSTORE_ENDPOINT_IP`, which assumes ARTESCA's `:8443` shell. Each degrades to "unconfigured" when its env is unset. A report that the console does not come up against a differently-named deployment is useful, not a duplicate of something obvious.
 
 ## Local dev
 

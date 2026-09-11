@@ -13,6 +13,9 @@ interface RbacSummary {
 
 // Fallback based on k8s/console/01-rbac.yaml contents.
 // Helm layout: single vss-<profile> namespace replaces vst/rtvi/agent/alerts.
+// The cameras namespace is a literal here for the same hydration reason as
+// vssNamespace below: the live value (CAMERAS_NAMESPACE, default
+// "pyramid-ingress") arrives from /api/settings/rbac.
 // The VSS_NAMESPACE / CONSOLE_LEGACY_NAMESPACES env vars are server-only — a
 // client component can't read them (Next inlines only NEXT_PUBLIC_*), so they
 // MUST arrive as props from the server page. Reading process.env here would

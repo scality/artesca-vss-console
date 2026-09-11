@@ -103,9 +103,13 @@ export async function resolveEnvValue(
 export function watchedNamespaces(): string[] {
   const legacy = process.env.CONSOLE_LEGACY_NAMESPACES === "1";
   const vssNs = process.env.VSS_NAMESPACE ?? "vss-base";
+  // Same default as CLUSTER.cameras.namespace — read here rather than imported
+  // because cluster-refs is server-only and this module is also reached from
+  // the diagnostics dumpers.
+  const camerasNs = process.env.CAMERAS_NAMESPACE ?? "pyramid-ingress";
   const defaultNs = legacy
-    ? "vst,rtvi,agent,alerts,pyramid-ingress"
-    : `${vssNs},pyramid-ingress`;
+    ? `vst,rtvi,agent,alerts,${camerasNs}`
+    : `${vssNs},${camerasNs}`;
   const raw = process.env.KUBE_NAMESPACES ?? defaultNs;
   return raw.split(",").map((ns) => ns.trim()).filter(Boolean);
 }

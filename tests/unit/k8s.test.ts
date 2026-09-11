@@ -162,6 +162,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   delete process.env.KUBE_NAMESPACES;
+  delete process.env.CAMERAS_NAMESPACE;
 });
 
 // ─── watchedNamespaces ────────────────────────────────────────────────────────
@@ -184,6 +185,29 @@ describe("watchedNamespaces", () => {
     const ns = watchedNamespaces();
     expect(ns).toEqual(["vst", "rtvi", "agent", "alerts", "pyramid-ingress"]);
     delete process.env.CONSOLE_LEGACY_NAMESPACES;
+  });
+
+  it("substitutes CAMERAS_NAMESPACE into the Helm default", () => {
+    delete process.env.KUBE_NAMESPACES;
+    delete process.env.CONSOLE_LEGACY_NAMESPACES;
+    process.env.VSS_NAMESPACE = "vss-alerts";
+    process.env.CAMERAS_NAMESPACE = "vss-cameras";
+    expect(watchedNamespaces()).toEqual(["vss-alerts", "vss-cameras"]);
+    delete process.env.VSS_NAMESPACE;
+  });
+
+  it("substitutes CAMERAS_NAMESPACE into the legacy default", () => {
+    delete process.env.KUBE_NAMESPACES;
+    process.env.CONSOLE_LEGACY_NAMESPACES = "1";
+    process.env.CAMERAS_NAMESPACE = "vss-cameras";
+    expect(watchedNamespaces()).toEqual(["vst", "rtvi", "agent", "alerts", "vss-cameras"]);
+    delete process.env.CONSOLE_LEGACY_NAMESPACES;
+  });
+
+  it("KUBE_NAMESPACES wins over CAMERAS_NAMESPACE", () => {
+    process.env.CAMERAS_NAMESPACE = "vss-cameras";
+    process.env.KUBE_NAMESPACES = "only-this";
+    expect(watchedNamespaces()).toEqual(["only-this"]);
   });
 
   it("returns a trimmed array when KUBE_NAMESPACES is set", () => {

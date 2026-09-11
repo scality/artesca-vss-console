@@ -15,9 +15,15 @@ data:
   # (vst / rtvi / agent / alerts). Unset or "0" = Helm layout (default).
   # CONSOLE_LEGACY_NAMESPACES: "0"
 
+  # ── Cameras namespace ─────────────────────────────────────────────────────────
+  # The `cameras` ConfigMap and register-cameras Jobs live outside the Helm
+  # release. Default is the Scality lab's namespace; point it at yours. That
+  # namespace needs the console-writer Role (02-workload-rbac.yaml.example).
+  # CAMERAS_NAMESPACE: "pyramid-ingress"
+
   # ── Namespaces the console monitors ──────────────────────────────────────────
-  # Helm default: "<VSS_NAMESPACE>,demo-data,pyramid-ingress"
-  # Legacy override: "vst,rtvi,agent,alerts,demo-data,pyramid-ingress"
+  # Helm default: "<VSS_NAMESPACE>,<CAMERAS_NAMESPACE>"
+  # Legacy override: "vst,rtvi,agent,alerts,<CAMERAS_NAMESPACE>"
   # Set explicitly only when the auto-derived value is wrong.
   # KUBE_NAMESPACES: ""
 

@@ -5,8 +5,10 @@
  * points at `OBJECTSTORE_ENDPOINT`, which on a real deployment is the ARTESCA
  * connector. These back the storage panels and are part of the product.
  *
- * EC2 security-group management — the one thing in this console that does talk
- * to AWS — lives in lib/ec2-sg.ts and is lab-only.
+ * Nothing in the console talks to AWS as a cloud: the only host it reaches
+ * outside the cluster is the camera-sim machine, over SSH (lib/ssh.ts) and its
+ * control-plane HTTP API (lib/helpers/camsim-control.ts), both addressed by
+ * CAMERA_SIM_HOST and both lab-only.
  */
 
 import { ListObjectsV2Command, ListMultipartUploadsCommand } from "@aws-sdk/client-s3";

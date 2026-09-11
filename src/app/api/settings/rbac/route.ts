@@ -17,8 +17,8 @@ export async function GET() {
   }
 
   const namespacedRoles = CLUSTER.legacy
-    ? ["vst", "rtvi", "agent", "alerts", "pyramid-ingress"]
-    : [CLUSTER.vssNamespace, "pyramid-ingress"];
+    ? ["vst", "rtvi", "agent", "alerts", CLUSTER.cameras.namespace]
+    : [CLUSTER.vssNamespace, CLUSTER.cameras.namespace];
 
   return NextResponse.json({
     serviceAccount: "console",

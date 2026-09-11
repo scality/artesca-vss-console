@@ -9,9 +9,11 @@
 #
 # It is an example rather than part of `kustomization.yaml` because the
 # namespace is not knowable here: it is `vss-<profile>` under Helm, or the
-# per-component layout (`vst`, `rtvi`, `agent`, `alerts`, `demo-data`,
-# `pyramid-ingress`) when the console runs with CONSOLE_LEGACY_NAMESPACES=1.
-# A hardcoded name would fail to apply on every cluster that chose differently.
+# per-component layout (`vst`, `rtvi`, `agent`, `alerts`, `demo-data`) when
+# the console runs with CONSOLE_LEGACY_NAMESPACES=1 — plus, in both layouts,
+# the cameras namespace (CAMERAS_NAMESPACE, default `pyramid-ingress`) that
+# holds the `cameras` ConfigMap and the register-cameras Jobs. A hardcoded
+# name would fail to apply on every cluster that chose differently.
 #
 # Apply one copy per namespace the console is pointed at:
 #

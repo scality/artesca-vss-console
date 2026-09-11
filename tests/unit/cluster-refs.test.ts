@@ -16,7 +16,7 @@ const ORIGINAL_ENV = { ...process.env };
 afterEach(() => {
   // Strip any RTVI_CV_* vars added by individual tests and reset module cache.
   for (const key of Object.keys(process.env)) {
-    if (key.startsWith("RTVI_CV")) {
+    if (key.startsWith("RTVI_CV") || key === "CAMERAS_NAMESPACE") {
       delete process.env[key];
     }
   }
@@ -116,5 +116,31 @@ describe("CLUSTER.rtviCv — disabled: restartable map is clean", () => {
     delete process.env.RTVI_CV_ENDPOINT;
     const { RESTARTABLE } = await import("@/lib/cluster-refs");
     expect(Object.keys(RESTARTABLE)).not.toContain("vss-rtvi-cv-mv3dt");
+  });
+});
+
+// ─── CLUSTER.cameras.namespace — CAMERAS_NAMESPACE override ──────────────────
+// The cameras ConfigMap + register-cameras Jobs live outside the Helm release.
+// The default is the Scality lab's namespace; another cluster renames it via
+// env rather than by editing the image.
+
+describe("CLUSTER.cameras.namespace", () => {
+  it("defaults to the lab namespace when CAMERAS_NAMESPACE is unset", async () => {
+    delete process.env.CAMERAS_NAMESPACE;
+    const { CLUSTER } = await import("@/lib/cluster-refs");
+    expect(CLUSTER.cameras.namespace).toBe("pyramid-ingress");
+  });
+
+  it("reads CAMERAS_NAMESPACE when set", async () => {
+    process.env.CAMERAS_NAMESPACE = "vss-cameras";
+    const { CLUSTER } = await import("@/lib/cluster-refs");
+    expect(CLUSTER.cameras.namespace).toBe("vss-cameras");
+    expect(CLUSTER.cameras.configMap).toBe("cameras");
+  });
+
+  it("leaves the VSS namespace alone — the two are independent", async () => {
+    process.env.CAMERAS_NAMESPACE = "vss-cameras";
+    const { CLUSTER } = await import("@/lib/cluster-refs");
+    expect(CLUSTER.vssNamespace).not.toBe("vss-cameras");
   });
 });

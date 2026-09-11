@@ -432,10 +432,15 @@ const ALERTS_TUNING = LEGACY
       slackConfiguredKey: "SLACK_WEBHOOK_CONFIGURED",
     } as const);
 
-// ─── Cameras / pyramid-ingress ────────────────────────────────────────────────
-// Unchanged — operator-authored pyramid-ingress namespace persists alongside Helm.
+// ─── Cameras ──────────────────────────────────────────────────────────────────
+// The `cameras` ConfigMap and the register-cameras Jobs the reconcile loop
+// converges from the config store live in their own namespace, outside the
+// Helm release. The default name is the Scality lab's; CAMERAS_NAMESPACE points
+// the console at whatever namespace carries them on another cluster. Whatever
+// it is, that namespace needs the console-writer Role (k8s/02-workload-rbac.yaml.example).
+const CAMERAS_NS = process.env.CAMERAS_NAMESPACE ?? "pyramid-ingress";
 const CAMERAS = {
-  namespace: "pyramid-ingress",
+  namespace: CAMERAS_NS,
   configMap: "cameras",
   yamlKey: "cameras.yaml",
   registerJobPrefix: "register-cameras",
