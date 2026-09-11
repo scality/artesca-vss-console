@@ -27,6 +27,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { makeS3Client } from "@/lib/s3";
 import { readArtescaCapacity, type ArtescaCapacity } from "@/lib/helpers/artesca-capacity";
+import { readArtescaReclamation, type ArtescaReclamation } from "@/lib/helpers/artesca-reclamation";
 import {
   s3BucketForRecordings,
   s3BucketForAlertClips,
@@ -234,6 +235,8 @@ export interface StorageSubstrate {
    * byte totals below, which are S3 logical bytes and undercount physical fill.
    */
   artesca?: ArtescaCapacity | null;
+  /** Whether deletes are returning space; null when Prometheus is unreachable. */
+  reclamation?: ArtescaReclamation | null;
   configured: boolean;
   endpoint: string;
   region: string;
@@ -331,6 +334,17 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
   } catch {
     /* fail-soft: renders as unknown */
   }
+  // Whether deletes are returning space — the question cluster fill alone
+  // cannot answer while a relocation pass is pending.
+  let reclamation: ArtescaReclamation | null = null;
+  try {
+    reclamation = await readArtescaReclamation();
+  } catch {
+    /* fail-soft: renders as unknown */
+  }
+  if (reclamation?.verdict.state === "stuck") {
+    warnings.push(`ARTESCA reclamation looks stuck: ${reclamation.verdict.reason}.`);
+  }
   if (artesca?.writesRefused) {
     warnings.push(
       `ARTESCA is refusing writes: cluster fill ${artesca.fillPercent.toFixed(2)}% has reached the ${artesca.criticalPercent}% guard. Free space or expand capacity — deletes take effect only after a relocation pass.`,
@@ -387,5 +401,5 @@ export async function collectStorageSubstrate(): Promise<StorageSubstrate> {
     { objectCount: 0, bytesTotal: 0, bytesLast24h: 0 },
   );
 
-  return { artesca, configured: true, endpoint, region, capacityBytes, buckets, recent, totals, warnings, refreshing, ts: new Date().toISOString() };
+  return { artesca, reclamation, configured: true, endpoint, region, capacityBytes, buckets, recent, totals, warnings, refreshing, ts: new Date().toISOString() };
 }

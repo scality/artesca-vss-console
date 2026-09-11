@@ -39,8 +39,18 @@ interface ArtescaCapacity {
   warning: boolean;
   checkedAt: string;
 }
+interface ArtescaReclamation {
+  reclaimableBytes: number | null;
+  awaitingRelocate: number | null;
+  awaitingRetry: number | null;
+  paused: boolean | null;
+  reclaimedLastHourBytes: number | null;
+  sweeperPassesLastHour: number | null;
+  verdict: { state: "idle" | "working" | "stuck" | "unknown"; reason: string };
+}
 interface StorageSubstrate {
   artesca?: ArtescaCapacity | null;
+  reclamation?: ArtescaReclamation | null;
   configured: boolean;
   endpoint: string;
   region: string;
@@ -232,6 +242,40 @@ export default function StoragePage() {
                     )}
                   </>
                 ) : null}
+                {/* Whether deletes are returning space. Cluster fill cannot say:
+                    a delete frees bytes logically and hyperdrive returns them
+                    only after a relocation pass, so a full-looking cluster with
+                    space pending is "wait", and one with space pending and a
+                    silent sweeper is "stuck". */}
+                {data.reclamation === null || data.reclamation === undefined ? (
+                  <p className="mt-2 text-[11px] text-amber-600">reclamation unknown — Prometheus unreachable</p>
+                ) : (
+                  <p
+                    className={`mt-2 text-[11px] ${
+                      data.reclamation.verdict.state === "stuck"
+                        ? "font-medium text-red-600"
+                        : data.reclamation.verdict.state === "unknown"
+                          ? "text-amber-600"
+                          : "text-muted-foreground"
+                    }`}
+                  >
+                    reclamation {data.reclamation.verdict.state}
+                    {data.reclamation.reclaimableBytes !== null && (
+                      <> · {formatBytes(data.reclamation.reclaimableBytes)} pending return</>
+                    )}
+                    {(data.reclamation.awaitingRelocate ?? 0) + (data.reclamation.awaitingRetry ?? 0) > 0 && (
+                      <>
+                        {" "}· queue {data.reclamation.awaitingRelocate ?? 0}
+                        {(data.reclamation.awaitingRetry ?? 0) > 0 && <> (+{data.reclamation.awaitingRetry} retry)</>}
+                      </>
+                    )}
+                    {data.reclamation.reclaimedLastHourBytes !== null && (
+                      <> · {formatBytes(data.reclamation.reclaimedLastHourBytes)} reclaimed in the last hour</>
+                    )}
+                    {" — "}
+                    {data.reclamation.verdict.reason}
+                  </p>
+                )}
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Written in last 24h</p>
