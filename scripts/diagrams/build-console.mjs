@@ -10,12 +10,12 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const LIB = '../../../isv-presentations/diagrams/lib/excalidraw-lib.mjs';
+const LIB = '../../../isv-portal/presentations/diagrams/lib/excalidraw-lib.mjs';
 let createScene, PALETTE, findOverlaps;
 try {
   ({ createScene, PALETTE, findOverlaps } = await import(LIB));
 } catch {
-  console.error(`Cannot load the shared scene builder at ${LIB}\nClone scality/isv-presentations next to isv-labs.`);
+  console.error(`Cannot load the shared scene builder at ${LIB}\nClone scality/isv-portal next to this repository.`);
   process.exit(1);
 }
 const P = PALETTE;

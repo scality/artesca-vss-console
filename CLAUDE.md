@@ -107,17 +107,17 @@ The build pipeline, the E2E environment, who hears a red run, the smoke test and
 
 ```bash
 node scripts/diagrams/dump-model.mjs > model.json
-node scripts/diagrams/build-console.mjs model.json ../isv-presentations/diagrams/sheets/vss-console.excalidraw
+node scripts/diagrams/build-console.mjs model.json ../isv-portal/presentations/diagrams/sheets/vss-console.excalidraw
 
 node --conditions=react-server scripts/diagrams/dump-flow.mjs > flow.json
-node scripts/diagrams/build-flow.mjs flow.json ../isv-presentations/diagrams/sheets/vss-flow.excalidraw
+node scripts/diagrams/build-flow.mjs flow.json ../isv-portal/presentations/diagrams/sheets/vss-flow.excalidraw
 ```
 
 **ISV-ARCH-06** follows one frame from the lens to the operator — the three paths it takes at once, the carrier at each boundary, and where each lands on ARTESCA. It **imports** [`cluster-refs.ts`](src/lib/cluster-refs.ts) rather than parsing it, since those values are computed from `process.env` with defaults and a regex would read the source of a name instead of the name. Two consequences: the dumper must run under `--conditions=react-server`, because `cluster-refs.ts` opens with `import "server-only"` whose default entry throws by design; and it emits an explicit allowlist rather than the `CLUSTER` object, which carries live credentials (`CLUSTER.grafana.password` among them) onto a sheet that gets published.
 
 **ISV-ARCH-05** draws the operator surface.
 
-Draws the operator surface: the 22 pages by what kiosk mode does to each, the config-store entities shared with the deployer, and what the 67 API routes reach. Everything on it is read from source at run time — pages from [`Nav.tsx`](src/components/Nav.tsx), kiosk state from [`lib/kiosk.ts`](src/lib/kiosk.ts), shared state from the `ConfigStore` contract, backend reach from a walk of each route's `@/lib` imports. The scene builder is shared with the other sheets and lives in `scality/isv-presentations` (clone it next to this repository); the generator stays here, because it can only read this repo's source from inside it.
+Draws the operator surface: the 22 pages by what kiosk mode does to each, the config-store entities shared with the deployer, and what the 67 API routes reach. Everything on it is read from source at run time — pages from [`Nav.tsx`](src/components/Nav.tsx), kiosk state from [`lib/kiosk.ts`](src/lib/kiosk.ts), shared state from the `ConfigStore` contract, backend reach from a walk of each route's `@/lib` imports. The scene builder is shared with the other sheets and lives in `scality/isv-portal` under `presentations/diagrams/lib/` (clone it next to this repository); the generator stays here, because it can only read this repo's source from inside it.
 
 ⚠ **The import walk follows `await import()` as well as `from`.** The reconcile context is reached dynamically at all 16 of its call sites, so a static-only walk concludes that no route touches the config store — which is exactly backwards, since that path is how cameras, prompt and scenarios are written.
 

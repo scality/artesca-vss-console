@@ -8,7 +8,7 @@
 //
 // The check has to live here, because this is the only repository that has the
 // source. It cannot see the rendered sheet — that is committed in isv-portal,
-// and the scene in isv-presentations — so it does the next best thing and pins
+// and the scene lives there too — so it does the next best thing and pins
 // the *facts the generators extract*. When one moves, the sheet is out of date,
 // and the failure says so.
 //
@@ -16,7 +16,7 @@
 // re-pin —
 //
 //   npm run diagrams:pin        # rewrite the fixture from the current source
-//   # then, in isv-presentations: node diagrams/render-all.mjs
+//   # then, in isv-portal:        node presentations/diagrams/render-all.mjs
 //   # then, in isv-portal:        npm run sync-diagrams
 //
 // Deliberately a summary, not the whole model. Pinning every route path would

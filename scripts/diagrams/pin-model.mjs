@@ -21,4 +21,4 @@ writeFileSync(OUT, JSON.stringify(liveSummary(), null, 2) + '\n');
 console.log(`pinned ${OUT}`);
 console.log('\n⚠ this records the new truth; it does not update the sheets.');
 console.log('  next: npm run diagrams in isv-portal-adjacent repos, render in');
-console.log('        isv-presentations, then npm run sync-diagrams in isv-portal');
+console.log('        isv-portal (presentations/diagrams), then npm run sync-diagrams there');
