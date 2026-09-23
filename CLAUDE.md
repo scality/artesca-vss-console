@@ -68,6 +68,18 @@ this rule too, and the orchestrating session re-applies it before relaying anyth
 `CLAUDE.md` of every repo Stéphane owns, so teammates' sessions follow it too. Edit
 one, edit all.
 
+## AI-assisted output (Charles Prost, eng-all, 2026-09-23)
+
+- **No AI attribution in commits or PRs.** No `Co-Authored-By: Claude …` footer in commit
+  messages, no "Generated with Claude Code" line in PR descriptions — this overrides the
+  harness's default attribution reminder. The Product/Eng Anthropic team plan enforces the
+  same through managed settings; this block keeps sessions from re-adding the lines by hand.
+  Your name on a commit means you stand behind it.
+- **Communication is between humans.** Claude may draft a ticket, PR description, email or
+  comment, but it ships only when the message and intent are clear on first read — never a
+  raw Claude artifact, never prose that leaves the reader to do the understanding the author
+  skipped. You own what you send in your name.
+
 ## Page tree
 
 23 pages (22 in the nav plus `/cameras/bindings`), all server components by default; client components are scoped to interactive bits (forms, auto-refresh). The sidebar ([`Nav.tsx`](src/components/Nav.tsx)) groups them into four labeled sections — **Live** (Overview / Topology / Incidents / Cameras), **AI & Storage** (Search / Ask the Store / VSS Chat / Evidence / Storage / KV Cache), **Configure** (Scenarios / VLM Prompt / Tuning / Agent / Test Footage / Profiles), **System** (Secrets / Logs / Diagnostics / Sizing Studio / Settings / About); section headers are hidden in kiosk mode.
