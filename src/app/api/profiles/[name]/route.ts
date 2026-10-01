@@ -11,6 +11,7 @@ import { rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
 import { sshExec } from "@/lib/ssh";
 import type { Scenario } from "@/lib/types";
 import { CLUSTER } from "@/lib/cluster-refs";
+import { assertWorkloadWritable, boxPausedResponse } from "@/lib/box-mode";
 import {
   gcsScenariosPut,
   type ScenariosConfig,
@@ -58,8 +59,16 @@ export const PUT = withRequestContext(async function (
     return NextResponse.json({ error: `Profile "${name}" not found` }, { status: 404 });
   }
 
-  const warnings: string[] = [];
+  // A profile applies the VLM prompt and model to the VLM Deployment, which the
+  // AI Factory GPU switch scales. Refuse the whole apply up front rather than
+  // land the scenarios and skip the prompt: a scene applied by halves is not
+  // the scene the operator picked.
+  const paused = await boxPausedResponse([
+    { kind: "Deployment", namespace: CLUSTER.rtvi.nimNamespace, name: CLUSTER.rtvi.vlmDeployment },
+  ]);
+  if (paused) return paused;
 
+  const warnings: string[] = [];
 
   // Apply scenarios
   try {
@@ -108,6 +117,7 @@ export const PUT = withRequestContext(async function (
         });
         const container = deploy.spec?.template?.spec?.containers?.[0];
         if (container) {
+          await assertWorkloadWritable("Deployment", CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.vlmDeployment);
           const envPatch = [...(container.env ?? [])];
           const idx = envPatch.findIndex((e) => e.name === "VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME");
           if (idx >= 0) envPatch[idx] = { name: "VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME", value: profile.nimModel };

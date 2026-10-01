@@ -230,3 +230,17 @@ data:
   # RECORDING_ESCALATE_MAX_RESTARTS: cap on escalation restarts before giving up
   #   (then per-sensor degraded stands). Default 2.
   # RECORDING_ESCALATE_MAX_RESTARTS: "2"
+
+  # ── AI Factory GPU mode ───────────────────────────────────────────────────────
+  # Read from ConfigMap <AI_FACTORY_NAMESPACE>/<AI_FACTORY_MODE_CONFIGMAP>
+  # (default ai-factory/gpu-mode), written only by the AI Factory's GPU switch.
+  # Mode other than `vss`: banner on every page (full-screen in kiosk), and the
+  # console skips (reconcile loop) or 409s (restart/tuning/profile routes) writes
+  # to vss-rtvi-vlm, vss-vios-streamprocessing and kvcache-demo/vllm-lmcache.
+  # Absent ConfigMap or namespace = `vss`. console-reader's cluster-wide
+  # configmaps `get` covers the read (01-rbac.yaml).
+  # AI_FACTORY_URL: link to the AI Factory UI as the operator's browser reaches
+  #   it (banner + nav). Default http://localhost:4090, the AI Factory tunnel.
+  # AI_FACTORY_URL: "http://localhost:4090"
+  # AI_FACTORY_NAMESPACE: "ai-factory"
+  # AI_FACTORY_MODE_CONFIGMAP: "gpu-mode"

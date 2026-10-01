@@ -3,6 +3,8 @@
 import { usePathname } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { useKiosk } from "./KioskProvider";
+import { useAiFactoryUrl, useBoxMode } from "./BoxModeProvider";
+import { BoxModeBanner } from "./BoxModeBanner";
 import { Nav } from "./Nav";
 import { PortalHeader } from "./brand/PortalHeader";
 import { cn } from "@/lib/utils";
@@ -15,6 +17,8 @@ interface ShellProps {
 export function Shell({ children, className }: ShellProps) {
   const { kiosk } = useKiosk();
   const pathname = usePathname();
+  const boxMode = useBoxMode();
+  const aiFactoryUrl = useAiFactoryUrl();
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -28,6 +32,10 @@ export function Shell({ children, className }: ShellProps) {
           </span>
         </PortalHeader>
       )}
+
+      {/* While the AI Factory has the box in another GPU mode: a strip here,
+          or a full-screen notice in kiosk mode (Exit kiosk stays above it). */}
+      <BoxModeBanner boxMode={boxMode} aiFactoryUrl={aiFactoryUrl} kiosk={kiosk} />
 
       <div className="flex flex-1">
         {!kiosk && (

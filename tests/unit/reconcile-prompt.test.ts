@@ -45,6 +45,29 @@ describe("reconcilePrompt", () => {
     expect(r.updated).toBe(false);
     expect(r.skipped).toBeTruthy();
   });
+  // The AI Factory GPU switch owns the VLM Deployment while the box is not in
+  // `vss` mode (src/lib/box-mode.ts): the live value is still read, nothing is
+  // written, and the diff is reported as deferred for the next unpaused pass.
+  it("paused: reads the live prompt but neither patches nor restarts", async () => {
+    const { adapter, calls } = fakeAdapter("old prompt");
+    const r = await reconcilePrompt({ prompt: "new prompt" }, adapter, REFS, { paused: "paused: box in llm mode" });
+    expect(r).toEqual({ updated: false, skipped: "paused: box in llm mode", deferred: true });
+    expect(calls.patched).toEqual([]);
+    expect(calls.restarted).toEqual([]);
+  });
+  it("paused with the live prompt already desired: a plain no-op, nothing deferred", async () => {
+    const { adapter, calls } = fakeAdapter("same");
+    const r = await reconcilePrompt({ prompt: "same" }, adapter, REFS, { paused: "paused: box in llm mode" });
+    expect(r).toEqual({ updated: false });
+    expect(calls.patched).toEqual([]);
+  });
+  it("unpaused again (paused: null): the deferred write lands", async () => {
+    const { adapter, calls } = fakeAdapter("old prompt");
+    const r = await reconcilePrompt({ prompt: "new prompt" }, adapter, REFS, { paused: null });
+    expect(r.updated).toBe(true);
+    expect(calls.patched).toEqual([{ key: "VLM_SYSTEM_PROMPT", value: "new prompt" }]);
+    expect(calls.restarted).toEqual(["vss-rtvi-vlm"]);
+  });
   it("captures a thrown error (never throws)", async () => {
     const adapter: ClusterAdapter = {
       listSensors: async () => [], addSensor: async () => ({ ok: true }),

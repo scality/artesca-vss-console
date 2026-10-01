@@ -5,7 +5,9 @@ import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
 import { QueryProvider } from "@/components/QueryProvider";
 import { KioskProvider } from "@/components/KioskProvider";
+import { BoxModeProvider } from "@/components/BoxModeProvider";
 import { isKioskFromHeaders } from "@/lib/kiosk";
+import { CLUSTER } from "@/lib/cluster-refs";
 
 const display = Space_Grotesk({
   subsets: ["latin"],
@@ -44,7 +46,9 @@ export default async function RootLayout({
       <body>
         <AuthProvider>
           <QueryProvider>
-            <KioskProvider initialKiosk={kiosk}>{children}</KioskProvider>
+            <KioskProvider initialKiosk={kiosk}>
+              <BoxModeProvider aiFactoryUrl={CLUSTER.aiFactory.url}>{children}</BoxModeProvider>
+            </KioskProvider>
           </QueryProvider>
         </AuthProvider>
       </body>

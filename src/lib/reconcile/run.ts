@@ -15,6 +15,10 @@ export interface ReconcileRunOptions {
   agentVersion?: string;
   /** Cluster targets for prompt + scenarios convergence. When absent, only cameras converge. */
   refs?: { prompt: PromptRefs; scenarios: ScenarioRefs };
+  /** Set while the box is not in `vss` mode (src/lib/box-mode.ts): the VLM
+   *  Deployment belongs to the AI Factory GPU switch, so its strategy and
+   *  prompt are not written. Cameras and scenarios still converge. */
+  paused?: string | null;
 }
 
 /**
@@ -46,14 +50,17 @@ export async function reconcileInstanceCameras(
     status.errors = result.failed.map((f) => `camera ${f.id}: ${f.warning ?? "unknown error"}`);
 
     if (opts.refs) {
-      const { reconcileVlmStrategy } = await import("@/lib/reconcile/vlm-strategy");
-      const stratRes = await reconcileVlmStrategy(adapter, { ns: opts.refs.prompt.ns, deployment: opts.refs.prompt.deployment });
-      if (stratRes.error) status.errors.push(`vlm-strategy: ${stratRes.error}`);
+      if (!opts.paused) {
+        const { reconcileVlmStrategy } = await import("@/lib/reconcile/vlm-strategy");
+        const stratRes = await reconcileVlmStrategy(adapter, { ns: opts.refs.prompt.ns, deployment: opts.refs.prompt.deployment });
+        if (stratRes.error) status.errors.push(`vlm-strategy: ${stratRes.error}`);
+      }
 
       const desiredPrompt = await store.readPrompt(instance);
-      const promptRes = await reconcilePrompt(desiredPrompt, adapter, opts.refs.prompt);
+      const promptRes = await reconcilePrompt(desiredPrompt, adapter, opts.refs.prompt, { paused: opts.paused });
       status.applied.promptUpdated = promptRes.updated;
       if (promptRes.error) status.errors.push(`prompt: ${promptRes.error}`);
+      if (promptRes.deferred) status.drift.push(`prompt: differs from desired — ${promptRes.skipped}`);
 
       const desiredScenarios = await store.readScenarios(instance);
       const scenariosRes = await reconcileScenarios(desiredScenarios, adapter, opts.refs.scenarios);

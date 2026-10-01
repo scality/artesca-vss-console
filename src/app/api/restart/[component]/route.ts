@@ -6,6 +6,7 @@ import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
 import { withRequestContext } from "@/lib/with-request-context";
+import { boxPausedResponse, boxPausedErrorResponse, isBoxPausedError } from "@/lib/box-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -37,12 +38,18 @@ export const POST = withRequestContext(async (
     );
   }
 
-  const restartedAt = new Date().toISOString();
+  // A workload the AI Factory GPU switch scales is not restarted while the box
+  // is in another mode: 409, and the restart is the operator's to retry once
+  // the box is back in vss.
+  const paused = await boxPausedResponse([spec]);
+  if (paused) return paused;
 
+  const restartedAt = new Date().toISOString();
 
   try {
     await rolloutRestart(spec.kind, spec.namespace, spec.name);
   } catch (err: unknown) {
+    if (isBoxPausedError(err)) return boxPausedErrorResponse(err);
     const { status, message } = extractK8sError(err);
     return NextResponse.json(
       { error: message, k8sCode: status },

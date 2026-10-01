@@ -31,11 +31,11 @@
       "/kvcache",
       "/topology"
     ],
-    "apiRoutes": 67,
+    "apiRoutes": 68,
     "mutatingCount": 33,
     "guardedCount": 17,
     "backendCounts": {
-      "k8s": 29,
+      "k8s": 30,
       "ssh": 2,
       "s3": 15,
       "kafka": 6,

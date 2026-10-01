@@ -87,6 +87,7 @@ import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps
 import { auditLog } from "@/lib/helpers/audit";
 
 import { GET, PATCH } from "@/app/api/tuning/vst/route";
+import { resetBoxModeCache } from "@/lib/box-mode";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -230,6 +231,25 @@ describe("GET /api/tuning/vst", () => {
 // ── PATCH ─────────────────────────────────────────────────────────────────────
 
 describe("PATCH /api/tuning/vst", () => {
+  // The save rolls the VST recorder, which the AI Factory GPU switch scales:
+  // while the box is in llm mode it answers 409 BEFORE patching the ConfigMap,
+  // so a refused restart cannot leave the config half-applied.
+  it("box in llm mode: 409 and neither the ConfigMap nor a workload is written", async () => {
+    resetBoxModeCache({ reader: async () => ({ data: { mode: "llm", updatedAt: "2026-10-01T10:40:29.227Z" } }) });
+    try {
+      const res = await PATCH(makeRequest("PATCH", { recordingMode: "event" }));
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error).toMatch(/^VSS paused — the box is running the LLM \(AI Factory\)/);
+      expect(body.workloads).toEqual([{ kind: "Deployment", namespace: "vst", name: "streamprocessing-ms" }]);
+      expect(readConfigMapKey).not.toHaveBeenCalled();
+      expect(patchConfigMapRawKey).not.toHaveBeenCalled();
+      expect(rolloutRestart).not.toHaveBeenCalled();
+    } finally {
+      resetBoxModeCache();
+    }
+  });
+
   it("auth missing → 401, no K8s calls", async () => {
     vi.mocked(auth).mockResolvedValue(null as never);
 

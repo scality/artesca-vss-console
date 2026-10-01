@@ -25,8 +25,11 @@ import {
   BarChart3,
   ShieldCheck,
   Gauge,
+  Cpu,
+  ExternalLink,
 } from "lucide-react";
 import { useKiosk } from "./KioskProvider";
+import { useAiFactoryUrl } from "./BoxModeProvider";
 import { cn } from "@/lib/utils";
 import { KIOSK_HIDDEN_ROUTES } from "@/lib/kiosk";
 
@@ -83,6 +86,7 @@ const NAV_GROUPS: Array<{
 export function Nav() {
   const pathname = usePathname();
   const { kiosk } = useKiosk();
+  const aiFactoryUrl = useAiFactoryUrl();
 
   const renderLink = (href: string, label: string, Icon: typeof LayoutDashboard) => {
     const active = pathname === href || (href !== "/" && pathname.startsWith(href));
@@ -121,6 +125,22 @@ export function Nav() {
           </div>
         );
       })}
+      {/* The sibling app that switches the box's GPUs between VSS and the LLM.
+          Outside NAV_GROUPS on purpose: it is not a console page, and the
+          ISV-ARCH-05 generator reads NAV_GROUPS as the page list. Shown in
+          every box mode. */}
+      <div className="mt-2 border-t border-border pt-2">
+        <a
+          href={aiFactoryUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+        >
+          <Cpu className="h-4 w-4 shrink-0" />
+          AI Factory
+          <ExternalLink className="ml-auto h-3.5 w-3.5 shrink-0" aria-label="opens in a new tab" />
+        </a>
+      </div>
     </nav>
   );
 }

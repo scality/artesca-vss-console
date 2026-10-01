@@ -43,6 +43,12 @@ rules:
 # and `events`/`namespaces` only ever `list` — but get-vs-list per resource buys
 # little against the risk of removing a read some page turns out to make, so
 # both verbs are kept on the group above.
+#
+# The `configmaps` get is also what reads the AI Factory's GPU-mode record,
+# ConfigMap gpu-mode in namespace ai-factory (src/lib/box-mode.ts), on a box
+# that runs it. Narrow this rule and that read 403s — the console then reads
+# the mode as `vss` and stops pausing its writes while the box runs the LLM;
+# grant `get` on configmaps/gpu-mode in ai-factory separately if you do.
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1

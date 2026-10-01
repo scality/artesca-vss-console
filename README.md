@@ -71,9 +71,18 @@ Three things that kustomization will not do for you, and each stops the pod:
 
 The console also needs a `console-writer` Role and RoleBinding in each namespace it patches, since it reads pods and patches ConfigMaps outside its own namespace. `01-rbac.yaml` covers namespace `console`; grant the equivalent in each `vss-<profile>` namespace you point it at.
 
+## Sharing the box with the AI Factory
+
+A box can also run the **AI Factory**, a separate app whose GPU switch moves the whole box between two profiles: `vss` (this console's world) and `llm` (the VSS GPU workloads scaled to 0, vLLM on the GPUs). The switch records the mode in ConfigMap `ai-factory/gpu-mode` (keys `mode`, `pinned`, `updatedAt`, …) and is that record's only writer. The console is the front door: it reads the record and gets out of the switch's way.
+
+- **Reading the mode.** [`src/lib/box-mode.ts`](src/lib/box-mode.ts) reads the ConfigMap, cached for 10 s. No namespace or no ConfigMap — a box without the AI Factory — reads as `vss`, and the console behaves exactly as it does without the feature. A read that is forbidden, times out or does not parse also reads as `vss`, with the cause in `reason`. `GET /api/box-mode` returns `{ mode, pinned, updatedAt, source: "configmap" | "absent" | "error", reason }`.
+- **Writes the console holds while the mode is not `vss`.** The switch scales three workloads: the VLM Deployment (`vss-rtvi-vlm`), the VST recorder (`vss-vios-streamprocessing`) and the KV-cache demo's vLLM (`kvcache-demo/vllm-lmcache`). The console does not restart, scale or patch them: `/api/restart/<one of them>`, `PATCH /api/tuning/rtvi`, `PATCH /api/tuning/vst` and `PUT /api/profiles/<name>` answer **409** before their first write, with the reason in `error`. The reconcile loop skips the VLM strategy and prompt and the recording-recovery pass, logging one `paused: box in llm mode …` line per cycle; cameras and scenarios still converge. A prompt saved on `/prompt` is stored and reaches the VLM on the first pass after the box is back in `vss`. A secret rotation still lands, and its restart of a parked workload is skipped with a warning. Reads are never paused, and nothing is sticky: writes resume on their own once the mode is `vss`.
+- **What the operator sees.** A banner on every page — "VSS paused — the box is running the LLM (AI Factory)" — and, in kiosk mode, a full-screen notice; both link to the AI Factory UI. The sidebar carries an **AI Factory** link in every mode. The link target is `AI_FACTORY_URL` (default `http://localhost:4090`, the laptop end of the AI Factory's tunnel).
+- **RBAC.** The read is a `get` on `configmaps/gpu-mode` in `ai-factory`, which `console-reader`'s cluster-wide `configmaps` get already covers. Narrow that rule and the read 403s; the console then reads `vss` and stops pausing.
+
 ## Pages
 
-23 pages — 22 in the nav, grouped as the sidebar groups them, plus `/cameras/bindings`.
+23 pages — 22 in the nav, grouped as the sidebar groups them, plus `/cameras/bindings`. Below the groups the sidebar links out to the AI Factory UI, which is a separate app, not a page.
 
 ### Live
 
@@ -102,7 +111,7 @@ The console also needs a `console-writer` Role and RoleBinding in each namespace
 | ----- | ------- |
 | `/scenarios` | Alert-keyword scenarios and per-scenario cooldown |
 | `/prompt` | VLM system prompt (Monaco) and model deployment-name swap |
-| `/tuning` | VST recording, alerting and VLM inference knobs, split across ConfigMap and Deployment env; Save + Restart patches both and rolls the workloads |
+| `/tuning` | VST recording, alerting and VLM inference knobs, split across ConfigMap and Deployment env; Save + Restart patches both and rolls the workloads (refused while the AI Factory has the box in another GPU mode) |
 | `/agent` | Agent configuration (system prompt, model preset incl. provider) and its tool catalog |
 | `/test-footage` | Replay a local video file through the real pipeline to test the prompt and scenarios on actual frames |
 | `/profiles` | Operator-defined scenes — saved prompt + scenario + tuning bundles |
@@ -120,9 +129,9 @@ The console also needs a `console-writer` Role and RoleBinding in each namespace
 
 ## Env vars
 
-[`.env.example`](.env.example) documents 43 variables, each with what it does and what breaks without it — the ones you need to get the app up, point it at your own object store, and see its logs.
+[`.env.example`](.env.example) documents 46 variables, each with what it does and what breaks without it — the ones you need to get the app up, point it at your own object store, and see its logs.
 
-**It is not the full set.** `src/` reads **136**, of which 38 are documented here — so **98 are not** (the other 5 in this file are consumed by Auth.js and the AWS SDK rather than read directly). They are mostly service URLs, Kafka topic names and ConfigMap keys with working defaults derived from `VSS_NAMESPACE`, which is why nothing appears broken without them. When something is misbehaving and you suspect configuration, [`src/lib/cluster-refs.ts`](src/lib/cluster-refs.ts) resolves most of them in one place and `git grep 'process\.env\.' src/` is the authority. Closing that gap is [#6](https://github.com/scality/artesca-vss-console/issues/6); a patch that documents one coherent group of them is a good first contribution.
+**It is not the full set.** `src/` reads **142**, of which 42 are documented here — so **100 are not** (the other 4 in this file are consumed by Auth.js and the AWS SDK rather than read directly; counted 2026-10-01). They are mostly service URLs, Kafka topic names and ConfigMap keys with working defaults derived from `VSS_NAMESPACE`, which is why nothing appears broken without them. When something is misbehaving and you suspect configuration, [`src/lib/cluster-refs.ts`](src/lib/cluster-refs.ts) resolves most of them in one place and `git grep 'process\.env\.' src/` is the authority. Closing that gap is [#6](https://github.com/scality/artesca-vss-console/issues/6); a patch that documents one coherent group of them is a good first contribution.
 
 ## Telemetry
 

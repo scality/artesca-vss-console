@@ -51,6 +51,12 @@ vi.mock("@/lib/cluster-refs", () => ({ CLUSTER: {} }));
 vi.mock("@/lib/reconcile/refs", () => ({ buildReconcileRefs: () => ({}) }));
 vi.mock("@/lib/helpers/default-prompt", () => ({ readDefaultPrompt: () => "p" }));
 vi.mock("@/lib/reconcile/prompt-seed", () => ({ seedDefaultPromptSet: async () => {} }));
+// The loop's tick reads the box's GPU mode; without this it would read the
+// laptop's current kube context. Tests that care inject `boxMode` instead.
+vi.mock("@/lib/box-mode", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/box-mode")>()),
+  getBoxMode: vi.fn(async () => ({ mode: "vss", pinned: false, updatedAt: null, source: "absent", reason: null })),
+}));
 
 describe("startReconcileLoop periodic gating", () => {
   beforeEach(() => {

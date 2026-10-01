@@ -3,6 +3,7 @@ import "server-only";
 import { vstListSensors, vstDeleteSensor } from "@/lib/helpers/vst";
 import { registerSensorAndArm } from "@/lib/helpers/vst-register";
 import { appsV1, rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
+import { assertWorkloadWritable } from "@/lib/box-mode";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import {
   listRealtimeRules as abList,
@@ -105,6 +106,7 @@ export class VstClusterAdapter implements ClusterAdapter {
   }
 
   async patchDeploymentEnv(ns: string, deployment: string, key: string, value: string): Promise<void> {
+    await assertWorkloadWritable("Deployment", ns, deployment);
     const d = await appsV1().readNamespacedDeployment({ name: deployment, namespace: ns });
     const container = d.spec?.template?.spec?.containers?.[0];
     if (!container) throw new Error(`deployment ${deployment} has no container[0]`);
@@ -146,6 +148,7 @@ export class VstClusterAdapter implements ClusterAdapter {
   async ensureDeploymentStrategy(ns: string, deployment: string, type: "Recreate" | "RollingUpdate"): Promise<boolean> {
     const d = await appsV1().readNamespacedDeployment({ name: deployment, namespace: ns });
     if (d.spec?.strategy?.type === type) return false;
+    await assertWorkloadWritable("Deployment", ns, deployment);
     const strategy = type === "Recreate" ? { type, rollingUpdate: null } : { type };
     await appsV1().patchNamespacedDeployment({
       name: deployment, namespace: ns,

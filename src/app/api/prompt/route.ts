@@ -103,6 +103,18 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
     const { reconcilePrompt } = await import("@/lib/reconcile/prompt");
     const warnings: string[] = [];
 
+    // While the AI Factory GPU switch owns the VLM (box not in `vss` mode) the
+    // prompt is saved to the config store and NOT written to the Deployment;
+    // the reconcile loop applies it on its first pass after the box is back in
+    // `vss`. The save succeeds, with a warning saying so.
+    const { getBoxMode, isBoxPaused, pausedHeadline } = await import("@/lib/box-mode");
+    const box = await getBoxMode();
+    const paused = isBoxPaused(box) ? `paused: box in ${box.mode} mode` : null;
+    const deferredWarning = (res: { deferred?: boolean }) =>
+      res.deferred
+        ? [`${pausedHeadline(box.mode)}. Prompt saved; it reaches the VLM when the box is back in VSS mode.`]
+        : [];
+
     // Prompt-set library ops: {set} / {deleteSetId} / {activePromptId}
     const setsParsed = PromptSetPatch.safeParse(body);
     if (setsParsed.success && (setsParsed.data.set !== undefined || setsParsed.data.deleteSetId !== undefined || setsParsed.data.activePromptId !== undefined)) {
@@ -130,8 +142,9 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
         if (activePromptId !== undefined) {
           await ctx.store.setActivePromptId(ctx.instance, activePromptId, actor);
           const desired = await ctx.store.readPrompt(ctx.instance);
-          const res = await reconcilePrompt(desired, ctx.adapter, ctx.refs.prompt);
+          const res = await reconcilePrompt(desired, ctx.adapter, ctx.refs.prompt, { paused });
           if (res.error) warnings.push(res.error);
+          warnings.push(...deferredWarning(res));
           await auditLog("prompt-active-set", `firestore/${ctx.instance}`, { activePromptId });
         }
         return NextResponse.json({ ok: true, ...(warnings.length ? { warnings } : {}) });
@@ -150,9 +163,10 @@ export const PATCH = withRequestContext(async (req: NextRequest) => {
     try {
       const ctx = await makeReconcileContext();
       await ctx.store.writePrompt(ctx.instance, { prompt, ...(model ? { model } : {}) }, session.user?.email ?? "console");
-      const res = await reconcilePrompt({ prompt, ...(model ? { model } : {}) }, ctx.adapter, ctx.refs.prompt);
+      const res = await reconcilePrompt({ prompt, ...(model ? { model } : {}) }, ctx.adapter, ctx.refs.prompt, { paused });
       await auditLog("prompt-update", `firestore/${ctx.instance}`, { promptLength: prompt.length, modelChanged: !!model });
-      return NextResponse.json({ ok: true, ...(res.error ? { warnings: [res.error] } : {}) });
+      const out = [...(res.error ? [res.error] : []), ...deferredWarning(res)];
+      return NextResponse.json({ ok: true, ...(out.length ? { warnings: out } : {}) });
     } catch (err) {
       const msg = err instanceof ReconcileContextError ? err.message : String(err);
       return NextResponse.json({ error: `config store write failed: ${msg}` }, { status: 502 });

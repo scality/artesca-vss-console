@@ -8,6 +8,7 @@ import { CLUSTER } from "@/lib/cluster-refs";
 import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { RtviTuningSchema } from "./schema";
+import { assertWorkloadWritable, boxPausedResponse, boxPausedErrorResponse, isBoxPausedError } from "@/lib/box-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -119,6 +120,7 @@ async function patchVlmDeploymentEnv(
 ): Promise<void> {
   const ns = CLUSTER.rtvi.vlmNamespace;
   const name = CLUSTER.rtvi.vlmDeployment;
+  await assertWorkloadWritable("Deployment", ns, name);
 
   // Read current env list to compute the new merged list.
   const deployment = await appsV1().readNamespacedDeployment({ name, namespace: ns });
@@ -188,6 +190,16 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
 
   const tuning = parsed.data;
 
+  // Every save below rolls the VLM workload, which the AI Factory GPU switch
+  // scales. Refuse before the first write, so a ConfigMap is not patched for a
+  // restart that will not happen.
+  const nimKind = CLUSTER.legacy ? ("StatefulSet" as const) : ("Deployment" as const);
+  const nimNs = CLUSTER.rtvi.nimTuningNamespace;
+  const paused = await boxPausedResponse([
+    { kind: "Deployment", namespace: CLUSTER.rtvi.vlmNamespace, name: CLUSTER.rtvi.vlmDeployment },
+    { kind: nimKind, namespace: nimNs, name: CLUSTER.rtvi.nimStatefulSet },
+  ]);
+  if (paused) return paused;
 
   // ── Step 1: ConfigMap patches (NIM tuning CM) ─────────────────────────────
   const cmPatches: Array<[string, string]> = [];
@@ -256,6 +268,7 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     try {
       await patchVlmDeploymentEnv(vlmEnvPatches);
     } catch (err: unknown) {
+      if (isBoxPausedError(err)) return boxPausedErrorResponse(err);
       const { status, message } = extractK8sError(err);
       return NextResponse.json(
         { error: `rtvi-vlm deployment patch failed: ${message}`, k8sCode: status },
@@ -265,8 +278,6 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
   }
 
   // ── Step 3: rollout restart — NIM workload + rtvi-vlm Deployment ──────────
-  const nimKind = CLUSTER.legacy ? ("StatefulSet" as const) : ("Deployment" as const);
-  const nimNs = CLUSTER.rtvi.nimTuningNamespace;
 
   // The NIM workload may be absent — e.g. the LLM runs remote (hosted NVIDIA
   // API) and its NIMService/Deployment was deleted. Treat NotFound as a no-op
@@ -275,6 +286,7 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
   try {
     await rolloutRestart(nimKind, nimNs, CLUSTER.rtvi.nimStatefulSet);
   } catch (err) {
+    if (isBoxPausedError(err)) return boxPausedErrorResponse(err);
     const { status } = extractK8sError(err);
     if (status === 404) {
       nimRestartSkipped = true;
@@ -290,6 +302,7 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     try {
       await rolloutRestart("Deployment", CLUSTER.rtvi.vlmNamespace, CLUSTER.rtvi.vlmDeployment);
     } catch (err) {
+      if (isBoxPausedError(err)) return boxPausedErrorResponse(err);
       return NextResponse.json(
         { error: `rtvi-vlm rollout restart failed: ${String(err)}` },
         { status: 502 }

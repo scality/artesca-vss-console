@@ -7,6 +7,7 @@ import { reconcileInstanceCameras } from "@/lib/reconcile/run";
 import type { ReconcileRunOptions } from "@/lib/reconcile/run";
 import type { ConfigStore, ReconcileStatus } from "@/lib/config-store/types";
 import { createLogger } from "@/lib/logger";
+import { getBoxMode, isBoxPaused, reconcilePausedLine, type BoxMode } from "@/lib/box-mode";
 
 const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_AGENT_VERSION = process.env.RECONCILE_AGENT_VERSION ?? "agent@plan2";
@@ -25,14 +26,41 @@ export interface RunReconcileAgentDeps {
   log: AgentLog;
   /** Cluster targets for prompt + scenarios convergence. When absent, only cameras converge. */
   refs?: ReconcileRunOptions["refs"];
+  /** The box's GPU mode (src/lib/box-mode.ts). Injectable for tests. */
+  boxMode?: () => Promise<BoxMode>;
 }
 
-/** One agent pass: converge the instance's cameras, prompt, and scenarios; log a summary. */
+/**
+ * One agent pass: converge the instance's cameras, prompt, and scenarios; log a summary.
+ *
+ * While the box is not in `vss` mode the AI Factory GPU switch owns the VLM
+ * Deployment and the VST recorder, so this pass writes neither: the VLM
+ * strategy and prompt are skipped (a prompt that differs is a drift note, and
+ * lands on the first pass after the box is back in `vss`), and the
+ * recording-recovery pass does not run — every recorder reads stalled when the
+ * switch has scaled it to 0, and re-arming or restarting it would fight the
+ * switch. One `paused:` line per pass says so. The mode is read only when the
+ * pass has one of those writes to make.
+ */
 export async function runReconcileAgentOnce(deps: RunReconcileAgentDeps): Promise<ReconcileStatus> {
+  let box: Promise<BoxMode | null> | null = null;
+  const pausedReason = async (): Promise<string | null> => {
+    box ??= (deps.boxMode ?? (() => getBoxMode()))().then(
+      (m) => {
+        if (isBoxPaused(m)) deps.log.info(reconcilePausedLine(m), { mode: m.mode, pinned: m.pinned });
+        return m;
+      },
+      () => null,
+    );
+    const m = await box;
+    return m && isBoxPaused(m) ? `paused: box in ${m.mode} mode` : null;
+  };
+
   const status = await reconcileInstanceCameras(deps.store, deps.adapter, deps.instance, {
     prune: deps.prune ?? false,
     agentVersion: deps.agentVersion ?? DEFAULT_AGENT_VERSION,
     refs: deps.refs,
+    paused: deps.refs ? await pausedReason() : null,
   });
   deps.log.info(
     `reconciled ${deps.instance}: +${status.applied.camerasAdded} cameras, ` +
@@ -48,7 +76,7 @@ export async function runReconcileAgentOnce(deps: RunReconcileAgentDeps): Promis
   // docs/superpowers/specs/2026-07-04-vss-recording-recovery-design.md.
   try {
     const { CLUSTER } = await import("@/lib/cluster-refs");
-    if (CLUSTER.recording.enabled) {
+    if (CLUSTER.recording.enabled && !(await pausedReason())) {
       const { vstListSensors } = await import("@/lib/helpers/vst");
       const { probeRecording } = await import("@/lib/helpers/recording-health");
       const { rearmRecording } = await import("@/lib/helpers/rearm-recording");

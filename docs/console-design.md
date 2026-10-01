@@ -217,6 +217,7 @@ All under `src/app/api/*`. JSON in + out except SSE streams.
 | GET | `/api/evidence` | Sealed evidence objects in the Object-Lock bucket, with retention/mode metadata |
 | GET | `/api/agent-config` | Live vss-agent prompt + LLM wiring + active provider + a `{LLM_BASE_URL}/v1/models` reachability probe |
 | GET | `/api/tts/voices` | On-box Magpie TTS availability + EN-US voice list (`{available:false}` when the NIM is down) |
+| GET | `/api/box-mode` | The box's GPU mode from the AI Factory's ConfigMap `ai-factory/gpu-mode`, cached 10 s: `{mode, pinned, updatedAt, source: "configmap"\|"absent"\|"error", reason}`. No record, or one the console cannot read, is `mode: "vss"` |
 
 ### Write
 
@@ -227,7 +228,7 @@ All under `src/app/api/*`. JSON in + out except SSE streams.
 | DELETE | `/api/cameras/:id` | Remove — dual-unwrite |
 | PATCH | `/api/scenarios` | Patch the entire scenarios ConfigMap + rollout-restart alert-worker |
 | PATCH | `/api/prompt` | Patch `RTVI_VLM_SYSTEM_PROMPT` in `k8s/nvidia-vss/rtvi/11-configmap-runtime-env.yaml` + rollout-restart rtvi-vlm |
-| POST | `/api/restart/:component` | Rollout restart a Deployment or StatefulSet — whitelisted set |
+| POST | `/api/restart/:component` | Rollout restart a Deployment or StatefulSet — whitelisted set. 409 for a workload the AI Factory GPU switch scales (VLM, VST recorder) while the box is not in `vss` mode |
 | POST | `/api/prompt/preview` | Send a one-shot prompt to the NIM, return the VLM response (dry-run) |
 | PATCH | `/api/tuning/vst` | Patch the `vst-config` ConfigMap (guarded subset only — recording mode, GoP, codecs, thresholds, expiry) + rollout-restart `sensor-ms` + `streamprocessing-ms`. Rejects changes that flip `cloud_storage_*` fields — those rotate through `/secrets`, not `/tuning`. |
 | POST | `/api/chat` | Proxy the vss-agent OpenAI-compatible `/chat`, rewriting media hosts to `/api/media`; **search-intent queries are answered from the caption-indexer `/search`** instead (same ChatCompletion shape) |

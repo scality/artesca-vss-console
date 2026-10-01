@@ -2,6 +2,7 @@ import { KubeConfig, CoreV1Api, AppsV1Api, BatchV1Api, Exec, type V1Pod, type V1
 import { Writable } from "node:stream";
 import { existsSync } from "node:fs";
 import { createLogger } from "@/lib/logger";
+import { assertWorkloadWritable } from "@/lib/box-mode";
 
 const log = createLogger("k8s");
 
@@ -232,12 +233,17 @@ export async function runInPod(
  * Trigger a rollout restart for a Deployment or StatefulSet by patching
  * the `kubectl.kubernetes.io/restartedAt` annotation — same mechanism as
  * `kubectl rollout restart`.
+ *
+ * Throws BoxPausedError (src/lib/box-mode.ts) instead of patching when the
+ * workload is one the AI Factory GPU switch scales and the box is not in `vss`
+ * mode — the backstop under every caller's own check.
  */
 export async function rolloutRestart(
   kind: "Deployment" | "StatefulSet",
   namespace: string,
   name: string
 ): Promise<void> {
+  await assertWorkloadWritable(kind, namespace, name);
   const patch = {
     spec: {
       template: {
@@ -316,12 +322,15 @@ export async function deploymentExists(namespace: string, name: string): Promise
   }
 }
 
-/** Set a Deployment's replica count. */
+/** Set a Deployment's replica count. Refused (BoxPausedError) for a workload
+ *  the AI Factory GPU switch scales while the box is not in `vss` mode — the
+ *  switch owns their replica counts then. */
 export async function scaleDeployment(
   namespace: string,
   name: string,
   replicas: number,
 ): Promise<void> {
+  await assertWorkloadWritable("Deployment", namespace, name);
   await appsV1().patchNamespacedDeployment(
     { name, namespace, body: { spec: { replicas } } },
     MERGE_PATCH_OPTS,

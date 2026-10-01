@@ -40,6 +40,9 @@ export async function applyPromptLive(prompt: string): Promise<void> {
     });
     const container = deploy.spec?.template?.spec?.containers?.[0];
     if (!container) throw new Error(`No containers in ${CLUSTER.rtvi.vlmDeployment}`);
+    // Refused while the AI Factory GPU switch owns the VLM (src/lib/box-mode.ts).
+    const { assertWorkloadWritable } = await import("../box-mode");
+    await assertWorkloadWritable("Deployment", CLUSTER.rtvi.nimNamespace, CLUSTER.rtvi.vlmDeployment);
     const envPatch = [...(container.env ?? [])];
     const idx = envPatch.findIndex((e) => e.name === CLUSTER.rtvi.promptKey);
     if (idx >= 0) envPatch[idx] = { name: CLUSTER.rtvi.promptKey, value: prompt };

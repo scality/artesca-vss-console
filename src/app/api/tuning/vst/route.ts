@@ -6,6 +6,7 @@ import { withRequestContext } from "@/lib/with-request-context";
 const log = createLogger("api/tuning/vst");
 import { z } from "zod";
 import { rolloutRestart } from "@/lib/k8s";
+import { boxPausedResponse, boxPausedErrorResponse, isBoxPausedError } from "@/lib/box-mode";
 import { readConfigMapKey, patchConfigMapRawKey } from "@/lib/helpers/configmaps";
 import { auditLog } from "@/lib/helpers/audit";
 import { CLUSTER } from "@/lib/cluster-refs";
@@ -391,6 +392,20 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
   }
   const patches = parsed.data;
 
+  // The save rolls both VST components, and the recorder is one the AI Factory
+  // GPU switch scales. Refuse before the first write so the ConfigMaps are not
+  // left patched for a restart that will not happen.
+  const restarts: Array<{ kind: "Deployment" | "StatefulSet"; name: string }> = [
+    { kind: CLUSTER.vst.sensorKind, name: CLUSTER.vst.sensorDeployment },
+    {
+      kind: CLUSTER.vst.streamProcessingKind,
+      name: CLUSTER.vst.streamProcessingDeployment,
+    },
+  ];
+  const paused = await boxPausedResponse(
+    restarts.map((r) => ({ ...r, namespace: CLUSTER.vst.namespace })),
+  );
+  if (paused) return paused;
 
   // Sensor and streamprocessing each hold their own copy of vst_config.json
   // on the Helm path (identical on legacy, where both point at "vst-config")
@@ -439,21 +454,15 @@ export const PATCH = withRequestContext(async function (req: NextRequest) {
     }
   }
 
-  // Rollout-restart both VST components, using each one's actual resource
-  // kind — streamprocessing is a StatefulSet on the Helm path, not a
-  // Deployment (verified against the live cluster; legacy keeps both as
+  // Rollout-restart both VST components (`restarts`, above), using each one's
+  // actual resource kind — streamprocessing is a StatefulSet on the Helm path,
+  // not a Deployment (verified against the live cluster; legacy keeps both as
   // Deployments).
-  const restarts: Array<{ kind: "Deployment" | "StatefulSet"; name: string }> = [
-    { kind: CLUSTER.vst.sensorKind, name: CLUSTER.vst.sensorDeployment },
-    {
-      kind: CLUSTER.vst.streamProcessingKind,
-      name: CLUSTER.vst.streamProcessingDeployment,
-    },
-  ];
   for (const { kind, name } of restarts) {
     try {
       await rolloutRestart(kind, CLUSTER.vst.namespace, name);
     } catch (err) {
+      if (isBoxPausedError(err)) return boxPausedErrorResponse(err);
       return NextResponse.json(
         {
           error: `Rollout restart of ${kind.toLowerCase()}/${name} failed: ${String(err)}`,

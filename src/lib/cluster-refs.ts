@@ -504,6 +504,41 @@ const KVCACHE = {
     "http://vllm-lmcache.kvcache-demo.svc.cluster.local:8000",
   bucket: process.env.KVCACHE_BUCKET ?? "llm-kvcache-poc",
   model: process.env.KVCACHE_MODEL ?? "Qwen/Qwen2.5-1.5B-Instruct",
+  /** The Deployment behind vllmUrl. The console never writes it; it is named
+   *  here because the AI Factory GPU switch scales it (see AI_FACTORY). */
+  vllmNamespace: process.env.KVCACHE_VLLM_NAMESPACE ?? "kvcache-demo",
+  vllmDeployment: process.env.KVCACHE_VLLM_DEPLOYMENT ?? "vllm-lmcache",
+} as const;
+
+// ─── AI Factory GPU mode ──────────────────────────────────────────────────────
+// A box can run a second app, the AI Factory, that switches the whole box
+// between two GPU profiles: `vss` (this console's world) and `llm` (the VSS GPU
+// workloads scaled to 0, vLLM serving). The switch records the active profile
+// in one ConfigMap — key `mode`, plus `pinned` and `updatedAt` — and is the only
+// writer of it. The console reads it (src/lib/box-mode.ts) and, while the mode
+// is not `vss`, refuses to write the workloads the switch scales, because a
+// console restart or env patch on a workload the switch parked is drift the
+// switch then has to undo.
+//
+// A box without the AI Factory has no such ConfigMap; that reads as `vss`.
+// The console's ServiceAccount reads it through the cluster-wide `configmaps`
+// get in console-reader (k8s/01-rbac.yaml).
+const AI_FACTORY_DEFAULT_URL = "http://localhost:4090";
+
+/** Only an absolute http(s) URL is used as a link target; anything else falls
+ *  back to the default rather than reaching an <a href>. */
+function aiFactoryUrl(raw: string | undefined): string {
+  const v = raw?.trim();
+  return v && /^https?:\/\/[^\s"'<>]+$/i.test(v) ? v : AI_FACTORY_DEFAULT_URL;
+}
+
+const AI_FACTORY = {
+  /** Where an operator's browser reaches the AI Factory UI. The default is the
+   *  laptop-side port of the AI Factory's own SSH tunnel. */
+  url: aiFactoryUrl(process.env.AI_FACTORY_URL),
+  /** The GPU-mode record. */
+  modeNamespace: process.env.AI_FACTORY_NAMESPACE ?? "ai-factory",
+  modeConfigMap: process.env.AI_FACTORY_MODE_CONFIGMAP ?? "gpu-mode",
 } as const;
 
 // ─── Recording auto-heal (guarded re-arm on stalled VST recorder) ───────────
@@ -788,6 +823,8 @@ export const CLUSTER = {
   s3: S3,
   /** vLLM+LMCache KV-cache demo backend (ISVD-331 Phase C) — /kvcache page LIVE mode. */
   kvcache: KVCACHE,
+  /** AI Factory GPU-mode record and UI link (src/lib/box-mode.ts). */
+  aiFactory: AI_FACTORY,
   restartable: RESTARTABLE,
   search: {
     /** POST /search endpoint on the vss-caption-indexer worker. */

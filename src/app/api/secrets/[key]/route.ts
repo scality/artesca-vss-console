@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { coreV1, rolloutRestart, MERGE_PATCH_OPTS } from "@/lib/k8s";
+import { isBoxPausedError } from "@/lib/box-mode";
 import { withRequestContext } from "@/lib/with-request-context";
 import { extractK8sError } from "@/lib/errors";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
@@ -310,7 +311,14 @@ export const PATCH = withRequestContext(async function (
     try {
       await rolloutRestart(target.kind, target.namespace, target.name);
     } catch (err) {
-      restartWarnings.push(`Restart ${target.name} failed: ${String(err)}`);
+      // The AI Factory GPU switch has this workload scaled to 0: nothing is
+      // running to restart, and its pods read the new Secret when the switch
+      // brings them back. The rotation itself stands.
+      restartWarnings.push(
+        isBoxPausedError(err)
+          ? `Restart ${target.name} skipped: ${err.message} It reads the new value when it is scaled back up.`
+          : `Restart ${target.name} failed: ${String(err)}`,
+      );
     }
   }
 
