@@ -253,7 +253,7 @@ async function collectS3(warnings: string[]): Promise<S3State | null> {
   // overview and the storage page. A single 1000-key page here read 6.99 TiB
   // as a fraction of a fixed 100 GiB on pyramid-showroom.
   try {
-    const { stats, refreshing } = bucketStatsCached(bucket);
+    const { stats, refreshing, scannedAt } = bucketStatsCached(bucket);
     if (!stats) {
       warnings.push(refreshing ? "S3 stats still loading (first bucket scan in flight)" : "S3 stats unavailable");
       return null;
@@ -265,6 +265,7 @@ async function collectS3(warnings: string[]): Promise<S3State | null> {
       capacityBytes: CLUSTER.s3.capacityBytes,
       prev: _putRateSample.get(bucket),
       nowMs: Date.now(),
+      scannedAt,
     });
     _putRateSample.set(bucket, sample);
     return state;

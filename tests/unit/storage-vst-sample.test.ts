@@ -12,6 +12,7 @@
 // the duration percentiles were computed over the same dead prefix.
 import { describe, it, expect } from "vitest";
 import {
+  listAllPages,
   newestChildPrefix,
   sampleNewestBySensor,
 } from "@/lib/storage/vst-sample";
@@ -154,5 +155,72 @@ describe("sampleNewestBySensor", () => {
     const objs = await sampleNewestBySensor(s3, "b", ["boom", "live"], 1);
     expect(objs.every((o) => (o.Key ?? "").startsWith("live/"))).toBe(true);
     expect(objs.length).toBeGreaterThan(0);
+  });
+});
+
+/** fakeS3, but paginated the way S3 is: entries (objects and rolled-up prefixes
+ *  together) in lexicographic order, at most `pageSize` per response, the rest
+ *  behind a NextContinuationToken. A reader that takes only the first response
+ *  sees the lexicographically first `pageSize` entries — and for unpadded hour
+ *  directories or a busy hour, that is not the newest data. */
+function pagedFakeS3(keys: Record<string, number>, pageSize: number) {
+  const inner = fakeS3(keys).s3 as unknown as {
+    send: (c: unknown) => Promise<{
+      Contents?: { Key: string; Size: number; LastModified: Date }[];
+      CommonPrefixes?: { Prefix: string }[];
+    }>;
+  };
+  const calls: { Prefix?: string; ContinuationToken?: string }[] = [];
+  const s3 = {
+    async send(cmd: { input: { Prefix?: string; Delimiter?: string; ContinuationToken?: string } }) {
+      calls.push({ Prefix: cmd.input.Prefix, ContinuationToken: cmd.input.ContinuationToken });
+      const full = await inner.send(cmd);
+      const entries = [
+        ...(full.Contents ?? []).map((c) => ({ sortKey: c.Key, contents: c })),
+        ...(full.CommonPrefixes ?? []).map((p) => ({ sortKey: p.Prefix, prefix: p })),
+      ].sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
+      const start = Number(cmd.input.ContinuationToken ?? 0);
+      const page = entries.slice(start, start + pageSize);
+      const next = start + pageSize < entries.length ? String(start + pageSize) : undefined;
+      return {
+        Contents: page.flatMap((e) => ("contents" in e && e.contents ? [e.contents] : [])),
+        CommonPrefixes: page.flatMap((e) => ("prefix" in e && e.prefix ? [e.prefix] : [])),
+        IsTruncated: next !== undefined,
+        NextContinuationToken: next,
+      };
+    },
+  } as unknown as S3Client;
+  return { s3, calls };
+}
+
+describe("pagination (listings longer than one page)", () => {
+  it("listAllPages follows continuation tokens to the last page", async () => {
+    const keys: Record<string, number> = {};
+    for (let i = 0; i < 7; i++) keys[`cam/2026/10/08/10/${i}.mkv`] = i;
+    const { s3, calls } = pagedFakeS3(keys, 3);
+    const { contents } = await listAllPages(s3, { Bucket: "b", Prefix: "cam/2026/10/08/10/" });
+    expect(contents).toHaveLength(7);
+    expect(calls.map((c) => c.ContinuationToken)).toEqual([undefined, "3", "6"]);
+  });
+
+  it("finds the newest hour when the day's hour directories span several pages", async () => {
+    // 24 unpadded hour directories, two per page. Lexicographically the first
+    // page is "0/" and "1/", and "9/" sorts after "23/": only a complete listing
+    // can see that 23 is the newest.
+    const keys: Record<string, number> = {};
+    for (let h = 0; h < 24; h++) keys[`cam/2026/10/08/${h}/seg.mkv`] = h;
+    const { s3 } = pagedFakeS3(keys, 2);
+    expect(await newestChildPrefix(s3, "b", "cam/2026/10/08/")).toBe("cam/2026/10/08/23/");
+  });
+
+  it("returns every object of a busy hour, not the first page of it", async () => {
+    const keys: Record<string, number> = {};
+    for (let i = 0; i < 10; i++) keys[`cam/2026/10/08/10/${String(i).padStart(2, "0")}.mkv`] = 1000 + i;
+    keys["cam/2026/10/08/9/old.mkv"] = 1;
+    const { s3 } = pagedFakeS3(keys, 4);
+    const objs = await sampleNewestBySensor(s3, "b", ["cam"], 1);
+    expect(objs).toHaveLength(10);
+    // The newest segment of the hour is on the last page.
+    expect(objs.map((o) => o.Key)).toContain("cam/2026/10/08/10/09.mkv");
   });
 });

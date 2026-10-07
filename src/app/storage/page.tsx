@@ -5,6 +5,7 @@ import { HardDrive, Film, ShieldCheck, Layers, Clock, Lock } from "lucide-react"
 import { Shell } from "@/components/Shell";
 import { formatBytes } from "@/lib/format-bytes";
 import { formatAge } from "@/lib/format-age";
+import { BUCKET_SCAN_TRUNCATED_NOTE } from "@/lib/storage/bucket-scan";
 
 interface BucketSubstrate {
   key: string;
@@ -316,7 +317,9 @@ export default function StoragePage() {
                       </>
                     )}
                     {b.truncated && (
-                      <p className="mt-1 text-[10px] text-amber-600">count capped (very large bucket)</p>
+                      <p className="mt-1 text-[10px] text-amber-600">
+                        Lower bounds — {BUCKET_SCAN_TRUNCATED_NOTE}
+                      </p>
                     )}
                     {b.retention && (
                       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-2">

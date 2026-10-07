@@ -10,6 +10,7 @@ import { createLogger } from "@/lib/logger";
 const log = createLogger("overview-collector");
 import { getKafka } from "@/lib/kafka";
 import { bucketStatsCached } from "@/lib/storage-substrate";
+import { bucketTotalsState } from "@/lib/storage/bucket-scan";
 import { s3BucketForRecordings, describeS3Error } from "@/lib/s3";
 import { promQuery, deviceValue, gpuIndices } from "@/lib/helpers/prometheus";
 import { mediamtxListPaths } from "@/lib/helpers/mediamtx";
@@ -36,7 +37,7 @@ function emptySnapshot(takenAt: string): OverviewSnapshot {
     nim: { ready: false, warmupPct: 0, queueDepth: 0 },
     gpus: [],
     kafka: {},
-    s3: { bucket: s3BucketForRecordings(), objectCount: 0, bytesTotal: 0, growth24h: 0, bytesCapacity: CLUSTER.s3.capacityBytes },
+    s3: { bucket: s3BucketForRecordings(), objectCount: 0, bytesTotal: 0, growth24h: 0, bytesCapacity: CLUSTER.s3.capacityBytes, totalsState: "unavailable" },
     cameraSim: { instanceState: "unreachable", pathsReady: 0, pathsTotal: 0, cameras: [] },
   };
 }
@@ -243,6 +244,7 @@ async function collectK8sOverview(
     bytesTotal: 0,
     growth24h: 0,
     bytesCapacity: CLUSTER.s3.capacityBytes,
+    totalsState: "unavailable",
   };
   // Read the cached stats rather than walking the bucket here. Counting objects
   // means listing them — S3 has no O(1) count — so this was ~197 sequential
@@ -251,8 +253,19 @@ async function collectK8sOverview(
   // against a 5 s auto-refresh, on the page the kiosk display renders (ISVD-593).
   try {
     const { stats, refreshing } = bucketStatsCached(bucket);
+    s3 = { ...s3, totalsState: bucketTotalsState(stats, refreshing) };
     if (stats) {
-      s3 = { ...stats, growth24h: stats.bytesLast24h, bytesCapacity: CLUSTER.s3.capacityBytes };
+      // The cache is a full paginated walk of the bucket; `truncated` means it
+      // stopped at BUCKET_SCAN_OBJECT_CAP and every figure here is a floor,
+      // which the KPI card and the kiosk tile have to say.
+      s3 = {
+        bucket: stats.bucket,
+        objectCount: stats.objectCount,
+        bytesTotal: stats.bytesTotal,
+        growth24h: stats.bytesLast24h,
+        bytesCapacity: CLUSTER.s3.capacityBytes,
+        totalsState: bucketTotalsState(stats, refreshing),
+      };
     } else if (refreshing) {
       // Cold cache: the scan is running. Zeros for one refresh cycle, then real
       // numbers — rather than a 22 s wait for the whole page.

@@ -3,6 +3,7 @@ import { Camera, AlertTriangle, HardDrive, Cpu, ArrowRight } from "lucide-react"
 import type { OverviewSnapshot, Incident } from "@/lib/types";
 import type { HeroExtras } from "@/lib/hero-collector";
 import { formatBytes } from "@/lib/format-bytes";
+import { floorPrefix, hasBucketTotals } from "@/lib/storage/bucket-scan";
 import { formatAge } from "@/lib/format-age";
 
 /**
@@ -124,11 +125,18 @@ export function KioskHero({
   // compute tile with the stable "model resident in VRAM" signal, not util.
   const vramPct = gpu ? Math.round((gpu.memoryUsedMiB / gpu.memoryTotalMiB) * 100) : 0;
 
-  const storageSub =
-    overview.s3.growth24h > 0
-      ? `+${formatBytes(overview.s3.growth24h)} in the last 24h`
+  // A truncated full-bucket scan makes every storage figure a floor; a pending
+  // one means none is known yet — the tile says so rather than showing 0 B.
+  const storageTotalsKnown = hasBucketTotals(overview.s3.totalsState);
+  const storageFloor = floorPrefix(overview.s3.totalsState);
+  const storageSub = !storageTotalsKnown
+    ? overview.s3.totalsState === "pending"
+      ? "counting objects…"
+      : "on-premises"
+    : overview.s3.growth24h > 0
+      ? `+${storageFloor}${formatBytes(overview.s3.growth24h)} in the last 24h`
       : overview.s3.objectCount > 0
-        ? `${overview.s3.objectCount.toLocaleString()} objects`
+        ? `${storageFloor}${overview.s3.objectCount.toLocaleString()} objects`
         : "on-premises";
 
   return (
@@ -181,7 +189,11 @@ export function KioskHero({
         <HeroTile
           icon={HardDrive}
           eyebrow="Stored on ARTESCA"
-          value={formatBytes(overview.s3.bytesTotal)}
+          value={
+            storageTotalsKnown
+              ? `${storageFloor}${formatBytes(overview.s3.bytesTotal)}`
+              : "—"
+          }
           label="On-premises object storage"
           sub={storageSub}
           href="/storage"

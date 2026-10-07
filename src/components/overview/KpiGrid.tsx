@@ -5,6 +5,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import type { OverviewSnapshot } from "@/lib/types";
 import { formatBytes } from "@/lib/format-bytes";
 import { busiestGpuHeadline } from "@/lib/gpu-kpi";
+import { floorPrefix, hasBucketTotals } from "@/lib/storage/bucket-scan";
 
 interface KpiGridProps {
   data: OverviewSnapshot;
@@ -31,17 +32,31 @@ export function KpiGrid({ data }: KpiGridProps) {
   const kafkaUnreachable = kafkaEntries.length > 0 && measuredDepth.length === 0;
   const kafkaDepthSum = measuredDepth.reduce((s, v) => s + v, 0);
 
-  // S3 capacity usage + 24h growth.
+  // S3 capacity usage + 24h growth. The totals are a full paginated scan of
+  // the recordings bucket: until it has finished once they are unknown (not 0),
+  // and when it stopped at its cap they are floors — the card says which.
+  const totalsState = data.s3.totalsState;
+  const totalsKnown = hasBucketTotals(totalsState);
+  const floor = floorPrefix(totalsState);
   const hasCapacity = data.s3.bytesCapacity > 0;
   const usedPct = hasCapacity
     ? (data.s3.bytesTotal / data.s3.bytesCapacity) * 100
     : 0;
-  const totalSize = hasCapacity
-    ? `${formatBytes(data.s3.bytesTotal)} / ${formatBytes(data.s3.bytesCapacity)}`
-    : formatBytes(data.s3.bytesTotal);
-  const objectsLabel = `${data.s3.objectCount.toLocaleString()} objects`;
-  const usedLabel = hasCapacity
-    ? ` · ${usedPct < 0.1 ? "<0.1" : usedPct.toFixed(1)}% used`
+  const totalSize = !totalsKnown
+    ? "—"
+    : hasCapacity
+      ? `${floor}${formatBytes(data.s3.bytesTotal)} / ${formatBytes(data.s3.bytesCapacity)}`
+      : `${floor}${formatBytes(data.s3.bytesTotal)}`;
+  const objectsLabel =
+    totalsState === "pending"
+      ? "counting objects…"
+      : totalsState === "unavailable"
+        ? "object count unavailable"
+        : totalsState === "truncated"
+          ? `${floor}${data.s3.objectCount.toLocaleString()} objects (scan capped)`
+          : `${data.s3.objectCount.toLocaleString()} objects`;
+  const usedLabel = hasCapacity && totalsKnown
+    ? ` · ${floor}${usedPct < 0.1 ? "<0.1" : usedPct.toFixed(1)}% used`
     : "";
   // Average write rate over the 24h window, in the largest sensible unit.
   const growthAvgBps = data.s3.growth24h / 86400;
@@ -51,9 +66,10 @@ export function KpiGrid({ data }: KpiGridProps) {
       : growthAvgBps >= 1e3
         ? `${(growthAvgBps / 1e3).toFixed(0)} kB/s`
         : null;
-  const growthLabel =
-    data.s3.growth24h > 0
-      ? ` · +${formatBytes(data.s3.growth24h)} (24h${growthRate ? `, ${growthRate}` : ""})`
+  const growthLabel = !totalsKnown
+    ? ""
+    : data.s3.growth24h > 0
+      ? ` · +${floor}${formatBytes(data.s3.growth24h)} (24h${growthRate ? `, ${growthRate}` : ""})`
       : " · no growth (24h)";
   const totalSizeSub = `${objectsLabel}${usedLabel}${growthLabel}`;
   const cams = data.cameraSim.cameras ?? [];
