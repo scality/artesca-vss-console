@@ -26,6 +26,7 @@ import type { NodeContentMap, TabRendererProps } from "../registry";
 import type { S3State, CacheState, DbState, RedisState } from "@/lib/types/pipeline";
 import { formatAge } from "@/lib/format-age";
 import { formatBytes } from "@/lib/format-bytes";
+import { BUCKET_SCAN_TRUNCATED_NOTE } from "@/lib/storage/bucket-scan";
 
 // ─── Tier-context strip ────────────────────────────────────────────────────────
 // VST storage is two-tier: a hot local-disk cache buffers recorded segments,
@@ -310,8 +311,14 @@ function ArtescaS3Status({ runtimeState }: TabRendererProps) {
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-lg border border-border bg-muted/10 p-3 space-y-0.5">
           <p className="text-xs text-muted-foreground">Objects</p>
-          <p className="text-xl font-mono font-semibold">{s3.objectCount.toLocaleString()}</p>
-          <p className="text-xs text-muted-foreground">{totalGiB} GiB</p>
+          <p className="text-xl font-mono font-semibold">
+            {s3.bucketScanTruncated ? "≥ " : ""}
+            {s3.objectCount.toLocaleString()}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {s3.bucketScanTruncated ? "≥ " : ""}
+            {totalGiB} GiB
+          </p>
         </div>
         {/* Ceiling gauge — reads ceilingGiB from runtime.s3.ceilingGiB */}
         <div className="rounded-lg border border-border bg-muted/10 p-3">
@@ -332,7 +339,7 @@ function ArtescaS3Status({ runtimeState }: TabRendererProps) {
           {s3.bucketScanTruncated && (
             <span className="ml-2 inline-flex items-center gap-1">
               <Info className="h-3 w-3 shrink-0" />
-              count estimated (scan truncated at 5 000)
+              {BUCKET_SCAN_TRUNCATED_NOTE}
             </span>
           )}
         </p>

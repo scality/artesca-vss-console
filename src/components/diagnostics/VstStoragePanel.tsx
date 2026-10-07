@@ -22,6 +22,10 @@ import {
   Area,
 } from "recharts";
 import {
+  BUCKET_SCAN_TRUNCATED_NOTE,
+  BUCKET_TOTALS_STATES,
+} from "@/lib/storage/bucket-scan";
+import {
   Table,
   TableHeader,
   TableBody,
@@ -91,7 +95,9 @@ const VstStorageResponseSchema = z.object({
   frameDropRatePerMin: z.number().nullable().optional(),
   recentObjects: z.array(RecentObjectSchema),
   alerts: z.array(AlertSchema),
-  /** NEW — bucket scan was capped at 5000 objects */
+  /** What objectCount/bytesTotal mean — exact, a floor, or not known yet. */
+  bucketTotalsState: z.enum(BUCKET_TOTALS_STATES).optional(),
+  /** The full-bucket scan stopped at its cap; the totals are floors. */
   bucketScanTruncated: z.boolean().optional(),
   /** NEW — seconds since object totals were last refreshed */
   bucketScanStaleSecs: z.number().optional(),
@@ -490,15 +496,21 @@ export function VstStoragePanel() {
   const GiB = 2 ** 30;
   const totalGiB = (d.bytesTotal / GiB).toFixed(2);
 
+  // Totals come from a full paginated scan of the bucket. Until it has finished
+  // once they are unknown, not zero; when it stopped at its cap they are floors.
+  const totalsState =
+    d.bucketTotalsState ?? (d.bucketScanTruncated ? "truncated" : "complete");
+  const totalsKnown = totalsState === "complete" || totalsState === "truncated";
+  const floor = totalsState === "truncated" ? "≥ " : "";
+
   // ── Client-injected alerts ──────────────────
   const clientAlerts: VstStorageData["alerts"] = [...d.alerts];
 
   // Bucket scan truncated → info alert at top
-  if (d.bucketScanTruncated) {
+  if (totalsState === "truncated") {
     clientAlerts.unshift({
       severity: "info",
-      message:
-        "Total object count is a conservative estimate — full bucket scan truncated at 5000 objects for latency. Will refresh in background.",
+      message: `Object count and size are lower bounds — ${BUCKET_SCAN_TRUNCATED_NOTE}.`,
     });
   }
 
@@ -585,8 +597,14 @@ export function VstStoragePanel() {
             Objects in nvidia-vss-recordings
           </p>
           <p className="text-3xl font-mono font-semibold">
-            {d.objectCount.toLocaleString()}
-            {showStaleHint && (
+            {totalsKnown ? (
+              `${floor}${d.objectCount.toLocaleString()}`
+            ) : (
+              <span className="text-base font-normal text-muted-foreground italic">
+                {totalsState === "pending" ? "counting…" : "unavailable"}
+              </span>
+            )}
+            {totalsKnown && showStaleHint && (
               <span
                 className="ml-2 text-sm font-normal text-muted-foreground cursor-help"
                 title={`Totals cached ~${staleMins} min ago — refreshing.`}
@@ -595,7 +613,9 @@ export function VstStoragePanel() {
               </span>
             )}
           </p>
-          <p className="text-sm text-muted-foreground">{totalGiB} GiB total</p>
+          <p className="text-sm text-muted-foreground">
+            {totalsKnown ? `${floor}${totalGiB} GiB total` : "full bucket scan"}
+          </p>
         </div>
 
         {/* Local cache tile */}

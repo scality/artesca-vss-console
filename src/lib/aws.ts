@@ -13,6 +13,7 @@
 
 import { ListObjectsV2Command, ListMultipartUploadsCommand } from "@aws-sdk/client-s3";
 import { makeS3Client, s3Region } from "@/lib/s3";
+import { BUCKET_SCAN_PAGE_LIMIT, BUCKET_SCAN_PAGE_SIZE } from "@/lib/storage/bucket-scan";
 
 const _s3Clients = new Map<string, ReturnType<typeof makeS3Client>>();
 
@@ -33,10 +34,12 @@ export interface S3Stats {
   // Bytes written in the last 24h (sum of obj.Size where LastModified >= now-24h).
   // Partial when `truncated` (page limit hit before exhausting the bucket).
   bytesLast24h: number;
+  /** The walk stopped at BUCKET_SCAN_PAGE_LIMIT pages with keys still to list:
+   *  every figure above is a floor. Absent when the walk reached the end. */
   truncated?: boolean;
 }
 
-const S3_STATS_PAGE_LIMIT = 1000;
+const S3_STATS_PAGE_LIMIT = BUCKET_SCAN_PAGE_LIMIT;
 
 export async function s3Stats(bucket: string): Promise<S3Stats> {
   const client = s3Client();
@@ -52,6 +55,7 @@ export async function s3Stats(bucket: string): Promise<S3Stats> {
     const resp = await client.send(
       new ListObjectsV2Command({
         Bucket: bucket,
+        MaxKeys: BUCKET_SCAN_PAGE_SIZE,
         ContinuationToken: continuationToken,
       })
     );
@@ -65,7 +69,9 @@ export async function s3Stats(bucket: string): Promise<S3Stats> {
     }
     continuationToken = resp.NextContinuationToken;
     pages++;
-    if (pages >= S3_STATS_PAGE_LIMIT) {
+    // Truncated only when keys remain: a bucket that ends exactly on the last
+    // allowed page was counted in full.
+    if (continuationToken && pages >= S3_STATS_PAGE_LIMIT) {
       truncated = true;
       break;
     }
@@ -90,6 +96,10 @@ export interface S3SubstrateStats extends S3Stats {
  * written objects — so the storage-substrate panel gets true "latest objects
  * landing in ARTESCA" without a second listing. Memory stays bounded by
  * trimming the running recent-set periodically.
+ *
+ * "Most recent" is by LastModified over every page walked, never by key order:
+ * S3 lists lexicographically, and recordings keys start with the sensor UUID,
+ * so the last page is the last sensor alphabetically, not the newest write.
  */
 export async function s3SubstrateStats(bucket: string, recentLimit = 8): Promise<S3SubstrateStats> {
   const client = s3Client();
@@ -108,7 +118,11 @@ export async function s3SubstrateStats(bucket: string, recentLimit = 8): Promise
 
   do {
     const resp = await client.send(
-      new ListObjectsV2Command({ Bucket: bucket, ContinuationToken: continuationToken }),
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        MaxKeys: BUCKET_SCAN_PAGE_SIZE,
+        ContinuationToken: continuationToken,
+      }),
     );
     for (const obj of resp.Contents ?? []) {
       objectCount++;
@@ -121,7 +135,9 @@ export async function s3SubstrateStats(bucket: string, recentLimit = 8): Promise
     if (recent.length > recentLimit * 40) trim(); // keep memory bounded on huge buckets
     continuationToken = resp.NextContinuationToken;
     pages++;
-    if (pages >= S3_STATS_PAGE_LIMIT) {
+    // Truncated only when keys remain: a bucket that ends exactly on the last
+    // allowed page was counted in full.
+    if (continuationToken && pages >= S3_STATS_PAGE_LIMIT) {
       truncated = true;
       break;
     }

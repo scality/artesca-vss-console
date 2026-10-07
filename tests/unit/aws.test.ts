@@ -32,7 +32,8 @@ import { ListObjectsV2Command, ListMultipartUploadsCommand } from "@aws-sdk/clie
 
 // ─── Module under test ─────────────────────────────────────────────────────────
 
-import { s3Stats, s3IncompleteMultipartUploads } from "@/lib/aws";
+import { s3Stats, s3SubstrateStats, s3IncompleteMultipartUploads } from "@/lib/aws";
+import { BUCKET_SCAN_PAGE_LIMIT, BUCKET_SCAN_PAGE_SIZE } from "@/lib/storage/bucket-scan";
 
 // ─── Lifecycle ─────────────────────────────────────────────────────────────────
 
@@ -144,6 +145,101 @@ describe("s3Stats", () => {
     const cmd = mockS3Send.mock.calls[0][0];
     expect(cmd).toBeInstanceOf(ListObjectsV2Command);
     expect(cmd.input.Bucket).toBe("specific-bucket");
+  });
+});
+
+// ─── s3SubstrateStats ─────────────────────────────────────────────────────────
+//
+// The full-bucket walk behind every recordings total the console shows (overview
+// KPI card, kiosk tile, topology node, /storage, /diagnostics). The defects it
+// guards against: a total read from one page, or a capped walk, presented as the
+// bucket; and "latest objects" taken from key order, which for
+// `<sensor-uuid>/YYYY/MM/DD/HH/<epoch>.mkv` keys is sensor-UUID order, not time.
+
+describe("s3SubstrateStats", () => {
+  it("walks every page with its continuation token and totals the whole bucket", async () => {
+    mockS3Send
+      .mockResolvedValueOnce({
+        Contents: [{ Key: "a/1", Size: 100 }, { Key: "a/2", Size: 200 }],
+        NextContinuationToken: "t2",
+      })
+      .mockResolvedValueOnce({
+        Contents: [{ Key: "b/1", Size: 300 }],
+        NextContinuationToken: "t3",
+      })
+      .mockResolvedValueOnce({
+        Contents: [{ Key: "c/1", Size: 400 }],
+        NextContinuationToken: undefined,
+      });
+
+    const result = await s3SubstrateStats("recordings");
+
+    expect(mockS3Send).toHaveBeenCalledTimes(3);
+    expect(result.objectCount).toBe(4);
+    expect(result.bytesTotal).toBe(1000);
+    expect(result.truncated).toBeUndefined();
+    const inputs = mockS3Send.mock.calls.map((c) => c[0].input);
+    expect(inputs.map((i) => i.ContinuationToken)).toEqual([undefined, "t2", "t3"]);
+    expect(inputs.every((i) => i.MaxKeys === BUCKET_SCAN_PAGE_SIZE)).toBe(true);
+  });
+
+  it("picks the newest objects by LastModified across pages, not by key order", async () => {
+    const now = Date.now();
+    const at = (minsAgo: number) => new Date(now - minsAgo * 60_000);
+    // Page 1 holds the sensor whose UUID sorts first and is the one still
+    // recording; the last page holds a sensor that stopped long ago. Key order
+    // would call the last page "latest".
+    mockS3Send
+      .mockResolvedValueOnce({
+        Contents: [
+          { Key: "01live/2026/10/08/9/1.mkv", Size: 1, LastModified: at(1) },
+          { Key: "01live/2026/10/08/9/2.mkv", Size: 1, LastModified: at(0) },
+        ],
+        NextContinuationToken: "t2",
+      })
+      .mockResolvedValueOnce({
+        Contents: [
+          { Key: "ffdead/2026/09/01/23/1.mkv", Size: 1, LastModified: at(60 * 24 * 37) },
+          { Key: "ffdead/2026/09/01/23/2.mkv", Size: 1, LastModified: at(60 * 24 * 37 - 1) },
+        ],
+        NextContinuationToken: undefined,
+      });
+
+    const result = await s3SubstrateStats("recordings", 2);
+
+    expect(result.recent.map((r) => r.key)).toEqual([
+      "01live/2026/10/08/9/2.mkv",
+      "01live/2026/10/08/9/1.mkv",
+    ]);
+  });
+
+  it("stops at the page cap and reports the totals as truncated", async () => {
+    mockS3Send.mockImplementation(async () => ({
+      Contents: [{ Key: "k", Size: 1 }],
+      NextContinuationToken: "more",
+    }));
+
+    const result = await s3SubstrateStats("runaway");
+
+    expect(mockS3Send).toHaveBeenCalledTimes(BUCKET_SCAN_PAGE_LIMIT);
+    expect(result.objectCount).toBe(BUCKET_SCAN_PAGE_LIMIT);
+    expect(result.truncated).toBe(true);
+  });
+
+  it("a bucket that ends exactly on the last allowed page is complete, not truncated", async () => {
+    let call = 0;
+    mockS3Send.mockImplementation(async () => {
+      call++;
+      return {
+        Contents: [{ Key: `k${call}`, Size: 1 }],
+        NextContinuationToken: call < BUCKET_SCAN_PAGE_LIMIT ? `t${call}` : undefined,
+      };
+    });
+
+    const result = await s3SubstrateStats("exact");
+
+    expect(result.objectCount).toBe(BUCKET_SCAN_PAGE_LIMIT);
+    expect(result.truncated).toBeUndefined();
   });
 });
 

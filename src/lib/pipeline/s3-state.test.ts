@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeS3State } from "./s3-state";
+import { advancePutRateSample, computeS3State } from "./s3-state";
 
 const GiB = 1024 ** 3;
 const base = { bucket: "rec", endpoint: null, capacityBytes: 0, prev: undefined, nowMs: 1_000_000 };
@@ -55,5 +55,33 @@ describe("computeS3State", () => {
   it("carries the scan's truncation flag", () => {
     const { state } = computeS3State({ ...base, totals: { objectCount: 1, bytesTotal: 1, truncated: true } });
     expect(state.bucketScanTruncated).toBe(true);
+  });
+});
+
+describe("advancePutRateSample", () => {
+  it("reads a sample written before the rate fields existed as a zero rate", () => {
+    // /api/storage/vst stores its sample in Redis; an entry from the previous
+    // release has only { ts, count, bytes }.
+    const legacy = { ts: 0, count: 10, bytes: 10 } as Parameters<typeof advancePutRateSample>[0];
+    const next = advancePutRateSample(legacy, { objectCount: 10, bytesTotal: 10 }, 5_000);
+    expect(next.putRateMBps ?? 0).toBe(0);
+  });
+
+  it("measures objects and bytes per interval between two totals", () => {
+    const first = advancePutRateSample(undefined, { objectCount: 0, bytesTotal: 0 }, 0);
+    const next = advancePutRateSample(first, { objectCount: 120, bytesTotal: 60 * 1024 * 1024 }, 60_000);
+    expect(next.putRateObjPerMin).toBeCloseTo(120, 6);
+    expect(next.putRateMBps).toBeCloseTo(1, 6);
+  });
+});
+
+describe("computeS3State — scan age", () => {
+  it("reports how long ago the cached total was scanned", () => {
+    const { state } = computeS3State({
+      ...base,
+      totals: { objectCount: 1, bytesTotal: 1 },
+      scannedAt: base.nowMs - 42_000,
+    });
+    expect(state.bucketScanStaleSecs).toBe(42);
   });
 });

@@ -4,7 +4,6 @@ import { createLogger } from "@/lib/logger";
 
 const log = createLogger("api/storage/vst");
 import {
-  type S3Client,
   ListObjectsV2Command,
   type _Object as S3Object,
 } from "@aws-sdk/client-s3";
@@ -14,38 +13,22 @@ import { getRedis } from "@/lib/redis";
 import { makeS3Client } from "@/lib/s3";
 import { vstListSensors } from "@/lib/helpers/vst";
 import { sampleNewestBySensor } from "@/lib/storage/vst-sample";
+import { bucketStatsSettled } from "@/lib/storage-substrate";
+import { advancePutRateSample, type BucketSample } from "@/lib/pipeline/s3-state";
+import { bucketTotalsState, type BucketTotalsState } from "@/lib/storage/bucket-scan";
 
 export const dynamic = "force-dynamic";
 
-// ─── In-memory PUT rate cache (fallback when Redis is unavailable) ────────────
-
-interface BucketSample {
-  ts: number;
-  count: number;
-  bytes: number;
-}
+// ─── PUT rate sample (Redis, in-memory fallback) ──────────────────────────────
+// The rate is measured between two different full-bucket totals — see
+// advancePutRateSample, which the topology node uses too.
 
 const putRateCacheFallback = new Map<string, BucketSample>();
 
-// ─── Redis helpers ────────────────────────────────────────────────────────────
-
 const REDIS_SAMPLE_TTL_S = 120;
-const REDIS_TOTALS_TTL_S = 60;
-const TOTALS_SCAN_CAP = 5_000;
 
 function putRateSampleKey(bucket: string): string {
   return `console:storage:vst:last-sample:${bucket}`;
-}
-
-function bucketTotalsKey(bucket: string): string {
-  return `console:storage:vst:bucket-totals:${bucket}`;
-}
-
-interface CachedTotals {
-  objectCount: number;
-  bytesTotal: number;
-  cachedAt: number;     // epoch ms
-  truncated: boolean;   // true if the scan was capped at TOTALS_SCAN_CAP
 }
 
 async function readPutRateSample(bucket: string): Promise<BucketSample | null> {
@@ -68,61 +51,6 @@ async function writePutRateSample(bucket: string, sample: BucketSample): Promise
   } catch {
     // best-effort
   }
-}
-
-async function readCachedTotals(bucket: string): Promise<CachedTotals | null> {
-  const { client } = getRedis();
-  if (!client) return null;
-  try {
-    const raw = await client.get(bucketTotalsKey(bucket));
-    if (!raw) return null;
-    return JSON.parse(raw) as CachedTotals;
-  } catch {
-    return null;
-  }
-}
-
-async function writeCachedTotals(bucket: string, totals: CachedTotals): Promise<void> {
-  const { client } = getRedis();
-  if (!client) return;
-  try {
-    await client.set(bucketTotalsKey(bucket), JSON.stringify(totals), "EX", REDIS_TOTALS_TTL_S);
-  } catch {
-    // best-effort
-  }
-}
-
-// ─── Full paginating bucket scan ──────────────────────────────────────────────
-// Counts all objects and sums their sizes. Capped at TOTALS_SCAN_CAP on the
-// very first call (no cached value exists) to bound latency. Writes result to
-// Redis so subsequent calls serve the cache.
-
-async function scanBucketTotals(
-  s3: S3Client,
-  bucket: string,
-  cap: number
-): Promise<{ objectCount: number; bytesTotal: number; truncated: boolean }> {
-  let objectCount = 0;
-  let bytesTotal = 0;
-  let continuationToken: string | undefined;
-
-  do {
-    const resp = await s3.send(
-      new ListObjectsV2Command({
-        Bucket: bucket,
-        MaxKeys: 1000,
-        ContinuationToken: continuationToken,
-      })
-    );
-    for (const obj of resp.Contents ?? []) {
-      objectCount++;
-      bytesTotal += obj.Size ?? 0;
-    }
-    continuationToken = resp.NextContinuationToken;
-  } while (continuationToken && objectCount < cap);
-
-  const truncated = !!(continuationToken && objectCount >= cap);
-  return { objectCount, bytesTotal, truncated };
 }
 
 // ─── Response contract type ───────────────────────────────────────────────────
@@ -151,6 +79,12 @@ interface VstStorageResponse {
   putRateBytesPerSec: number;
   objectCount: number;
   bytesTotal: number;
+  /** What objectCount/bytesTotal mean: exact, a floor, or not known yet. They
+   *  come from the shared full-bucket scan (storage-substrate), which pages the
+   *  whole bucket up to BUCKET_SCAN_OBJECT_CAP. `pending` and `unavailable`
+   *  carry zeros that must not be rendered as a count. */
+  bucketTotalsState: BucketTotalsState;
+  /** `bucketTotalsState === "truncated"`, kept for older clients. */
   bucketScanTruncated: boolean;
   bucketScanStaleSecs: number;
   /** How recentObjects, the histogram and the duration percentiles were sampled.
@@ -449,90 +383,37 @@ export async function GET() {
     return tb - ta;
   });
 
-  // ── Totals pass: paginating scan, Redis-cached ────────────────────────────
-  // Read cached totals. If fresh (< REDIS_TOTALS_TTL_S), serve them.
-  // If stale or missing, either block (first ever call) or revalidate in bg.
-  let objectCount = 0;
-  let bytesTotal = 0;
-  let bucketScanTruncated = false;
-  let bucketScanStaleSecs = 0;
-
-  const cached = await readCachedTotals(bucket);
-
-  if (cached) {
-    // Stale-while-revalidate: serve the cache, kick off a background refresh.
-    objectCount = cached.objectCount;
-    bytesTotal = cached.bytesTotal;
-    bucketScanTruncated = cached.truncated;
-    bucketScanStaleSecs = Math.round((nowMs - cached.cachedAt) / 1000);
-
-    // Background refresh (do not await — caller gets the stale value)
-    scanBucketTotals(s3, bucket, Infinity)
-      .then((result) => {
-        const totals: CachedTotals = {
-          objectCount: result.objectCount,
-          bytesTotal: result.bytesTotal,
-          cachedAt: Date.now(),
-          truncated: result.truncated,
-        };
-        return writeCachedTotals(bucket, totals);
-      })
-      .catch((err) => {
-        log.warn("background totals scan failed", { err: String(err) });
-      });
-  } else {
-    // First call — block on a capped scan to bound latency.
-    try {
-      const result = await scanBucketTotals(s3, bucket, TOTALS_SCAN_CAP);
-      objectCount = result.objectCount;
-      bytesTotal = result.bytesTotal;
-      bucketScanTruncated = result.truncated;
-      bucketScanStaleSecs = 0;
-
-      // Persist for next call (TTL = REDIS_TOTALS_TTL_S)
-      await writeCachedTotals(bucket, {
-        objectCount,
-        bytesTotal,
-        cachedAt: nowMs,
-        truncated: bucketScanTruncated,
-      });
-    } catch (err: unknown) {
-      // Non-fatal — fall back to sample count from the stats pass
-      log.warn("totals scan failed, using sample count", { err: String(err) });
-      objectCount = sampleObjects.length;
-      bytesTotal = sampleObjects.reduce((s, o) => s + (o.Size ?? 0), 0);
-      bucketScanTruncated = true;
-      bucketScanStaleSecs = 0;
-    }
-  }
+  // ── Totals pass: the shared full-bucket scan ─────────────────────────────
+  // One paginated walk of the whole bucket, cached and refreshed in the
+  // background by storage-substrate, and read by the overview and the topology
+  // node too. This route used to run its own walk that stopped at 5,000 objects
+  // on a cold cache — 1.7% of a 300k-object bucket — and reported that as the
+  // total. A cold cache now answers "pending" and the panel says "counting".
+  const totals = await bucketStatsSettled(bucket);
+  const totalsState = bucketTotalsState(totals.stats, totals.refreshing);
+  const objectCount = totals.stats?.objectCount ?? 0;
+  const bytesTotal = totals.stats?.bytesTotal ?? 0;
+  const bucketScanStaleSecs =
+    totals.scannedAt === null ? 0 : Math.max(0, Math.round((nowMs - totals.scannedAt) / 1000));
 
   // ── PUT rate (Redis-backed, in-memory fallback) ───────────────────────────
+  // Only from a real total: a pending/unavailable zero followed by the first
+  // real total would read as the whole bucket written in one poll interval.
   let putRateObjectsPerSec = 0;
   let putRateBytesPerSec = 0;
-
-  // Try Redis first
-  let prevSample = await readPutRateSample(bucket);
-
-  // Fall back to in-memory map if Redis missed
-  if (!prevSample) {
-    prevSample = putRateCacheFallback.get(bucket) ?? null;
+  if (totals.stats) {
+    const prevSample =
+      (await readPutRateSample(bucket)) ?? putRateCacheFallback.get(bucket);
+    const sample = advancePutRateSample(
+      prevSample ?? undefined,
+      { objectCount, bytesTotal },
+      nowMs,
+    );
+    putRateBytesPerSec = (sample.putRateMBps ?? 0) * 1024 * 1024;
+    putRateObjectsPerSec = (sample.putRateObjPerMin ?? 0) / 60;
+    await writePutRateSample(bucket, sample);
+    putRateCacheFallback.set(bucket, sample);
   }
-
-  if (prevSample) {
-    const deltaS = (nowMs - prevSample.ts) / 1000;
-    if (deltaS > 0) {
-      const deltaObjects = Math.max(0, objectCount - prevSample.count);
-      const deltaBytes = Math.max(0, bytesTotal - prevSample.bytes);
-      putRateObjectsPerSec = deltaObjects / deltaS;
-      putRateBytesPerSec = deltaBytes / deltaS;
-    }
-  }
-
-  const currentSample: BucketSample = { ts: nowMs, count: objectCount, bytes: bytesTotal };
-
-  // Write to Redis (best-effort) and update in-memory fallback
-  await writePutRateSample(bucket, currentSample);
-  putRateCacheFallback.set(bucket, currentSample);
 
   // ── Segment size histogram (last 200 objects from sample) ─────────────────
   const sampleForHistogram = sampleObjects.slice(0, 200);
@@ -559,10 +440,20 @@ export async function GET() {
 
   // ── Additional alerts ─────────────────────────────────────────────────────
 
-  if (objectCount === 0) {
+  if (totalsState === "complete" && objectCount === 0) {
     alerts.push({
       severity: "info",
       message: `No recordings in ${bucket} yet`,
+    });
+  } else if (totalsState === "pending") {
+    alerts.push({
+      severity: "info",
+      message: `Counting objects in ${bucket} — the first full scan of the bucket is still running`,
+    });
+  } else if (totalsState === "unavailable") {
+    alerts.push({
+      severity: "warn",
+      message: `Object count unavailable — listing ${bucket} failed; retrying in the background`,
     });
   }
 
@@ -596,7 +487,8 @@ export async function GET() {
     putRateBytesPerSec,
     objectCount,
     bytesTotal,
-    bucketScanTruncated,
+    bucketTotalsState: totalsState,
+    bucketScanTruncated: totalsState === "truncated",
     bucketScanStaleSecs,
     sampleMode,
     sampleSensorCount: sampleMode === "per-sensor" ? sensorIds.length : 0,

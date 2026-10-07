@@ -3,6 +3,7 @@
 // API routes validate inbound and outbound payloads against these.
 
 import { z } from "zod";
+import { BUCKET_TOTALS_STATES } from "@/lib/storage/bucket-scan";
 
 export const HealthSchema = z.enum(["ok", "warn", "fail", "unknown"]);
 
@@ -153,6 +154,7 @@ export const OverviewSnapshotSchema = z.object({
     bytesTotal: z.number().nonnegative(),
     growth24h: z.number(),
     bytesCapacity: z.number().nonnegative(),
+    totalsState: z.enum(BUCKET_TOTALS_STATES).optional(),
   }),
   cameraSim: z.object({
     instanceState: z.enum(["running", "stopped", "unreachable"]),

@@ -11,10 +11,34 @@ import {
  *
  * Lives here rather than in the route because it is pure S3 traversal with no
  * request context, and because the route cannot be imported by a unit test (it pulls
- * in next-auth, which pulls in next/server). It is also the seam another caller
- * needs: `src/lib/pipeline/aggregator.ts` reads one unpaginated 1000-key page for
- * the same purpose and has the same blind spot.
+ * in next-auth, which pulls in next/server).
+ *
+ * Every listing here is followed to its last page. Each one is small — a year,
+ * month, day or hour directory — but a single page stops at 1,000 entries, and an
+ * hour of 1-second segments is 3,600 objects: a first page alone would be the
+ * oldest 1,000 keys of that hour, not the hour.
  */
+
+/** Every page of one `ListObjectsV2` listing: Contents and CommonPrefixes. */
+export async function listAllPages(
+  s3: S3Client,
+  input: { Bucket: string; Prefix?: string; Delimiter?: string },
+): Promise<{ contents: S3Object[]; prefixes: string[] }> {
+  const contents: S3Object[] = [];
+  const prefixes: string[] = [];
+  let token: string | undefined;
+  do {
+    const resp = await s3.send(
+      new ListObjectsV2Command({ ...input, ContinuationToken: token }),
+    );
+    contents.push(...(resp.Contents ?? []));
+    for (const p of resp.CommonPrefixes ?? []) {
+      if (typeof p.Prefix === "string") prefixes.push(p.Prefix);
+    }
+    token = resp.IsTruncated === false ? undefined : resp.NextContinuationToken;
+  } while (token);
+  return { contents, prefixes };
+}
 
 /**
  * The newest immediate child "directory" under `prefix`, or null when there is none.
@@ -31,12 +55,11 @@ export async function newestChildPrefix(
   bucket: string,
   prefix: string,
 ): Promise<string | null> {
-  const resp = await s3.send(
-    new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, Delimiter: "/" }),
-  );
-  const children = (resp.CommonPrefixes ?? [])
-    .map((p) => p.Prefix)
-    .filter((p): p is string => typeof p === "string");
+  const { prefixes: children } = await listAllPages(s3, {
+    Bucket: bucket,
+    Prefix: prefix,
+    Delimiter: "/",
+  });
   if (children.length === 0) return null;
   const segment = (p: string) => p.slice(prefix.length).replace(/\/$/, "");
   const allNumeric = children.every((p) => /^\d+$/.test(segment(p)));
@@ -84,21 +107,19 @@ export async function sampleNewestBySensor(
         if (!dayPrefix) return [];
         // Then the newest `hoursPerSensor` hour directories under that day, so the
         // percentiles have more than one segment to difference.
-        const hoursResp = await s3.send(
-          new ListObjectsV2Command({ Bucket: bucket, Prefix: dayPrefix, Delimiter: "/" }),
-        );
-        const hours = (hoursResp.CommonPrefixes ?? [])
-          .map((p) => p.Prefix)
-          .filter((p): p is string => typeof p === "string")
+        const { prefixes: hourPrefixes } = await listAllPages(s3, {
+          Bucket: bucket,
+          Prefix: dayPrefix,
+          Delimiter: "/",
+        });
+        const hours = hourPrefixes
           .sort((a, b) => Number(a.slice(dayPrefix!.length).replace(/\/$/, "")) -
             Number(b.slice(dayPrefix!.length).replace(/\/$/, "")))
           .slice(-hoursPerSensor);
         const pages = await Promise.all(
-          hours.map((h) =>
-            s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: h })),
-          ),
+          hours.map((h) => listAllPages(s3, { Bucket: bucket, Prefix: h })),
         );
-        return pages.flatMap((p) => p.Contents ?? []);
+        return pages.flatMap((p) => p.contents);
       } catch {
         // One unreadable sensor must not empty the whole sample.
         return [];

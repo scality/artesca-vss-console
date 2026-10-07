@@ -288,10 +288,34 @@ describe("collectOverviewSnapshot — happy path (k8s mode)", () => {
     // S3 probe ran and populated the field.
     expect(result.snapshot.s3.objectCount).toBe(42);
     expect(result.snapshot.s3.bytesTotal).toBe(1_000_000);
+    expect(result.snapshot.s3.totalsState).toBe("complete");
 
     // VLM-ingestion count: cam1 is VST-registered AND has an active realtime
     // alert rule per the mock, so it counts toward ingestingCount.
     expect(result.snapshot.cameraSim.ingestingCount).toBe(1);
+  });
+});
+
+describe("collectOverviewSnapshot — recordings totals state (KPI card label)", () => {
+  // The KPI card and the kiosk tile render these figures; they have to know
+  // whether a figure is a count, a floor, or not known yet.
+  it("marks a scan that stopped at its cap as truncated", async () => {
+    setupK8sHappyPath();
+    mockBucketStatsCached.mockReturnValue({
+      stats: { bucket: "test-bucket", objectCount: 1_000_000, bytesTotal: 9e12, bytesLast24h: 1, truncated: true },
+      refreshing: false,
+      scannedAt: Date.now(),
+    });
+    const { snapshot } = await collectOverviewSnapshot();
+    expect(snapshot.s3.totalsState).toBe("truncated");
+    expect(snapshot.s3.objectCount).toBe(1_000_000);
+  });
+
+  it("marks a cold cache as pending rather than zero objects", async () => {
+    setupK8sHappyPath();
+    mockBucketStatsCached.mockReturnValue({ stats: null, refreshing: true, scannedAt: null });
+    const { snapshot } = await collectOverviewSnapshot();
+    expect(snapshot.s3.totalsState).toBe("pending");
   });
 });
 

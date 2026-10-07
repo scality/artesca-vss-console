@@ -68,25 +68,33 @@ function refreshBucket(bucket: string): Promise<void> {
   return p;
 }
 
+/** A cached read: the stats (null until a scan has finished), whether a scan is
+ *  due or running, and when the stats were scanned (epoch ms; null with them). */
+export interface CachedBucketStats {
+  stats: BucketStats | null;
+  refreshing: boolean;
+  scannedAt: number | null;
+}
+
 /** Non-blocking read: cached value (possibly stale) + whether a refresh is due/running. */
-function statsSWR(bucket: string): { stats: BucketStats | null; refreshing: boolean } {
+function statsSWR(bucket: string): CachedBucketStats {
   const c = cache.get(bucket);
   if (c) {
     if (Date.now() - c.ts >= FRESH_MS) {
       void refreshBucket(bucket);
-      return { stats: c.stats, refreshing: true };
+      return { stats: c.stats, refreshing: true, scannedAt: c.ts };
     }
-    return { stats: c.stats, refreshing: false };
+    return { stats: c.stats, refreshing: false, scannedAt: c.ts };
   }
   // No cached value. If the bucket recently failed to list, treat it as
   // (known) unavailable — not "still loading" — so it doesn't pin the page to
   // fast-polling. Retry only after the backoff window.
   const f = failed.get(bucket);
   if (f && Date.now() - f < FAILED_BACKOFF_MS) {
-    return { stats: null, refreshing: false };
+    return { stats: null, refreshing: false, scannedAt: null };
   }
   void refreshBucket(bucket);
-  return { stats: null, refreshing: true };
+  return { stats: null, refreshing: true, scannedAt: null };
 }
 
 /**
@@ -99,10 +107,37 @@ function statsSWR(bucket: string): { stats: BucketStats | null; refreshing: bool
  * once and both surfaces read the same result, instead of each paying its own
  * ~197 sequential round-trips.
  */
-export function bucketStatsCached(bucket: string): {
-  stats: BucketStats | null;
-  refreshing: boolean;
-} {
+export function bucketStatsCached(bucket: string): CachedBucketStats {
+  return statsSWR(bucket);
+}
+
+/**
+ * Like bucketStatsCached, but on a cold cache waits up to `maxWaitMs` for the
+ * first scan to land, so a small bucket answers with real figures on the first
+ * request. A large bucket still answers `stats: null, refreshing: true` after
+ * the wait — the caller renders that as "counting", never as zero objects.
+ *
+ * This is what /api/storage/vst reads instead of its own scan, which stopped at
+ * 5,000 objects on a cold cache and re-walked the bucket on every TTL beside the
+ * scan this module was already doing.
+ */
+export async function bucketStatsSettled(
+  bucket: string,
+  maxWaitMs = COLD_START_WAIT_MS,
+): Promise<CachedBucketStats> {
+  const first = statsSWR(bucket);
+  if (first.stats || !first.refreshing) return first;
+  const running = inflight.get(bucket);
+  if (running && maxWaitMs > 0) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      running,
+      new Promise<void>((r) => {
+        timer = setTimeout(r, maxWaitMs);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+  }
   return statsSWR(bucket);
 }
 
