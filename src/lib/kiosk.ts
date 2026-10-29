@@ -14,6 +14,9 @@ export const KIOSK_HIDDEN_ROUTES = [
   "/settings",
   "/about",
   "/agent",
+  // Seal writes WORM objects nobody can delete until retention ends, and
+  // POST /api/evidence has no rejectIfKiosk — not for a visitor's click.
+  "/evidence",
 ];
 
 /**
@@ -28,6 +31,10 @@ export const KIOSK_ALLOWED_ROUTES: readonly string[] = [
   "/topology",
   "/chat",
   "/kvcache",
+  // Read-only views; chat's search thumbnails link to /search?q=.
+  "/search",
+  "/analytics",
+  "/storage",
 ];
 
 /**

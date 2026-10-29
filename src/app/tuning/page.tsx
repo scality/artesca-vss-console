@@ -35,7 +35,7 @@ export default function TuningPage() {
   if (kiosk) redirect("/");
 
   const { data: promptData } = useQuery({
-    queryKey: ["prompt"],
+    queryKey: ["prompt", "model"],
     queryFn: async () => {
       const res = await fetch("/api/prompt");
       if (!res.ok) return { model: "unknown" };

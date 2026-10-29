@@ -6,22 +6,36 @@ import type { BoxMode } from "@/lib/box-mode-shared";
 
 // The AI Factory UI's URL comes from the server (env AI_FACTORY_URL, read at
 // request time by the root layout), so a ConfigMap change reaches the link
-// without a rebuild. The box's mode is polled from GET /api/box-mode.
+// without a rebuild. null (env unset) = render no AI Factory link. The box's
+// mode is polled from GET /api/box-mode. The upstream VSS agent UI's URL (env
+// VSS_AGENT_UI_URL, /chat's "open upstream UI") rides along the same way.
 
-const AiFactoryUrlContext = createContext<string>("http://localhost:4090");
+const AiFactoryUrlContext = createContext<string | null>(null);
+const AgentUiUrlContext = createContext<string | null>(null);
 
 export function BoxModeProvider({
   aiFactoryUrl,
+  agentUiUrl = null,
   children,
 }: {
-  aiFactoryUrl: string;
+  aiFactoryUrl: string | null;
+  agentUiUrl?: string | null;
   children: React.ReactNode;
 }) {
-  return <AiFactoryUrlContext.Provider value={aiFactoryUrl}>{children}</AiFactoryUrlContext.Provider>;
+  return (
+    <AiFactoryUrlContext.Provider value={aiFactoryUrl}>
+      <AgentUiUrlContext.Provider value={agentUiUrl}>{children}</AgentUiUrlContext.Provider>
+    </AiFactoryUrlContext.Provider>
+  );
 }
 
-export function useAiFactoryUrl(): string {
+export function useAiFactoryUrl(): string | null {
   return useContext(AiFactoryUrlContext);
+}
+
+/** null = VSS_AGENT_UI_URL unset: render no link to the upstream agent UI. */
+export function useAgentUiUrl(): string | null {
+  return useContext(AgentUiUrlContext);
 }
 
 /** Same cadence as the server cache: a fresh read at most every ~10 s. */

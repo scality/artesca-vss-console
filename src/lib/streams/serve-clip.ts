@@ -15,7 +15,7 @@
 // sibling [segment] route then serves the .ts files from the same cache dir.
 
 import { NextResponse } from "next/server";
-import { resolveStreamId, buildVstClipUrl } from "@/lib/streams/vst-clip";
+import { resolveStreamId, buildVstClipUrl, clipWindow } from "@/lib/streams/vst-clip";
 import {
   cachePath,
   isCacheFresh,
@@ -91,19 +91,30 @@ async function fetchMp4FromUrl(
   }
 }
 
-/** Resolves, transcodes, caches, and returns the HLS playlist for a clip. */
+/** Resolves, transcodes, caches, and returns the HLS playlist for a clip.
+ *  `end` (the incident's chunk end, optional) widens the window, see clipWindow. */
 export async function serveClipPlaylist(
   sensor: string,
-  ts: string
+  ts: string,
+  end?: string | null
 ): Promise<NextResponse> {
-  const playlistPath = cachePath(sensor, ts, "index.m3u8");
+  const win = clipWindow(ts, end);
+  const span = win.key !== ts;
+  const playlistPath = cachePath(sensor, win.key, "index.m3u8");
+  // The player resolves segment URIs against the playlist URL, which drops its
+  // query; carry `end` so the [segment] route reads the same cache entry.
+  const playlist = (): string => {
+    const content = fs.readFileSync(playlistPath, "utf8");
+    return span
+      ? content.replace(/^seg\d+\.ts$/gm, `$&?end=${encodeURIComponent(end ?? "")}`)
+      : content;
+  };
 
   // --- Cache hit ---
   if (isCacheFresh(playlistPath, CLIP_CACHE_TTL_MS)) {
     const stat = fs.statSync(playlistPath);
     const ageSeconds = Math.round((Date.now() - stat.mtimeMs) / 1_000);
-    const content = fs.readFileSync(playlistPath, "utf8");
-    return new NextResponse(content, {
+    return new NextResponse(playlist(), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.apple.mpegurl",
@@ -126,13 +137,14 @@ export async function serveClipPlaylist(
   let resolvedStreamId: string | null = null;
 
   // Branch 1: manifest exists → the materializer confirmed the clip in VST.
-  const manifest = await fetchManifestFromS3(sensor, tsRounded);
+  // Its window is the materializer's own, so an incident span skips it.
+  const manifest = span ? null : await fetchManifestFromS3(sensor, tsRounded);
   if (manifest) {
     mp4Buffer = await fetchMp4FromUrl(manifest.vst_clip_url, diag);
     if (mp4Buffer) {
       source = "s3-confirmed";
     }
-  } else {
+  } else if (!span) {
     diag.push("no alert-clip manifest in S3");
   }
 
@@ -141,7 +153,7 @@ export async function serveClipPlaylist(
     const streamId = await resolveStreamId(sensor);
     resolvedStreamId = streamId;
     if (streamId) {
-      mp4Buffer = await fetchMp4FromUrl(buildVstClipUrl(streamId, ts), diag);
+      mp4Buffer = await fetchMp4FromUrl(buildVstClipUrl(streamId, ts, end), diag);
 
       // Camera-clock skew: VST records on the node clock (use_sensor_ntp_time
       // off), but an incident's NTP ts comes from the camera clock. When those
@@ -163,15 +175,13 @@ export async function serveClipPlaylist(
   }
 
   if (!mp4Buffer) {
-    const start = new Date(new Date(ts).getTime() - 5_000).toISOString();
-    const end = new Date(new Date(ts).getTime() + 5_000).toISOString();
     return NextResponse.json(
       {
         error: "Clip not found in S3 or VST",
         sensor,
         resolvedStreamId,
         requestedTs: ts,
-        window: { start, end },
+        window: { start: win.start.toISOString(), end: win.end.toISOString() },
         diagnostics: diag,
       },
       { status: 404 }
@@ -183,12 +193,12 @@ export async function serveClipPlaylist(
   const tmpMp4 = path.join(tmpDir, "clip.mp4");
   fs.writeFileSync(tmpMp4, mp4Buffer);
 
-  const outDir = ensureCacheDir(sensor, ts);
+  const outDir = ensureCacheDir(sensor, win.key);
 
   try {
     await transcodeToHls(tmpMp4, outDir);
-    const thumbPath = cachePath(sensor, ts, "thumb.jpg");
-    await extractThumbnail(tmpMp4, thumbPath);
+    const thumbPath = cachePath(sensor, win.key, "thumb.jpg");
+    await extractThumbnail(tmpMp4, thumbPath, win.thumbSecs);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -203,8 +213,7 @@ export async function serveClipPlaylist(
     );
   }
 
-  const content = fs.readFileSync(playlistPath, "utf8");
-  return new NextResponse(content, {
+  return new NextResponse(playlist(), {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.apple.mpegurl",

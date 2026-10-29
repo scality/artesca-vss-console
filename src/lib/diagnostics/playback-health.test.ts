@@ -28,6 +28,12 @@ describe("pickPlaybackWindow", () => {
   it("skips streams with no segments or unparsable times", () => {
     expect(pickPlaybackWindow({ a: [], b: [{ startTime: "x", endTime: "y" }] }, T)).toBeNull();
   });
+  it("picks only among readable streams when a set is given", () => {
+    const seg = [{ startTime: iso(T - 3_600_000), endTime: iso(T) }];
+    // the removed sensor's timeline ends at the same instant and sorts first
+    const win = pickPlaybackWindow({ ghost: seg, live: seg }, T, new Set(["live"]));
+    expect(win?.streamId).toBe("live");
+  });
 });
 
 describe("classifyPlayback", () => {

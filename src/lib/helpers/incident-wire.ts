@@ -103,10 +103,19 @@ function concludeFromReasoning(reasoning: string): string {
   return c ? c.charAt(0).toUpperCase() + c.slice(1) : "";
 }
 
+/** The model's own answer (`llm.queries[0].response`), trimmed; "" when absent.
+ *  With reasoning disabled in the profile it is the only text an incident carries. */
+export function modelAnswer(llm: unknown): string {
+  const queries = (llm as { queries?: unknown } | null | undefined)?.queries;
+  const first = Array.isArray(queries) ? (queries[0] as { response?: unknown } | null) : null;
+  return typeof first?.response === "string" ? first.response.trim() : "";
+}
+
 // The VLM emits chain-of-thought reasoning ("Okay, let's break this down…").
 // Extract the concluding statement — the actual "what triggered this" — instead
-// of surfacing the whole thinking trace. Falls back to the terse verdict fields.
-function cleanTrigger(info: Record<string, unknown>): string {
+// of surfacing the whole thinking trace. Without reasoning, the model's answer;
+// only then the terse verdict fields.
+function cleanTrigger(info: Record<string, unknown>, llm: unknown): string {
   const reasoning =
     (typeof info.reasoningDescription === "string" && info.reasoningDescription) ||
     (typeof info.reasoning === "string" && info.reasoning) ||
@@ -115,6 +124,8 @@ function cleanTrigger(info: Record<string, unknown>): string {
     const clean = concludeFromReasoning(reasoning);
     if (clean) return clean.slice(0, 500);
   }
+  const answer = modelAnswer(llm);
+  if (answer) return answer.slice(0, 500);
   const verdict = typeof info.verdict === "string" ? info.verdict : "";
   const trigger = typeof info.triggerPhrase === "string" ? info.triggerPhrase : "";
   if (verdict || trigger) return [verdict, trigger].filter(Boolean).join(" — ").slice(0, 500);
@@ -136,7 +147,7 @@ export function fromAlertBridge(raw: unknown): unknown {
       (info.streamId as string) ??
       "",
     topic: (a.type as string) ?? "mdx-vlm-incidents",
-    summary: cleanTrigger(info),
+    summary: cleanTrigger(info, a.llm),
     raw: a,
   };
 }

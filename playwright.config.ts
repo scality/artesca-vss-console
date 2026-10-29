@@ -41,6 +41,9 @@ export default defineConfig({
       ? `npx next start --port ${PORT}`
       : `npx next dev --port ${PORT}`,
     url: BASE_URL,
+    // box-mode.spec.ts asserts the AI Factory links, which render only when
+    // this is set. A reused local server must have been started with it too.
+    env: { AI_FACTORY_URL: "http://localhost:4090" },
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

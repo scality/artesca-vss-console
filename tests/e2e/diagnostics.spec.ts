@@ -4,12 +4,12 @@ import { test, expect, type Page } from "@playwright/test";
 
 const EXPECTED_DIAGNOSTIC_IDS = [
   "validate-manifests",
-  "smoke-phase1",
-  "smoke-phase2",
-  "smoke-phase3",
-  "smoke-phase4",
-  "smoke-phase5",
-  "kubectl-events",
+  "phase-smoke-1",
+  "phase-smoke-2",
+  "phase-smoke-3",
+  "phase-smoke-4",
+  "phase-smoke-5",
+  "get-events",
   "nvidia-smi",
   "kubectl-top",
 ];
@@ -43,8 +43,8 @@ async function stubDiagnosticsApis(page: Page) {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          exit: 0,
-          output: `[PASS] ${id}: All checks completed successfully.\nLine 2 of output.\nLine 3.`,
+          exitCode: 0,
+          stdout: `[PASS] ${id}: All checks completed successfully.\nLine 2 of output.\nLine 3.`,
         }),
       });
     }
@@ -119,8 +119,8 @@ test.describe("diagnostics page — Phase 8", () => {
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
-            exit: 1,
-            output:
+            exitCode: 1,
+            stdout:
               "ERROR: k8s/console/20-console.yaml: unknown field 'replicas'\nValidation failed.",
           }),
         });

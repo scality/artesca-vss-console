@@ -284,6 +284,14 @@ describe("POST /api/cameras (k8s)", () => {
     expect(camsimUploadFile).not.toHaveBeenCalled();
   });
 
+  it("invalid body: role outside the camera role enum → 400", async () => {
+    const req = makePostRequest({ ...VALID_CAMERA_BODY, role: "tower" });
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    expect(camsimUploadFile).not.toHaveBeenCalled();
+  });
+
   it("camsimUploadFile fails → 502, no camsimAddCamera call", async () => {
     vi.mocked(camsimUploadFile).mockRejectedValueOnce(new Error("upload timeout"));
 

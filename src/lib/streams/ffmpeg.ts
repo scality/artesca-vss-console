@@ -101,7 +101,9 @@ export async function transcodeToHls(
     "-hls_time",
     String(segmentDurationSecs),
     "-hls_list_size",
-    "5",
+    // 0 = list every segment. A finite clip is VOD; a sliding window of 5
+    // would drop the start of any clip longer than 5 segments.
+    "0",
     "-hls_segment_filename",
     segPattern,
     "-f",

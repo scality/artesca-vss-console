@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Bot, CheckCircle2, Loader2, Mic, MicOff, Send, User, Video, Volume2, XCircle } from "lucide-react";
 import { Shell } from "@/components/Shell";
 import { MarkdownReport } from "@/components/MarkdownReport";
 import { useVoice, stripMarkdownForSpeech } from "@/lib/use-voice";
+import { useAgentUiUrl } from "@/components/BoxModeProvider";
 
 type Role = "user" | "assistant" | "system";
 type Message = { role: Role; content: string; ts: string };
@@ -142,7 +143,10 @@ function ReasoningBlock({ steps }: { steps: ReasoningStep[] }) {
   );
 }
 
+const noSubscribe = () => () => {};
+
 export default function ChatPage() {
+  const upstreamUiUrl = useAgentUiUrl();
   const [messages, setMessages] = useState<Message[]>(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -413,6 +417,12 @@ export default function ChatPage() {
     }
   }
 
+  // History, scope and voice choice come from localStorage and voice support
+  // from window, so the server renders none of them. Hold the page back until
+  // hydration is done, or React reports a mismatch (#418) and re-renders it all.
+  const hydrated = useSyncExternalStore(noSubscribe, () => true, () => false);
+  if (!hydrated) return <Shell>{null}</Shell>;
+
   return (
     <Shell>
       <div className="flex h-[calc(100vh-4rem)] flex-col gap-3 p-4">
@@ -486,19 +496,17 @@ export default function ChatPage() {
             >
               clear
             </button>
-            <button
-              onClick={() =>
-                window.open(
-                  `${window.location.protocol}//${window.location.hostname}:3000`,
-                  "_blank",
-                  "noopener,noreferrer",
-                )
-              }
-              className="rounded border border-input bg-card px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
-              title="Open the upstream NVIDIA VSS UI (metropolis-vss-ui on port 3000)"
-            >
-              open upstream UI →
-            </button>
+            {/* Only with VSS_AGENT_UI_URL set: no port on the console's own
+                host is known to serve the upstream UI. */}
+            {upstreamUiUrl && (
+              <button
+                onClick={() => window.open(upstreamUiUrl, "_blank", "noopener,noreferrer")}
+                className="rounded border border-input bg-card px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+                title="Open the upstream NVIDIA VSS UI"
+              >
+                open upstream UI →
+              </button>
+            )}
           </div>
         </header>
 

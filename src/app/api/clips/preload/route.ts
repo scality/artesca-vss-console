@@ -1,5 +1,5 @@
 // POST /api/clips/preload
-// Body: { sensor: string; ts: string }[]
+// Body: { sensor: string; ts: string; end?: string }[]  (end: see clipWindow)
 // Warms the HLS clip cache in the background for the given sensor+ts pairs.
 // Respects the ffmpeg pool (max 2 concurrent) to avoid CPU overload.
 // Returns immediately with { queued: number }.
@@ -12,7 +12,7 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { resolveStreamId, buildVstClipUrl } from "@/lib/streams/vst-clip";
+import { resolveStreamId, buildVstClipUrl, clipWindow } from "@/lib/streams/vst-clip";
 import {
   cachePath,
   isCacheFresh,
@@ -34,6 +34,7 @@ const PreloadBodySchema = z.array(
   z.object({
     sensor: z.string().min(1),
     ts: z.string().datetime(),
+    end: z.string().optional(),
   })
 );
 
@@ -73,15 +74,17 @@ async function fetchMp4FromUrl(url: string): Promise<Buffer | null> {
   }
 }
 
-async function warmClip(sensor: string, ts: string): Promise<void> {
-  const playlistPath = cachePath(sensor, ts, "index.m3u8");
+async function warmClip(sensor: string, ts: string, end?: string): Promise<void> {
+  const win = clipWindow(ts, end);
+  const playlistPath = cachePath(sensor, win.key, "index.m3u8");
   if (isCacheFresh(playlistPath, CLIP_CACHE_TTL_MS)) return;
 
   const tsRounded = roundTs(ts);
 
   // Manifest-first: use the VST URL the materializer recorded.
   let mp4Buffer: Buffer | null = null;
-  const manifest = await fetchManifestFromS3(sensor, tsRounded);
+  // The manifest's window is the materializer's own; an incident span skips it.
+  const manifest = win.key === ts ? await fetchManifestFromS3(sensor, tsRounded) : null;
   if (manifest) {
     mp4Buffer = await fetchMp4FromUrl(manifest.vst_clip_url);
   }
@@ -90,7 +93,7 @@ async function warmClip(sensor: string, ts: string): Promise<void> {
   if (!mp4Buffer) {
     const streamId = await resolveStreamId(sensor);
     if (streamId) {
-      mp4Buffer = await fetchMp4FromUrl(buildVstClipUrl(streamId, ts));
+      mp4Buffer = await fetchMp4FromUrl(buildVstClipUrl(streamId, ts, end));
     }
   }
 
@@ -99,12 +102,12 @@ async function warmClip(sensor: string, ts: string): Promise<void> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clip-pre-"));
   const tmpMp4 = path.join(tmpDir, "clip.mp4");
   fs.writeFileSync(tmpMp4, mp4Buffer);
-  const outDir = ensureCacheDir(sensor, ts);
+  const outDir = ensureCacheDir(sensor, win.key);
 
   try {
     await transcodeToHls(tmpMp4, outDir);
-    const thumbPath = cachePath(sensor, ts, "thumb.jpg");
-    await extractThumbnail(tmpMp4, thumbPath);
+    const thumbPath = cachePath(sensor, win.key, "thumb.jpg");
+    await extractThumbnail(tmpMp4, thumbPath, win.thumbSecs);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -135,9 +138,9 @@ export async function POST(req: NextRequest) {
   // Fire-and-forget background warming.
   // The ffmpeg pool (MAX_CONCURRENT=2) naturally throttles concurrency.
   void (async () => {
-    for (const { sensor, ts } of items) {
+    for (const { sensor, ts, end } of items) {
       try {
-        await warmClip(sensor, ts);
+        await warmClip(sensor, ts, end);
       } catch {
         // Best-effort — ignore individual failures.
       }

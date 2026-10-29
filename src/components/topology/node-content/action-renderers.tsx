@@ -76,19 +76,13 @@ export function CameraSimActionsRenderer({ snapshot }: TabRendererProps) {
 
   const mutation = useMutation({
     mutationFn: async () => {
-      // camera id = sensor id (1:1 mapping in the real schema)
+      // camera id = sensor id (1:1 mapping in the real schema). Field names
+      // follow AddCameraSchema in /api/cameras; the camera-sim publishes the
+      // uploaded file under that name.
       const body = {
-        id: sensorId,
+        cameraId: sensorId,
         role: "other",
-        feeds: [
-          {
-            id: "default",
-            sensorId,
-            source: sourceFile,
-            rtspUrl: `rtsp://camera-sim-host:8554/${sensorId}`,
-            fileBase64,
-          },
-        ],
+        feeds: [{ feedId: "default", fileName: sourceFile, fileBase64 }],
       };
       const res = await fetch("/api/cameras", {
         method: "POST",

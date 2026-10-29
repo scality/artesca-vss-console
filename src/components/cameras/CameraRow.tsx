@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { responseError } from "@/lib/response-error";
 import { ChevronDown, ChevronRight, Trash2, RefreshCw, Video, VideoOff, Eye, EyeOff } from "lucide-react";
 import { FeedList } from "./FeedList";
 import { CameraDetailPanel } from "./CameraDetailPanel";
@@ -216,14 +217,14 @@ export function CameraRow({ camera, eip, promptSets, chain }: CameraRowProps) {
       const res = await fetch(`/api/cameras/${camera.id}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("Delete failed");
+      if (!res.ok) throw await responseError(res, "Delete failed");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cameras"] });
       toast({ title: `Camera ${camera.id} removed` });
     },
-    onError: () => {
-      toast({ title: "Failed to remove camera", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Failed to remove camera", description: err.message, variant: "destructive" });
     },
   });
 
@@ -316,13 +317,13 @@ export function CameraRow({ camera, eip, promptSets, chain }: CameraRowProps) {
       const res = await fetch(`/api/cameras/${camera.id}/restart`, {
         method: "POST",
       });
-      if (!res.ok) throw new Error("Restart failed");
+      if (!res.ok) throw await responseError(res, "Restart failed");
     },
     onSuccess: () => {
       toast({ title: `Replay restarted for ${camera.id}` });
     },
-    onError: () => {
-      toast({ title: "Restart failed", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Restart failed", description: err.message, variant: "destructive" });
     },
   });
 

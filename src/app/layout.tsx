@@ -47,7 +47,9 @@ export default async function RootLayout({
         <AuthProvider>
           <QueryProvider>
             <KioskProvider initialKiosk={kiosk}>
-              <BoxModeProvider aiFactoryUrl={CLUSTER.aiFactory.url}>{children}</BoxModeProvider>
+              <BoxModeProvider aiFactoryUrl={CLUSTER.aiFactory.url} agentUiUrl={CLUSTER.agent.uiUrl}>
+                {children}
+              </BoxModeProvider>
             </KioskProvider>
           </QueryProvider>
         </AuthProvider>

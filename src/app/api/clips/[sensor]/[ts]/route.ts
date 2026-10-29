@@ -1,5 +1,6 @@
 // GET /api/clips/[sensor]/[ts]
-// Returns the HLS playlist for a ~10s clip centered on `ts` (ISO 8601).
+// Returns the HLS playlist for a ~10s clip centered on `ts` (ISO 8601), or,
+// with `?end=<ISO>` (the incident's chunk end), for [ts - 2 s, end + 2 s].
 // Shared logic (cache → alert-clips manifest → VST live, transcode to HLS)
 // lives in @/lib/streams/serve-clip; the browser player loads the playlist via
 // the sibling [ts]/index.m3u8 path so its relative segment URLs resolve.
@@ -14,12 +15,12 @@ interface RouteParams {
   params: Promise<{ sensor: string; ts: string }>;
 }
 
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+export async function GET(req: NextRequest, { params }: RouteParams) {
   const session = await auth();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { sensor, ts } = await params;
-  return serveClipPlaylist(sensor, ts);
+  return serveClipPlaylist(sensor, ts, req.nextUrl.searchParams.get("end"));
 }

@@ -147,6 +147,14 @@ const STATIC_EDGES: TopologyEdge[] = CLUSTER.legacy
   ? _LEGACY_STATIC_EDGES
   : _HELM_STATIC_EDGES;
 
+// Nodes for workloads a box need not run, which would otherwise stand UNKNOWN
+// for good: camera-sim and its mediamtx exist only with a camera-sim host
+// configured (real cameras register straight into VST), the LLM NIM only while
+// a pod of it is listed. Edges to a node left out go with it.
+const CAMERA_SIM_NODES = ["camera-sim", "mediamtx"];
+const NIM_NODE = CLUSTER.legacy ? "nim-cosmos-reason2" : "nim-nemotron-nano";
+const VST_SENSOR_NODE = CLUSTER.legacy ? "sensor-ms" : "vss-vios-sensor";
+
 function podPhaseToHealth(phase?: string, ready?: boolean): Health {
   if (!phase) return "unknown";
   if (phase === "Running" && ready) return "ok";
@@ -275,10 +283,12 @@ export async function GET() {
   // ── Pod health map ──────────────────────────────────────────────────────────
 
   const healthMap = new Map<string, Health>();
+  const listedNamespaces = new Set<string>();
 
   for (const ns of watchedNamespaces()) {
     try {
       const podItems = await listAllPodsInNs(coreV1(), ns);
+      listedNamespaces.add(ns);
       for (const pod of podItems) {
         const name = pod.metadata?.name ?? "";
         for (const comp of COMPONENTS) {
@@ -310,7 +320,12 @@ export async function GET() {
 
   // ── Build static nodes ──────────────────────────────────────────────────────
 
-  const nodes: TopologyNode[] = COMPONENTS.map((comp) => ({
+  const absent = new Set<string>(CLUSTER.mediamtx.configured ? [] : CAMERA_SIM_NODES);
+  const nimNs = COMPONENTS.find((c) => c.id === NIM_NODE)?.namespace ?? "";
+  // A namespace that could not be listed says nothing about the NIM: keep it.
+  if (listedNamespaces.has(nimNs) && !healthMap.has(NIM_NODE)) absent.add(NIM_NODE);
+
+  const nodes: TopologyNode[] = COMPONENTS.filter((comp) => !absent.has(comp.id)).map((comp) => ({
     id: comp.id,
     type: comp.type,
     label: comp.label,
@@ -329,17 +344,22 @@ export async function GET() {
 
   // ── Feed edges (dynamic) ────────────────────────────────────────────────────
 
+  // Without mediamtx a camera feeds VST directly.
+  const feedTarget = absent.has("mediamtx") ? VST_SENSOR_NODE : "mediamtx";
   const feedEdges: TopologyEdge[] = feedNodes.flatMap((fn) => [
     {
-      id: `edge:${fn.id}->mediamtx`,
+      id: `edge:${fn.id}->${feedTarget}`,
       source: fn.id,
-      target: "mediamtx",
+      target: feedTarget,
       label: "RTSP",
       protocol: "rtsp",
     },
   ]);
 
-  const edges: TopologyEdge[] = [...STATIC_EDGES, ...feedEdges];
+  const edges: TopologyEdge[] = [
+    ...STATIC_EDGES.filter((e) => !absent.has(e.source) && !absent.has(e.target)),
+    ...feedEdges,
+  ];
 
   return NextResponse.json({ nodes, edges, warnings });
 }

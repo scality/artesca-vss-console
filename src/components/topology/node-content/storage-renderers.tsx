@@ -203,59 +203,6 @@ function BrowseModal({ onClose }: BrowseModalProps) {
   );
 }
 
-// ─── PUT test state ────────────────────────────────────────────────────────────
-
-function TestPutButton() {
-  const [state, setState] = useState<"idle" | "running" | "ok" | "err">("idle");
-  const [msg, setMsg] = useState("");
-
-  async function run() {
-    setState("running");
-    const t0 = Date.now();
-    try {
-      // s3-write is not yet in the diagnostics map → call disabled path
-      // Endpoint exists at /api/diagnostics/[test] — s3-write is not registered.
-      // Once added to DIAGNOSTICS in route.ts this will go live.
-      const res = await fetch("/api/diagnostics/s3-write", { method: "POST" });
-      const elapsed = Date.now() - t0;
-      if (res.ok) {
-        setState("ok");
-        setMsg(`PUT succeeded in ${elapsed} ms`);
-      } else {
-        setState("err");
-        setMsg(`HTTP ${res.status}`);
-      }
-    } catch (e) {
-      setState("err");
-      setMsg(String(e));
-    }
-    setTimeout(() => setState("idle"), 4000);
-  }
-
-  return (
-    <div className="space-y-1">
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={run}
-        disabled={state === "running"}
-        title="endpoint not yet implemented"
-      >
-        {state === "running" ? (
-          <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Testing…</>
-        ) : (
-          "Test PUT"
-        )}
-      </Button>
-      {msg && (
-        <p className={`text-xs ${state === "ok" ? "text-emerald-700" : "text-red-700"}`}>
-          {msg}
-        </p>
-      )}
-    </div>
-  );
-}
-
 // ─── artesca-s3 — Status tab ──────────────────────────────────────────────────
 
 function ArtescaS3Status({ runtimeState }: TabRendererProps) {
@@ -438,14 +385,6 @@ function ArtescaS3Actions(_props: TabRendererProps) {
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
-        <p className="text-xs font-medium">Test write</p>
-        <p className="text-[11px] text-muted-foreground mb-2">
-          PUT a small test object to verify S3 credentials and connectivity.
-        </p>
-        <TestPutButton />
-      </div>
-
       <div className="space-y-1">
         <p className="text-xs font-medium">Browse recordings</p>
         <p className="text-[11px] text-muted-foreground mb-2">

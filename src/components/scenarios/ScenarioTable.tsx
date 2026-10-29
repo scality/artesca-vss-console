@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Loader2, Plus, Save, AlertTriangle, CloudUpload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { responseError } from "@/lib/response-error";
 import { ScenarioRow } from "./ScenarioRow";
 import { ScenarioDiffDialog } from "./ScenarioDiffDialog";
 import { classifyListState } from "@/lib/diagnostics/list-state";
@@ -148,9 +149,7 @@ export function ScenarioTable() {
         return;
       }
 
-      if (!res.ok) {
-        throw new Error("Save failed");
-      }
+      if (!res.ok) throw await responseError(res, "Save failed");
 
       await queryClient.invalidateQueries({ queryKey: ["scenarios"] });
       setDiffOpen(false);

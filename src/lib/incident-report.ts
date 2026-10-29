@@ -4,6 +4,7 @@ import { CLUSTER } from "@/lib/cluster-refs";
 import { AGENT_DEPLOYMENT_NAME, collectAgentBehavior } from "@/lib/agent-config";
 import { loadIncidentReport, saveIncidentReport } from "@/lib/db";
 import { isHostedClaudeBaseUrl } from "@/lib/agent-presets";
+import { modelAnswer } from "@/lib/helpers/incident-wire";
 
 /**
  * incident-report.ts — synthesizes a structured markdown incident report
@@ -97,7 +98,8 @@ function extractIncidentInfo(raw: unknown): ExtractedIncidentInfo {
     if (!info.category) info.category = str(vlmInfo.category);
   }
 
-  if (!info.reasoningText) info.reasoningText = info.summary ?? "";
+  // Reasoning off in the profile: the model's answer is the only VLM text.
+  if (!info.reasoningText) info.reasoningText = modelAnswer(nestedRaw.llm) || (info.summary ?? "");
   return info;
 }
 

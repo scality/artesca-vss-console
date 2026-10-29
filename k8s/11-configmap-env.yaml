@@ -188,6 +188,13 @@ data:
   # Set to "0" to disable the rewrite (falls back to raw, browser-unreachable
   # agent URLs — useful for debugging the agent's own output).
   # VSS_MEDIA_PROXY_ENABLED: "1"
+  #
+  # VSS_AGENT_UI_URL: the upstream VSS agent UI as the operator's browser
+  #   reaches it, behind /chat's "open upstream UI" button. No default: unset,
+  #   or anything but an absolute http(s) URL, hides the button. Set it only
+  #   where that UI is exposed to the operators (a ClusterIP service alone
+  #   is not).
+  # VSS_AGENT_UI_URL: "http://<host-the-operators-reach>:<port>"
 
   # ── Recording auto-heal (guarded re-arm on stalled VST recorder) ─────────────
   # The VST cloud recorder can silently stall — sessions stay alive but stop
@@ -242,7 +249,10 @@ data:
   # Absent ConfigMap or namespace = `vss`. console-reader's cluster-wide
   # configmaps `get` covers the read (01-rbac.yaml).
   # AI_FACTORY_URL: link to the AI Factory UI as the operator's browser reaches
-  #   it (banner + nav). Default http://localhost:4090, the AI Factory tunnel.
-  # AI_FACTORY_URL: "http://localhost:4090"
+  #   it (nav, pause banner, kiosk notice). No default: unset, or anything but
+  #   an absolute http(s) URL, renders no AI Factory link at all, so set it only
+  #   where the operators can open that address (e.g. the laptop end of the
+  #   AI Factory's SSH tunnel). The pause banner shows either way.
+  # AI_FACTORY_URL: "http://<host-the-operators-reach>:<port>"
   # AI_FACTORY_NAMESPACE: "ai-factory"
   # AI_FACTORY_MODE_CONFIGMAP: "gpu-mode"

@@ -9,6 +9,7 @@ import { SecretRow } from "@/components/secrets/SecretRow";
 import { RotateSecretDialog } from "@/components/secrets/RotateSecretDialog";
 import { RotationNagBanner } from "@/components/secrets/RotationNagBanner";
 import { useToast } from "@/hooks/use-toast";
+import { responseError } from "@/lib/response-error";
 
 interface SecretStatus {
   key: string;
@@ -25,7 +26,6 @@ const SECRET_KEYS: Array<{ key: string; label: string; multiField?: boolean }> =
   { key: "slack-webhook-url", label: "Slack Webhook URL" },
   { key: "console-auth-password", label: "Console Auth Password" },
   { key: "camera-sim-ssh-key", label: "Camera-sim SSH Key (PEM)" },
-  { key: "aws-creds", label: "AWS Credentials", multiField: true },
 ];
 
 const NAG_THRESHOLD_MS = 90 * 24 * 60 * 60 * 1000;
@@ -72,7 +72,7 @@ export default function SecretsPage() {
     if (!res.ok) {
       toast({
         title: "Rotation failed",
-        description: await res.text(),
+        description: (await responseError(res, "Rotation failed")).message,
         variant: "destructive",
       });
       return;

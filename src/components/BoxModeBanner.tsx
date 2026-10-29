@@ -17,7 +17,8 @@ export function BoxModeBanner({
   kiosk,
 }: {
   boxMode: BoxMode | null;
-  aiFactoryUrl: string;
+  /** null = AI_FACTORY_URL unset: the notice shows, without a link. */
+  aiFactoryUrl: string | null;
   kiosk: boolean;
 }) {
   if (!boxMode || !isBoxPaused(boxMode)) return null;
@@ -46,15 +47,17 @@ export function BoxModeBanner({
         <p className="max-w-2xl text-lg text-muted-foreground">
           Live video analysis resumes when the box is switched back to VSS.
         </p>
-        <a
-          href={aiFactoryUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-3 text-base font-medium text-primary-foreground hover:opacity-90"
-        >
-          Open the AI Factory
-          <ExternalLink className="h-4 w-4" aria-hidden />
-        </a>
+        {aiFactoryUrl && (
+          <a
+            href={aiFactoryUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-3 text-base font-medium text-primary-foreground hover:opacity-90"
+          >
+            Open the AI Factory
+            <ExternalLink className="h-4 w-4" aria-hidden />
+          </a>
+        )}
         <p className="text-xs text-muted-foreground">{detail}</p>
       </div>
     );
@@ -71,15 +74,17 @@ export function BoxModeBanner({
       <span className="text-xs text-amber-700">
         {detail}. Restarts and tuning of the VSS GPU workloads are paused; reads stay live.
       </span>
-      <a
-        href={aiFactoryUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="ml-auto inline-flex items-center gap-1 font-medium underline underline-offset-2 hover:text-amber-900"
-      >
-        Open the AI Factory
-        <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-      </a>
+      {aiFactoryUrl && (
+        <a
+          href={aiFactoryUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ml-auto inline-flex items-center gap-1 font-medium underline underline-offset-2 hover:text-amber-900"
+        >
+          Open the AI Factory
+          <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+        </a>
+      )}
     </div>
   );
 }

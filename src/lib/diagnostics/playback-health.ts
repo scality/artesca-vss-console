@@ -1,5 +1,6 @@
 import "server-only";
 import { CLUSTER } from "@/lib/cluster-refs";
+import { vstListSensors } from "@/lib/helpers/vst";
 
 /**
  * Read-side health of VST's storage: can a window VST's own timeline lists be
@@ -35,13 +36,21 @@ const PROBE_TIMEOUT_MS = 12_000;
  * recently finished-or-live segment, on whichever stream ends most recently,
  * provided that end is within `RECENT_MS` of `nowMs` and the segment is long
  * enough to hold it. Null when nothing recent enough exists.
+ *
+ * `readable`, when given, limits the pick to those stream ids. VST keeps
+ * extending the timeline of a sensor it has removed (a stopped test-footage
+ * camera) while answering 500 for any read of it, and every live timeline ends
+ * at the same instant, so an unrestricted pick lands on such a ghost about as
+ * often as on a real camera and reports a healthy store as broken.
  */
 export function pickPlaybackWindow(
   timelines: Record<string, TimelineSegment[]>,
   nowMs: number,
+  readable?: ReadonlySet<string>,
 ): PlaybackWindow | null {
   let best: { streamId: string; seg: TimelineSegment; endMs: number } | null = null;
   for (const [streamId, segs] of Object.entries(timelines)) {
+    if (readable && !readable.has(streamId)) continue;
     const seg = segs[segs.length - 1];
     if (!seg) continue;
     const endMs = Date.parse(seg.endTime);
@@ -96,7 +105,13 @@ export async function probePlayback(): Promise<PlaybackVerdict> {
   });
   if (!tl.ok) return { ok: false, severity: "error", detail: `timelines returned HTTP ${tl.status}` };
   const timelines = (await tl.json()) as Record<string, TimelineSegment[]>;
-  const win = pickPlaybackWindow(timelines, Date.now());
+  // Registered, not-removed sensors only; an empty or failed list falls back to
+  // every stream rather than to no probe at all.
+  const { sensors } = await vstListSensors();
+  const registered = new Set(
+    sensors.filter((s) => s.status !== "removed" && s.streamId).map((s) => String(s.streamId)),
+  );
+  const win = pickPlaybackWindow(timelines, Date.now(), registered.size ? registered : undefined);
   if (!win) return { ok: true, severity: "warn", detail: "no recording in the last 10 min to read back" };
   const url =
     `${base}/storage/file/${encodeURIComponent(win.streamId)}` +

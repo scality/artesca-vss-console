@@ -32,13 +32,14 @@ vi.mock("@/lib/s3", () => ({
   s3Endpoint: vi.fn(() => ""),
 }));
 
-vi.mock("@/lib/cluster-refs", () => ({
-  CLUSTER: {
-    legacy: false,
-    vssNamespace: "vss-base",
-    vst: { sensorListUrl: "http://vss-vios-sensor.vss-base.svc.cluster.local:30000/api/v1/live/sensor/list" },
-  },
+// Mutable so a test can configure a camera-sim host (mediamtx.configured).
+const cluster = vi.hoisted(() => ({
+  legacy: false,
+  vssNamespace: "vss-base",
+  vst: { sensorListUrl: "http://vss-vios-sensor.vss-base.svc.cluster.local:30000/api/v1/live/sensor/list" },
+  mediamtx: { configured: false },
 }));
+vi.mock("@/lib/cluster-refs", () => ({ CLUSTER: cluster }));
 
 // ── Imports ──────────────────────────────────────────────────────────────────
 
@@ -49,6 +50,7 @@ import { GET } from "@/app/api/topology/route";
 // ── Setup ────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
+  cluster.mediamtx.configured = false;
   vi.mocked(auth).mockReset().mockResolvedValue({ user: { name: "operator" } } as never);
   vi.mocked(watchedNamespaces).mockReset().mockReturnValue([
     "vss-base", "pyramid-ingress",
@@ -159,4 +161,54 @@ describe("GET /api/topology", () => {
   });
 
   it.todo("feed sub-nodes: VST sensor list populated → dynamic nodes appended with parent=camera-sim");
+});
+
+// A box with real cameras and no LLM NIM has no camera-sim, no mediamtx and no
+// NIM pod. Those nodes stood UNKNOWN on /topology for good.
+describe("GET /api/topology: nodes for workloads the box does not run", () => {
+  const OPTIONAL = ["camera-sim", "mediamtx", "nim-nemotron-nano"];
+  const oneCamera = () =>
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ sensors: [{ sensor_id: "s1", name: "cam-a", state: "online" }] }),
+    } as unknown as Response);
+  const running = (name: string) => ({
+    metadata: { name },
+    status: { phase: "Running", conditions: [{ type: "Ready", status: "True" }] },
+  });
+  type Body = { nodes: { id: string; health: string }[]; edges: { source: string; target: string }[] };
+  const get = async () => (await (await GET()).json()) as Body;
+
+  it("no camera-sim host and no NIM pod: the three nodes and every edge to them are left out", async () => {
+    oneCamera();
+    const body = await get();
+    const ids = body.nodes.map((n) => n.id);
+    const ends = body.edges.flatMap((e) => [e.source, e.target]);
+    for (const id of OPTIONAL) {
+      expect(ids, id).not.toContain(id);
+      expect(ends, id).not.toContain(id);
+    }
+    // The camera feeds VST directly, so the feed stays connected.
+    expect(body.edges).toContainEqual(expect.objectContaining({ source: "feed:s1", target: "vss-vios-sensor" }));
+  });
+
+  it("camera-sim host configured and a NIM pod running: all three nodes, the feed via mediamtx", async () => {
+    cluster.mediamtx.configured = true;
+    oneCamera();
+    vi.mocked(listAllPodsInNs).mockImplementation(async (_api, ns: string) =>
+      (ns === "vss-base" ? [running("nvidia-nemotron-nano-9b-v2-abc12")] : []) as never,
+    );
+    const body = await get();
+    const ids = body.nodes.map((n) => n.id);
+    for (const id of OPTIONAL) expect(ids, id).toContain(id);
+    expect(body.nodes.find((n) => n.id === "nim-nemotron-nano")?.health).toBe("ok");
+    expect(body.edges).toContainEqual(expect.objectContaining({ source: "feed:s1", target: "mediamtx" }));
+    expect(body.edges).toContainEqual(expect.objectContaining({ source: "vss-rtvi-vlm", target: "nim-nemotron-nano" }));
+  });
+
+  it("the NIM's namespace could not be listed: its node stays, because absence is not known", async () => {
+    vi.mocked(listAllPodsInNs).mockRejectedValue(new Error("apiserver down"));
+    const body = await get();
+    expect(body.nodes.map((n) => n.id)).toContain("nim-nemotron-nano");
+  });
 });

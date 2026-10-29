@@ -224,9 +224,10 @@ function IncidentsPageContent() {
       const res = await fetch("/api/scenarios");
       if (!res.ok) return [];
       const data = await res.json();
+      // GET /api/scenarios answers { scenarios: [...], warnings, ... }.
       return z
-        .array(z.object({ id: z.string(), name: z.string() }))
-        .parse(data);
+        .object({ scenarios: z.array(z.object({ id: z.string(), name: z.string() })) })
+        .parse(data).scenarios;
     },
     staleTime: 5 * 60 * 1000,
   });

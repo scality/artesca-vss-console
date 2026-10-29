@@ -8,6 +8,7 @@ import { useKiosk } from "@/components/KioskProvider";
 import { Shell } from "@/components/Shell";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { responseError } from "@/lib/response-error";
 import { Loader2, Save, AlertTriangle } from "lucide-react";
 import {
   Dialog,
@@ -125,10 +126,16 @@ export default function PromptPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: draft }),
       });
-      if (!res.ok) throw new Error("Save failed");
+      if (!res.ok) throw await responseError(res, "Save failed");
+      // A 200 can still carry warnings: the box-mode deferral, or a failed live apply.
+      const { warnings } = (await res.json().catch(() => ({}))) as { warnings?: string[] };
       await queryClient.invalidateQueries({ queryKey: ["prompt"] });
       setConfirmOpen(false);
-      toast({ title: "Prompt saved — vss-rtvi-vlm restarting" });
+      toast(
+        warnings?.length
+          ? { title: "Prompt saved, not applied yet", description: warnings.join(" ") }
+          : { title: "Prompt saved — vss-rtvi-vlm restarting" },
+      );
     } catch (err) {
       toast({
         title: "Save failed",

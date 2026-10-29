@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { responseError } from "@/lib/response-error";
 import { Loader2, Save, AlertTriangle, Lock } from "lucide-react";
 import {
   Dialog,
@@ -88,7 +89,7 @@ export function AlertsTuningForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("Patch failed");
+      if (!res.ok) throw await responseError(res, "Patch failed");
       setStep(0, "done");
       setStep(1, "running");
       await new Promise((r) => setTimeout(r, 1500));

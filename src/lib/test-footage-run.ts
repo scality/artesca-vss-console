@@ -383,7 +383,14 @@ export async function startRun(req: RunRequest): Promise<RunResult> {
     alertType: req.alertType,
     prompt: req.prompt,
   });
-  if (!ing.ok && ing.warning) warnings.push(ing.warning);
+  if (!ing.ok) {
+    // A run whose analysis did not turn on is a failed start, not a warning.
+    // Reported as started, it stayed registered and read as running, which
+    // hides the abandoned-pause banner: a start made while the box was in llm
+    // mode (VLM at 0) kept every live camera paused for two weeks.
+    await stopRun({ cameraId, resume: pausedCameras });
+    throw new Error(`could not turn analysis on for ${cameraId}: ${ing.warning ?? "unknown"}`);
+  }
 
   return {
     cameraId,

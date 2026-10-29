@@ -28,10 +28,12 @@ interface IncidentDetailProps {
   onClose: () => void;
 }
 
-function buildClipUrl(sensorId: string, ts: string) {
+function buildClipUrl(sensorId: string, ts: string, end: unknown) {
   // Encode the timestamp so slashes / colons don't break the URL
   const safeTs = encodeURIComponent(ts);
-  return `/api/clips/${encodeURIComponent(sensorId)}/${safeTs}/index.m3u8`;
+  // `ts` is the chunk start; the chunk end widens the clip to the whole chunk.
+  const q = typeof end === "string" && end ? `?end=${encodeURIComponent(end)}` : "";
+  return `/api/clips/${encodeURIComponent(sensorId)}/${safeTs}/index.m3u8${q}`;
 }
 
 /** How many seconds into the clip the incident occurred.
@@ -125,7 +127,11 @@ export function IncidentDetail({ incident, onClose }: IncidentDetailProps) {
 
   if (!incident) return null;
 
-  const clipUrl = buildClipUrl(incident.sensorId, incident.ts);
+  const clipUrl = buildClipUrl(
+    incident.sensorId,
+    incident.ts,
+    (incident.raw as { end?: unknown } | null | undefined)?.end,
+  );
   const rawJson = JSON.stringify(incident.raw, null, 2);
 
   const copyRaw = async () => {

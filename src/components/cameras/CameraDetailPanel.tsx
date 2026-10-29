@@ -46,7 +46,7 @@ const ScenarioListSchema = z.object({
 
 function useScenariosQuery() {
   return useQuery({
-    queryKey: ["scenarios"],
+    queryKey: ["scenarios", "list"],
     queryFn: async () => {
       const res = await fetch("/api/scenarios");
       if (!res.ok) throw new Error("Failed to fetch scenarios");

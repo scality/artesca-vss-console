@@ -9,7 +9,6 @@ const SECRET_KEYS = [
   { key: "slack-webhook-url", label: "Slack Webhook URL" },
   { key: "console-auth-password", label: "Console Auth Password" },
   { key: "camera-sim-ssh-key", label: "Camera-sim SSH Key" },
-  { key: "aws-creds", label: "AWS Credentials" },
 ];
 
 function stubAuth(page: Page) {

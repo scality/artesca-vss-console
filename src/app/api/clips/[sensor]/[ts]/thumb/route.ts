@@ -6,7 +6,10 @@
 // Resolution order:
 //   1. Fresh thumb.jpg in the clip cache  → serve immediately (X-Cache: hit).
 //   2. HLS seg000.ts in cache             → extract frame 0 via ffmpeg.
-//   3. Download the ±5 s MP4 from VST     → extract frame 0, cache thumb.jpg.
+//   3. Download the clip MP4 from VST     → extract frame 0, cache thumb.jpg.
+//
+// `?end=<ISO>` selects the incident-span clip (see clipWindow); its thumbnail
+// is the frame at the middle of the span.
 //
 // Fail-soft: any error in step 3 (stream not found, VST unreachable, ffmpeg
 // failure) returns a 1×1 transparent PNG with status 200 so a missing or
@@ -25,7 +28,7 @@ import {
   CLIP_CACHE_TTL_MS,
 } from "@/lib/streams/clip-cache";
 import { extractThumbnail } from "@/lib/streams/ffmpeg";
-import { resolveStreamId, buildVstClipUrl } from "@/lib/streams/vst-clip";
+import { resolveStreamId, buildVstClipUrl, clipWindow } from "@/lib/streams/vst-clip";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -64,14 +67,16 @@ interface RouteParams {
   params: Promise<{ sensor: string; ts: string }>;
 }
 
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+export async function GET(req: NextRequest, { params }: RouteParams) {
   const session = await auth();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { sensor, ts } = await params;
-  const thumbPath = cachePath(sensor, ts, "thumb.jpg");
+  const end = req.nextUrl.searchParams.get("end");
+  const win = clipWindow(ts, end);
+  const thumbPath = cachePath(sensor, win.key, "thumb.jpg");
 
   // 1. Serve from cache when available and fresh.
   if (isCacheFresh(thumbPath, CLIP_CACHE_TTL_MS)) {
@@ -80,10 +85,10 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   }
 
   // 2. If HLS segments exist in cache, extract thumbnail from the first segment.
-  const seg0 = cachePath(sensor, ts, "seg000.ts");
+  const seg0 = cachePath(sensor, win.key, "seg000.ts");
   if (fs.existsSync(seg0)) {
     try {
-      ensureCacheDir(sensor, ts);
+      ensureCacheDir(sensor, win.key);
       await extractThumbnail(seg0, thumbPath);
       if (fs.existsSync(thumbPath)) {
         const data = fs.readFileSync(thumbPath);
@@ -101,7 +106,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     const streamId = await resolveStreamId(sensor);
     if (!streamId) return placeholder();
 
-    const mp4Url = buildVstClipUrl(streamId, ts);
+    const mp4Url = buildVstClipUrl(streamId, ts, end);
     const resp = await fetch(mp4Url, { signal: AbortSignal.timeout(30_000) });
     if (!resp.ok) return placeholder();
 
@@ -111,9 +116,9 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     const tmpMp4 = path.join(tmpDir, "clip.mp4");
     fs.writeFileSync(tmpMp4, mp4Buffer);
 
-    ensureCacheDir(sensor, ts);
+    ensureCacheDir(sensor, win.key);
     try {
-      await extractThumbnail(tmpMp4, thumbPath, 0);
+      await extractThumbnail(tmpMp4, thumbPath, win.thumbSecs);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

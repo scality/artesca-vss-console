@@ -527,19 +527,17 @@ const KVCACHE = {
 // A box without the AI Factory has no such ConfigMap; that reads as `vss`.
 // The console's ServiceAccount reads it through the cluster-wide `configmaps`
 // get in console-reader (k8s/01-rbac.yaml).
-const AI_FACTORY_DEFAULT_URL = "http://localhost:4090";
-
-/** Only an absolute http(s) URL is used as a link target; anything else falls
- *  back to the default rather than reaching an <a href>. */
-function aiFactoryUrl(raw: string | undefined): string {
+/** A link target for the operator's browser: an absolute http(s) URL, or null
+ *  (unset or anything else), and null means the link is not rendered. There is
+ *  no default, because no address is reachable from every operator's browser. */
+function browserLink(raw: string | undefined): string | null {
   const v = raw?.trim();
-  return v && /^https?:\/\/[^\s"'<>]+$/i.test(v) ? v : AI_FACTORY_DEFAULT_URL;
+  return v && /^https?:\/\/[^\s"'<>]+$/i.test(v) ? v : null;
 }
 
 const AI_FACTORY = {
-  /** Where an operator's browser reaches the AI Factory UI. The default is the
-   *  laptop-side port of the AI Factory's own SSH tunnel. */
-  url: aiFactoryUrl(process.env.AI_FACTORY_URL),
+  /** Where an operator's browser reaches the AI Factory UI; null = no link. */
+  url: browserLink(process.env.AI_FACTORY_URL),
   /** The GPU-mode record. */
   modeNamespace: process.env.AI_FACTORY_NAMESPACE ?? "ai-factory",
   modeConfigMap: process.env.AI_FACTORY_MODE_CONFIGMAP ?? "gpu-mode",
@@ -805,6 +803,10 @@ export const CLUSTER = {
     url: VSS_AGENT_URL,
     /** Host:port prefix the agent stamps into snapshot/clip URLs (browser-unreachable as-is). */
     mediaHost: VSS_AGENT_MEDIA_HOST,
+    /** Where an operator's browser reaches the upstream VSS agent UI (/chat's
+     *  "open upstream UI"); null = no button. No default: it is often a
+     *  ClusterIP service that no operator's browser reaches. */
+    uiUrl: browserLink(process.env.VSS_AGENT_UI_URL),
     /** ConfigMap holding the agent's runtime config (workflow.prompt, workflow.max_iterations).
      *  Override via AGENT_CONFIG_MAP env if the Helm chart changes the name. */
     configMap: process.env.AGENT_CONFIG_MAP ?? "vss-agent-config",

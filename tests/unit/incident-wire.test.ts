@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fromWire } from "@/lib/helpers/incident-wire";
+import { fromWire, fromAlertBridge } from "@/lib/helpers/incident-wire";
 
 describe("fromWire", () => {
   it("converts scenario_id to scenarioId", () => {
@@ -69,5 +69,33 @@ describe("fromWire", () => {
     expect(fromWire(undefined)).toBeUndefined();
     expect(fromWire("string")).toBe("string");
     expect(fromWire(42)).toBe(42);
+  });
+});
+
+describe("fromAlertBridge", () => {
+  // A realtime incident from a profile with enable_reasoning: false — no
+  // reasoning fields, the model's answer only in llm.queries[0].response.
+  const noReasoning = {
+    timestamp: "2026-01-01T12:00:00.000Z",
+    end: "2026-01-01T12:00:10.000Z",
+    category: "self-checkout-theft",
+    info: {
+      sensorId: "cam-a",
+      reasoningDescription: null,
+      reasoning: null,
+      verdict: "confirmed",
+      triggerPhrase: "yes",
+    },
+    llm: { queries: [{ response: "  Yes - green snack bag \n" }] },
+  };
+
+  it("uses the model answer when the incident carries no reasoning", () => {
+    const inc = fromAlertBridge(noReasoning) as Record<string, unknown>;
+    expect(inc.summary).toBe("Yes - green snack bag");
+  });
+
+  it("falls back to verdict and trigger phrase without an answer", () => {
+    const inc = fromAlertBridge({ ...noReasoning, llm: { queries: [] } }) as Record<string, unknown>;
+    expect(inc.summary).toBe("confirmed — yes");
   });
 });

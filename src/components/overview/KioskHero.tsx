@@ -176,7 +176,9 @@ export function KioskHero({
           value={`${pathsReady}/${pathsTotal}`}
           label="Live camera feeds"
           sub={camSub}
-          href="/cameras"
+          // /topology draws each camera with its recording health. /cameras is
+          // hidden in kiosk mode, the only mode this hero renders in.
+          href="/topology"
         />
         <HeroTile
           icon={AlertTriangle}

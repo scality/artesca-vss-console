@@ -27,7 +27,7 @@ const ScenarioListSchema = z.object({
 
 function useCamerasQuery() {
   return useQuery({
-    queryKey: ["cameras"],
+    queryKey: ["cameras", "bindings"],
     queryFn: async () => {
       const res = await fetch("/api/cameras");
       if (!res.ok) throw new Error("Failed to fetch cameras");
@@ -40,7 +40,7 @@ function useCamerasQuery() {
 
 function useScenariosQuery() {
   return useQuery({
-    queryKey: ["scenarios"],
+    queryKey: ["scenarios", "list"],
     queryFn: async () => {
       const res = await fetch("/api/scenarios");
       if (!res.ok) throw new Error("Failed to fetch scenarios");

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
+import { responseError } from "@/lib/response-error";
 import { Loader2, Save, AlertTriangle } from "lucide-react";
 import {
   Dialog,
@@ -221,7 +222,7 @@ export function VstRecordingForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(local),
       });
-      if (!res.ok) throw new Error("Patch failed");
+      if (!res.ok) throw await responseError(res, "Patch failed");
       setStep(0, "done");
 
       setStep(1, "running");

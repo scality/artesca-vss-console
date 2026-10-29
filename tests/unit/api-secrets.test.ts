@@ -315,3 +315,18 @@ describe("PATCH /api/secrets/[key]", () => {
     expect(res.status).toBe(401);
   });
 });
+
+// The /secrets page lists its own keys; one the registry no longer has renders
+// a row that reads "not configured" and a Rotate button that 400s.
+describe("/secrets page keys", () => {
+  it("every key the page lists is one the route knows", async () => {
+    const { readFileSync } = await import("node:fs");
+    const page = readFileSync(`${__dirname}/../../src/app/secrets/page.tsx`, "utf8");
+    const keys = [...page.matchAll(/\{ key: "([\w-]+)"/g)].map((m) => m[1]);
+    expect(keys.length).toBeGreaterThan(3);
+    for (const key of keys) {
+      const res = await GET(...makeGetRequest(key));
+      expect(res.status, key).not.toBe(400);
+    }
+  });
+});

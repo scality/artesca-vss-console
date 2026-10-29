@@ -51,7 +51,7 @@ export function CameraTable() {
   const { toast } = useToast();
 
   const { data: promptData } = useQuery({
-    queryKey: ["prompt"],
+    queryKey: ["prompt", "sets"],
     queryFn: async () => {
       const res = await fetch("/api/prompt");
       if (!res.ok) throw new Error("Failed to fetch prompt sets");

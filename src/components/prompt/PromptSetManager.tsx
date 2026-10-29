@@ -82,11 +82,17 @@ export function PromptSetManager({ sets, activePromptId }: PromptSetManagerProps
         const body = await res.json().catch(() => ({ error: "Unknown error" }));
         throw new Error((body as { error?: string }).error ?? "Activate failed");
       }
+      // A 200 can carry warnings: the box-mode deferral, or a failed live apply.
+      return (await res.json().catch(() => ({}))) as { warnings?: string[] };
     },
-    onSuccess: (_data, setId) => {
+    onSuccess: ({ warnings }, setId) => {
       const name = sets.find((s) => s.id === setId)?.name ?? setId;
       queryClient.invalidateQueries({ queryKey: ["prompt"] });
-      toast({ title: `Activated "${name}" — VLM restarting (~30 s)` });
+      toast(
+        warnings?.length
+          ? { title: `Activated "${name}", not applied yet`, description: warnings.join(" ") }
+          : { title: `Activated "${name}" — VLM restarting (~30 s)` },
+      );
     },
     onError: (err: Error) => {
       toast({ title: "Activate failed", description: err.message, variant: "destructive" });

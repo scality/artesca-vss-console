@@ -50,7 +50,7 @@ async function stubProfilesApis(page: Page) {
       return route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(profilesFixture[0]),
+        body: JSON.stringify({ profile: profilesFixture[0] }),
       });
     }
     if (method === "POST") {
@@ -201,7 +201,7 @@ test.describe("profiles page — Phase 9", () => {
       return route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(profilesFixture[0]),
+        body: JSON.stringify({ profile: profilesFixture[0] }),
       });
     });
 

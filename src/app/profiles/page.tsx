@@ -9,6 +9,7 @@ import { ProfileTable } from "@/components/profiles/ProfileTable";
 import { SaveProfileDialog } from "@/components/profiles/SaveProfileDialog";
 import { LoadProfileDialog } from "@/components/profiles/LoadProfileDialog";
 import { useToast } from "@/hooks/use-toast";
+import { responseError } from "@/lib/response-error";
 import type { DemoProfile } from "@/lib/types";
 
 interface ProfileMeta {
@@ -50,7 +51,7 @@ export default function ProfilesPage() {
       body: JSON.stringify({ name }),
     });
     if (!res.ok) {
-      toast({ title: "Save failed", description: await res.text(), variant: "destructive" });
+      toast({ title: "Save failed", description: (await responseError(res, "Save failed")).message, variant: "destructive" });
       return;
     }
     toast({ title: `Profile "${name}" saved` });
@@ -63,7 +64,7 @@ export default function ProfilesPage() {
       method: "PUT",
     });
     if (!res.ok) {
-      toast({ title: "Load failed", description: await res.text(), variant: "destructive" });
+      toast({ title: "Load failed", description: (await responseError(res, "Load failed")).message, variant: "destructive" });
       return;
     }
     toast({ title: `Profile "${loadTarget.name}" loaded` });
@@ -71,34 +72,41 @@ export default function ProfilesPage() {
     fetchProfiles();
   }
 
-  async function openLoad(name: string) {
+  /** GET /api/profiles/<name> answers { profile }; null (and a toast) when it fails. */
+  async function getProfile(name: string): Promise<DemoProfile | null> {
     const res = await fetch(`/api/profiles/${encodeURIComponent(name)}`);
     if (!res.ok) {
       toast({ title: "Failed to fetch profile", variant: "destructive" });
-      return;
+      return null;
     }
-    const profile: DemoProfile = await res.json();
-    setLoadTarget(profile);
+    return ((await res.json()) as { profile: DemoProfile }).profile;
+  }
+
+  async function openLoad(name: string) {
+    const profile = await getProfile(name);
+    if (profile) setLoadTarget(profile);
   }
 
   async function handleDuplicate(name: string) {
-    const res = await fetch(`/api/profiles/${encodeURIComponent(name)}`);
-    if (!res.ok) return;
-    const profile: DemoProfile = await res.json();
+    const profile = await getProfile(name);
+    if (!profile) return;
     const newName = `${name}-copy`;
-    await fetch("/api/profiles", {
+    const res = await fetch("/api/profiles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...profile, name: newName }),
     });
+    if (!res.ok) {
+      toast({ title: "Duplicate failed", description: (await responseError(res, "Duplicate failed")).message, variant: "destructive" });
+      return;
+    }
     toast({ title: `Duplicated as "${newName}"` });
     fetchProfiles();
   }
 
   async function handleExport(name: string) {
-    const res = await fetch(`/api/profiles/${encodeURIComponent(name)}`);
-    if (!res.ok) return;
-    const profile = await res.json();
+    const profile = await getProfile(name);
+    if (!profile) return;
     const blob = new Blob([JSON.stringify(profile, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

@@ -23,7 +23,7 @@ export function SensorFilterInput({
   disabled,
 }: SensorFilterInputProps) {
   const { data } = useQuery({
-    queryKey: ["cameras"],
+    queryKey: ["cameras", "ids"],
     queryFn: async () => {
       const res = await fetch("/api/cameras");
       if (!res.ok) return { cameras: [] };

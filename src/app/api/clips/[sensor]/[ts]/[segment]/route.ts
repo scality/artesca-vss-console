@@ -9,23 +9,26 @@ import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { cachePath, isCacheFresh } from "@/lib/streams/clip-cache";
 import { serveClipPlaylist } from "@/lib/streams/serve-clip";
+import { clipWindow } from "@/lib/streams/vst-clip";
 import * as fs from "fs";
 
 interface RouteParams {
   params: Promise<{ sensor: string; ts: string; segment: string }>;
 }
 
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+export async function GET(req: NextRequest, { params }: RouteParams) {
   const session = await auth();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { sensor, ts, segment } = await params;
+  // `?end=` selects the incident-span clip; the playlist carries it on segments.
+  const end = req.nextUrl.searchParams.get("end");
 
   // The player loads the playlist from this path so relative seg URLs resolve.
   if (segment === "index.m3u8") {
-    return serveClipPlaylist(sensor, ts);
+    return serveClipPlaylist(sensor, ts, end);
   }
 
   // Only serve .ts segment files.
@@ -33,7 +36,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Not a segment file" }, { status: 400 });
   }
 
-  const segPath = cachePath(sensor, ts, segment);
+  const segPath = cachePath(sensor, clipWindow(ts, end).key, segment);
 
   if (!fs.existsSync(segPath) || !isCacheFresh(segPath)) {
     return NextResponse.json(

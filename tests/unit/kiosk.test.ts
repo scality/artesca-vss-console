@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { KIOSK_HIDDEN_ROUTES, KIOSK_ALLOWED_ROUTES, isKioskAllowed, isApiOrInternal } from "@/lib/kiosk";
 import { glob2regex } from "@/lib/utils";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 describe("KIOSK_HIDDEN_ROUTES", () => {
   it("includes all non-kiosk pages", () => {
@@ -50,6 +52,18 @@ describe("KIOSK_ALLOWED_ROUTES", () => {
     const operatorPages = ["/cameras", "/scenarios", "/settings", "/tuning", "/logs"];
     for (const r of operatorPages) {
       expect(KIOSK_ALLOWED_ROUTES).not.toContain(r);
+    }
+  });
+
+  // proxy.ts redirects a page in neither list to "/", even when a kiosk page
+  // links to it (the overview hero's /storage tile, chat's /search thumbnails).
+  it("every nav page is in exactly one of the two lists", () => {
+    const nav = readFileSync(path.resolve(__dirname, "../../src/components/Nav.tsx"), "utf8");
+    const hrefs = [...nav.matchAll(/href: "(\/[^"]*)"/g)].map((m) => m[1]);
+    expect(hrefs.length).toBeGreaterThan(20);
+    for (const h of hrefs) {
+      const n = Number(KIOSK_ALLOWED_ROUTES.includes(h)) + Number(KIOSK_HIDDEN_ROUTES.includes(h));
+      expect(n, h).toBe(1);
     }
   });
 

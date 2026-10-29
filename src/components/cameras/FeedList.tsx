@@ -6,7 +6,8 @@ import type { Feed } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { RefreshCw, Ban, Upload } from "lucide-react";
+import { responseError } from "@/lib/response-error";
+import { RefreshCw } from "lucide-react";
 import { LiveFeedPlayer } from "./LiveFeedPlayer";
 
 interface FeedListProps {
@@ -19,37 +20,22 @@ export function FeedList({ cameraId, feeds, eip }: FeedListProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const disableFeed = useMutation({
-    mutationFn: async (feedId: string) => {
-      const res = await fetch(`/api/cameras/${cameraId}/feeds/${feedId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: false }),
-      });
-      if (!res.ok) throw new Error("Failed to disable feed");
-    },
-    onSuccess: (_, feedId) => {
-      queryClient.invalidateQueries({ queryKey: ["cameras"] });
-      toast({ title: `Feed ${feedId} disabled` });
-    },
-    onError: () => {
-      toast({ title: "Failed to disable feed", variant: "destructive" });
-    },
-  });
-
+  // A camera has one feed, and the camera restart route re-runs both VST
+  // registration steps (sensor/add, proxy/stream/add). There is no per-feed
+  // route, and no "disable feed" one.
   const reRegister = useMutation({
     mutationFn: async (feedId: string) => {
-      const res = await fetch(`/api/cameras/${cameraId}/feeds/${feedId}/register`, {
+      const res = await fetch(`/api/cameras/${encodeURIComponent(cameraId)}/restart`, {
         method: "POST",
       });
-      if (!res.ok) throw new Error("Re-registration failed");
+      if (!res.ok) throw await responseError(res, "Re-registration failed");
     },
     onSuccess: (_, feedId) => {
       queryClient.invalidateQueries({ queryKey: ["cameras"] });
       toast({ title: `Feed ${feedId} re-registered` });
     },
-    onError: () => {
-      toast({ title: "Re-registration failed", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Re-registration failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -119,17 +105,6 @@ export function FeedList({ cameraId, feeds, eip }: FeedListProps) {
             >
               <RefreshCw className="h-3 w-3 mr-1" />
               Re-register
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs text-muted-foreground"
-              onClick={() => disableFeed.mutate(feed.id)}
-              disabled={disableFeed.isPending}
-              title="Disable feed"
-            >
-              <Ban className="h-3 w-3 mr-1" />
-              Disable
             </Button>
           </div>
         </div>

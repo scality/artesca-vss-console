@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
-import { CAMERA_ID_RE, RTSP_URL_RE } from "@/lib/schemas";
+import { CAMERA_ID_RE, CameraSchema, RTSP_URL_RE } from "@/lib/schemas";
 import { rejectIfKiosk } from "@/lib/kiosk-server";
 import { createLogger } from "@/lib/logger";
 import { withRequestContext } from "@/lib/with-request-context";
@@ -110,7 +110,9 @@ const AddFeedSchema = z.object({
 const AddCameraSchema = z
   .object({
     cameraId: z.string().regex(CAMERA_ID_RE),
-    role: z.string().optional(),
+    // The enum GET's consumers validate against: a free-form role stored here
+    // fails the /cameras page's parse of the whole list, not just this row.
+    role: CameraSchema.shape.role.optional(),
     description: z.string().optional(),
     rtspUrl: z.string().optional(),
     feeds: z.array(AddFeedSchema).optional(),

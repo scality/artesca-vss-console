@@ -201,7 +201,7 @@ describe("boxPausedResponse — the routes' 409", () => {
     expect(body.error).toMatch(/^VSS paused — the box is running the LLM \(AI Factory\)/);
     expect(body.boxMode).toMatchObject({ mode: "llm", pinned: true, source: "configmap" });
     expect(body.workloads).toEqual([{ kind: "StatefulSet", namespace: "vss-base", name: "vss-vios-streamprocessing" }]);
-    expect(body.aiFactoryUrl).toBe("http://localhost:4090");
+    expect(body.aiFactoryUrl).toBeNull(); // AI_FACTORY_URL unset: no link to offer
   });
 
   it("is null in vss mode, and null for workloads the switch does not own", async () => {

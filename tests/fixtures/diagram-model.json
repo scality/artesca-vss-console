@@ -14,6 +14,7 @@
       "/agent",
       "/cameras",
       "/diagnostics",
+      "/evidence",
       "/logs",
       "/profiles",
       "/prompt",
@@ -26,9 +27,12 @@
     ],
     "kioskAllowed": [
       "/",
+      "/analytics",
       "/chat",
       "/incidents",
       "/kvcache",
+      "/search",
+      "/storage",
       "/topology"
     ],
     "apiRoutes": 70,
@@ -55,12 +59,7 @@
     "guardExempt": [
       "/api/settings/kiosk"
     ],
-    "orphaned": [
-      "/analytics",
-      "/evidence",
-      "/search",
-      "/storage"
-    ]
+    "orphaned": []
   },
   "flow": {
     "namespace": "vss-base",

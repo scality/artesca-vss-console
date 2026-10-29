@@ -273,6 +273,30 @@ describe("startRun", () => {
     expect(cleared).toBe(true);
   });
 
+  it("tears the run down and resumes the live cameras when analysis cannot be turned on", async () => {
+    // Seen on a box: started while the box was in llm mode, the VLM was at
+    // 0, the rule create failed, and the run was still reported as started. The
+    // registered test camera read as a live run, so nothing flagged the pause.
+    ingestion.mockImplementation(async (_id, enabled) =>
+      enabled ? { ok: false, warning: "alert-bridge returned HTTP 502 on POST" } : { ok: true },
+    );
+    listSensors
+      .mockResolvedValueOnce({ sensors: [] } as unknown as Awaited<ReturnType<typeof vstListSensors>>)
+      .mockResolvedValue({
+        sensors: [{ sensor_id: "test-clip", streamId: "uuid-test" }],
+      } as unknown as Awaited<ReturnType<typeof vstListSensors>>);
+
+    await expect(
+      startRun({ fileName: "clip.mp4", mode: "loop", pauseLive: true }),
+    ).rejects.toThrow(/could not turn analysis on/);
+
+    const cleared = patchCm.mock.calls
+      .map((c) => String(c[3]))
+      .some((w) => !JSON.parse(w).paused_sensors);
+    expect(cleared).toBe(true);
+    expect(delSensor).toHaveBeenCalledWith("uuid-test");
+  });
+
   it("rejects a file whose name is not usable footage", async () => {
     await expect(
       startRun({ fileName: "notes.txt", mode: "loop", pauseLive: false }),
