@@ -144,3 +144,24 @@ describe("CLUSTER.cameras.namespace", () => {
     expect(CLUSTER.vssNamespace).not.toBe("vss-cameras");
   });
 });
+
+describe("CLUSTER.kafka.topics — Helm defaults are the VSS 3.3.0 chart's", () => {
+  it("reads captions from mdx-vlm-captions and errors from mdx-vlm-errors", async () => {
+    delete process.env.KAFKA_TOPIC_VISION_LLM;
+    delete process.env.KAFKA_TOPIC_VISION_LLM_ERRORS;
+    delete process.env.KAFKA_TOPIC_INCIDENTS;
+    delete process.env.CONSOLE_LEGACY_NAMESPACES;
+    const { CLUSTER } = await import("@/lib/cluster-refs");
+    expect(CLUSTER.kafka.topics.visionLlm).toBe("mdx-vlm-captions");
+    expect(CLUSTER.kafka.topics.visionLlmErrors).toBe("mdx-vlm-errors");
+    expect(CLUSTER.kafka.topics.incidents).toBe("mdx-vlm-incidents");
+  });
+
+  it("takes the 3.2.x names from env", async () => {
+    process.env.KAFKA_TOPIC_VISION_LLM = "mdx-vlm";
+    process.env.KAFKA_TOPIC_VISION_LLM_ERRORS = "vision-llm-errors";
+    const { CLUSTER } = await import("@/lib/cluster-refs");
+    expect(CLUSTER.kafka.topics.visionLlm).toBe("mdx-vlm");
+    expect(CLUSTER.kafka.topics.visionLlmErrors).toBe("vision-llm-errors");
+  });
+});

@@ -49,8 +49,12 @@ const KAFKA_BROKERS = LEGACY
 // Topic names differ between the legacy hand-authored manifests and the Helm
 // chart. Every name is env-overridable so the operator can match the actual
 // 3.2 deploy without a code change (the chart parameterizes topics per profile).
-// 3.2 fact (chart): vision-llm-errors and vision-embed-errors DO exist;
-// vision-embed-messages does NOT (embeddings flow on mdx-embed).
+// Helm defaults are the VSS 3.3.0 chart's rtvi-vlm topics: captions on
+// mdx-vlm-captions (MESSAGE_BUS_TOPIC), errors on mdx-vlm-errors
+// (ERROR_MESSAGE_TOPIC), incidents on mdx-vlm-incidents. A 3.2.x deploy
+// (mdx-vlm, vision-llm-errors) sets KAFKA_TOPIC_VISION_LLM and
+// KAFKA_TOPIC_VISION_LLM_ERRORS. vision-embed-messages does not exist on the
+// chart (embeddings flow on mdx-embed).
 const KAFKA_TOPICS = LEGACY
   ? ({
       visionLlm: process.env.KAFKA_TOPIC_VISION_LLM ?? "vision-llm-messages",
@@ -60,9 +64,9 @@ const KAFKA_TOPICS = LEGACY
       embedErrors: process.env.KAFKA_TOPIC_EMBED_ERRORS ?? "vision-embed-errors",
     } as const)
   : ({
-      visionLlm: process.env.KAFKA_TOPIC_VISION_LLM ?? "mdx-vlm",
+      visionLlm: process.env.KAFKA_TOPIC_VISION_LLM ?? "mdx-vlm-captions",
       incidents: process.env.KAFKA_TOPIC_INCIDENTS ?? "mdx-vlm-incidents",
-      visionLlmErrors: process.env.KAFKA_TOPIC_VISION_LLM_ERRORS ?? "vision-llm-errors",
+      visionLlmErrors: process.env.KAFKA_TOPIC_VISION_LLM_ERRORS ?? "mdx-vlm-errors",
       embedMessages: process.env.KAFKA_TOPIC_EMBED_MESSAGES ?? "vision-embed-messages",
       embedErrors: process.env.KAFKA_TOPIC_EMBED_ERRORS ?? "vision-embed-errors",
     } as const);
