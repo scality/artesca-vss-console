@@ -50,11 +50,6 @@ subagents (Agent tool), which return a summary rather than file dumps.
   transcripts. Run independent agents in parallel.
 - **Relay only what matters** to the human: outcome, decisions needed, verification
   evidence. A subagent's "tests pass" is a claim until the evidence is seen.
-- **Hand over at 200k context.** Every call re-reads the whole context, so cost grows
-  with it. An orchestrating session whose calls pass 200k tokens writes a hand-over note
-  (open items, decisions taken and pending, running agents, where each lives) and stops;
-  the next session starts from that note. Measured 2026-10-18: a background orchestrator
-  that never compacted reached 420k per call, median 269k.
 
 ## Be concise and specific in everything you write for me
 
